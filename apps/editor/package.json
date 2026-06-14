@@ -2,7 +2,7 @@
   "name": "@pointclick/editor",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
+  "type": "commonjs",
   "main": ".vite/build/main.js",
   "config": {
     "forge": "./forge.config.ts"
