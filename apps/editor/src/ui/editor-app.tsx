@@ -1,8 +1,18 @@
-import type { Hotspot, Layered2DScene, SceneDocument } from "@pointclick/contracts";
+import type { CursorValue, Hotspot, Layered2DScene, SceneDocument } from "@pointclick/contracts";
 import { startTransition, useEffect, useState } from "react";
 import type { EditorProjectSnapshot } from "../preload";
 
 type Workspace = "scene" | "narrative" | "assets" | "build";
+
+interface HotspotDraft {
+  actionFlowId: string;
+  cursor: string;
+  height: string;
+  labelKey: string;
+  width: string;
+  x: string;
+  y: string;
+}
 
 const workspaces: { id: Workspace; label: string }[] = [
   { id: "scene", label: "Scene" },
@@ -10,6 +20,8 @@ const workspaces: { id: Workspace; label: string }[] = [
   { id: "assets", label: "Asset Studio" },
   { id: "build", label: "Build" }
 ];
+
+const cursorOptions: CursorValue[] = ["look", "talk", "use", "enter"];
 
 function sceneItems(scenes: SceneDocument[]) {
   return scenes.filter((scene): scene is Layered2DScene => scene.type === "layered-2d");
@@ -19,12 +31,37 @@ function firstHotspot(scene: Layered2DScene | null): Hotspot | null {
   return scene?.hotspots[0] ?? null;
 }
 
+function createDraft(hotspot: Hotspot | null): HotspotDraft {
+  return {
+    actionFlowId: hotspot?.actionFlowId ?? "",
+    cursor: hotspot?.cursor ?? "",
+    height: hotspot ? String(hotspot.bounds.height) : "",
+    labelKey: hotspot?.labelKey ?? "",
+    width: hotspot ? String(hotspot.bounds.width) : "",
+    x: hotspot ? String(hotspot.bounds.x) : "",
+    y: hotspot ? String(hotspot.bounds.y) : ""
+  };
+}
+
+function parsePositiveNumber(value: string): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+function parseNumber(value: string): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return parsed;
+}
+
 export function EditorApp() {
   const [workspace, setWorkspace] = useState<Workspace>("scene");
   const [status, setStatus] = useState("Loading project...");
   const [project, setProject] = useState<EditorProjectSnapshot | null>(null);
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
   const [activeHotspotId, setActiveHotspotId] = useState<string | null>(null);
+  const [hotspotDraft, setHotspotDraft] = useState<HotspotDraft>(() => createDraft(null));
 
   useEffect(() => {
     let cancelled = false;
@@ -37,6 +74,7 @@ export function EditorApp() {
           setProject(snapshot);
           setActiveSceneId(snapshot.activeSceneId);
           setActiveHotspotId(snapshot.activeHotspotId);
+          setHotspotDraft(createDraft(snapshot.selectedHotspot));
         });
         setStatus(`Loaded ${snapshot.manifest.title}`);
       } catch (error) {
@@ -60,7 +98,9 @@ export function EditorApp() {
   const selectedHotspot =
     selectedScene?.hotspots.find((hotspot) => hotspot.id === activeHotspotId) ??
     firstHotspot(selectedScene);
-  const sceneLabel = selectedScene ? `${selectedScene.size.width} x ${selectedScene.size.height}` : "No scene";
+  const sceneLabel = selectedScene
+    ? `${selectedScene.size.width} x ${selectedScene.size.height}`
+    : "No scene";
   const localeLabel = project?.manifest.defaultLocale ?? "n/a";
 
   const play = async () => {
@@ -86,16 +126,96 @@ export function EditorApp() {
       setProject(snapshot);
       setActiveSceneId(snapshot.activeSceneId);
       setActiveHotspotId(snapshot.activeHotspotId);
+      setHotspotDraft(createDraft(snapshot.selectedHotspot));
     });
     setStatus(`Loaded ${snapshot.manifest.title}`);
   };
 
   const selectScene = (sceneId: string) => {
     const scene = scenes.find((entry) => entry.id === sceneId) ?? null;
+    const hotspot = firstHotspot(scene);
     startTransition(() => {
       setActiveSceneId(sceneId);
-      setActiveHotspotId(firstHotspot(scene)?.id ?? null);
+      setActiveHotspotId(hotspot?.id ?? null);
+      setHotspotDraft(createDraft(hotspot));
     });
+  };
+
+  const selectHotspot = (hotspot: Hotspot) => {
+    startTransition(() => {
+      setActiveHotspotId(hotspot.id);
+      setHotspotDraft(createDraft(hotspot));
+    });
+  };
+
+  const updateDraft = (field: keyof HotspotDraft, value: string) => {
+    setHotspotDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  const applyHotspotChanges = async () => {
+    if (!selectedScene || !selectedHotspot) return;
+
+    const x = parseNumber(hotspotDraft.x);
+    const y = parseNumber(hotspotDraft.y);
+    const width = parsePositiveNumber(hotspotDraft.width);
+    const height = parsePositiveNumber(hotspotDraft.height);
+    const labelKey = hotspotDraft.labelKey.trim();
+    const actionFlowId = hotspotDraft.actionFlowId.trim();
+    const cursor = hotspotDraft.cursor.trim();
+
+    if (x === null || y === null || width === null || height === null) {
+      setStatus("Bounds must be valid numbers, with width and height above zero");
+      return;
+    }
+    if (!labelKey || !actionFlowId) {
+      setStatus("Label key and flow ID are required");
+      return;
+    }
+    if (cursor && !cursorOptions.includes(cursor as CursorValue)) {
+      setStatus("Cursor must be blank, look, talk, use, or enter");
+      return;
+    }
+
+    setStatus(`Saving ${selectedHotspot.id}...`);
+    try {
+      const patch = {
+        actionFlowId,
+        bounds: { x, y, width, height },
+        labelKey
+      } as {
+        actionFlowId: string;
+        bounds: { x: number; y: number; width: number; height: number };
+        cursor?: CursorValue;
+        labelKey: string;
+      };
+      if (cursor !== "") {
+        patch.cursor = cursor as CursorValue;
+      }
+
+      const snapshot = await window.pointClick.applyCommand({
+        type: "hotspot/update",
+        hotspotId: selectedHotspot.id,
+        patch,
+        sceneId: selectedScene.id
+      });
+
+      const refreshedScene =
+        sceneItems(snapshot.scenes).find((scene) => scene.id === selectedScene.id) ??
+        snapshot.selectedScene;
+      const refreshedHotspot =
+        refreshedScene?.hotspots.find((hotspot) => hotspot.id === selectedHotspot.id) ??
+        snapshot.selectedHotspot;
+
+      startTransition(() => {
+        setProject(snapshot);
+        setActiveSceneId(selectedScene.id);
+        setActiveHotspotId(refreshedHotspot?.id ?? selectedHotspot.id);
+        setHotspotDraft(createDraft(refreshedHotspot ?? null));
+      });
+      setStatus(`Saved ${selectedHotspot.id}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to save hotspot");
+    }
   };
 
   return (
@@ -172,7 +292,7 @@ export function EditorApp() {
             <span className="health-light" />
             <div>
               <strong>{status}</strong>
-              <small>Schema v1 · {localeLabel}</small>
+              <small>Schema v1 - {localeLabel}</small>
             </div>
           </div>
         </aside>
@@ -188,7 +308,9 @@ export function EditorApp() {
               <button type="button">Occluder</button>
             </div>
             <div className="canvas-meta">
-              {selectedScene ? `Layered 2D · ${sceneLabel} · ${selectedScene.hotspots.length} hotspot(s)` : "No scene loaded"}
+              {selectedScene
+                ? `Layered 2D - ${sceneLabel} - ${selectedScene.hotspots.length} hotspot(s)`
+                : "No scene loaded"}
             </div>
           </div>
 
@@ -237,7 +359,7 @@ export function EditorApp() {
                     className={`hotspot-box ${selectedHotspot?.id === hotspot.id ? "selected" : ""}`}
                     key={hotspot.id}
                     type="button"
-                    onClick={() => setActiveHotspotId(hotspot.id)}
+                    onClick={() => selectHotspot(hotspot)}
                     style={{
                       height: `${(hotspot.bounds.height / selectedScene.size.height) * 100}%`,
                       left: `${(hotspot.bounds.x / selectedScene.size.width) * 100}%`,
@@ -277,25 +399,62 @@ export function EditorApp() {
                 </label>
                 <label>
                   Display label
-                  <input value={selectedHotspot.labelKey} readOnly />
+                  <input
+                    value={hotspotDraft.labelKey}
+                    onChange={(event) => updateDraft("labelKey", event.target.value)}
+                  />
                 </label>
                 <div className="field-group">
                   <span>Bounds</span>
                   <div className="four-fields">
-                    <input aria-label="X" value={selectedHotspot.bounds.x} readOnly />
-                    <input aria-label="Y" value={selectedHotspot.bounds.y} readOnly />
-                    <input aria-label="Width" value={selectedHotspot.bounds.width} readOnly />
-                    <input aria-label="Height" value={selectedHotspot.bounds.height} readOnly />
+                    <input
+                      aria-label="X"
+                      value={hotspotDraft.x}
+                      onChange={(event) => updateDraft("x", event.target.value)}
+                    />
+                    <input
+                      aria-label="Y"
+                      value={hotspotDraft.y}
+                      onChange={(event) => updateDraft("y", event.target.value)}
+                    />
+                    <input
+                      aria-label="Width"
+                      value={hotspotDraft.width}
+                      onChange={(event) => updateDraft("width", event.target.value)}
+                    />
+                    <input
+                      aria-label="Height"
+                      value={hotspotDraft.height}
+                      onChange={(event) => updateDraft("height", event.target.value)}
+                    />
                   </div>
                 </div>
                 <label>
                   Cursor
-                  <input value={selectedHotspot.cursor ?? "default"} readOnly />
+                  <select
+                    value={hotspotDraft.cursor}
+                    onChange={(event) => updateDraft("cursor", event.target.value)}
+                  >
+                    <option value="">Default</option>
+                    <option value="enter">Enter</option>
+                    <option value="look">Look</option>
+                    <option value="talk">Talk</option>
+                    <option value="use">Use</option>
+                  </select>
+                </label>
+                <label>
+                  Flow
+                  <input
+                    value={hotspotDraft.actionFlowId}
+                    onChange={(event) => updateDraft("actionFlowId", event.target.value)}
+                  />
                 </label>
                 <div className="flow-link">
                   <span>On activate</span>
-                  <strong>{selectedHotspot.actionFlowId}</strong>
-                  <button type="button">Open flow →</button>
+                  <strong>{hotspotDraft.actionFlowId || "missing"}</strong>
+                  <button type="button" onClick={applyHotspotChanges}>
+                    Apply changes -&gt;
+                  </button>
                 </div>
               </>
             ) : selectedScene ? (

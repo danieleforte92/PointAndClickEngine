@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Hotspot, Layered2DScene, ProjectManifest, SceneDocument } from "@pointclick/contracts";
+import type { EditorProjectCommand } from "@pointclick/project-io";
 
 export interface EditorProjectSnapshot {
   activeHotspotId: string | null;
@@ -15,6 +16,7 @@ export interface EditorProjectSnapshot {
 }
 
 export interface PointClickEditorApi {
+  applyCommand(command: EditorProjectCommand): Promise<EditorProjectSnapshot>;
   loadProject(projectDirectory?: string): Promise<EditorProjectSnapshot>;
   openPreview(sceneId?: string): Promise<void>;
   openInBrowser(): Promise<void>;
@@ -22,6 +24,7 @@ export interface PointClickEditorApi {
 }
 
 const api: PointClickEditorApi = {
+  applyCommand: (command) => ipcRenderer.invoke("project:command", command),
   loadProject: (projectDirectory) => ipcRenderer.invoke("project:load", projectDirectory),
   openPreview: (sceneId) => ipcRenderer.invoke("preview:open", sceneId),
   openInBrowser: () => ipcRenderer.invoke("preview:browser"),

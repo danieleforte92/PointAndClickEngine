@@ -3,7 +3,7 @@ import { stat } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import path from "node:path";
 import type { Hotspot, Layered2DScene, ProjectBundle } from "@pointclick/contracts";
-import { loadProjectFromDirectory } from "@pointclick/project-io";
+import { applyProjectCommand, loadProjectFromDirectory, type EditorProjectCommand } from "@pointclick/project-io";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 
 let previewWindow: BrowserWindow | null = null;
@@ -147,6 +147,12 @@ async function readEditorProject(projectDirectory = currentProjectPath()) {
   return summarizeProject(loaded.directory, loaded.bundle);
 }
 
+async function applyEditorCommand(command: EditorProjectCommand) {
+  const loaded = await applyProjectCommand(currentProjectPath(), command);
+  loadedProjectDirectory = loaded.directory;
+  return summarizeProject(loaded.directory, loaded.bundle);
+}
+
 async function promptForProjectDirectory(browserWindow: BrowserWindow) {
   const result = await dialog.showOpenDialog(browserWindow, {
     defaultPath: currentProjectPath(),
@@ -178,6 +184,9 @@ app.whenReady().then(() => {
       throw new Error("Unable to resolve editor window");
     }
     return promptForProjectDirectory(browserWindow);
+  });
+  ipcMain.handle("project:command", async (_event, command: EditorProjectCommand) => {
+    return applyEditorCommand(command);
   });
 
   createEditorWindow();

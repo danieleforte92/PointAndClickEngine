@@ -2,6 +2,12 @@ import { type Static, Type } from "@sinclair/typebox";
 
 const Id = Type.String({ minLength: 1, pattern: "^[a-z0-9][a-z0-9-]*$" });
 const HexColor = Type.String({ pattern: "^#[0-9a-fA-F]{6}$" });
+export const HotspotCursorSchema = Type.Union([
+  Type.Literal("look"),
+  Type.Literal("talk"),
+  Type.Literal("use"),
+  Type.Literal("enter")
+]);
 
 export const Vector2Schema = Type.Object(
   {
@@ -85,9 +91,7 @@ export const HotspotSchema = Type.Object(
     labelKey: Type.String({ minLength: 1 }),
     bounds: RectSchema,
     actionFlowId: Id,
-    cursor: Type.Optional(
-      Type.Union([Type.Literal("look"), Type.Literal("talk"), Type.Literal("use"), Type.Literal("enter")])
-    )
+    cursor: Type.Optional(HotspotCursorSchema)
   },
   { additionalProperties: false }
 );
@@ -196,6 +200,7 @@ export type Vector2 = Static<typeof Vector2Schema>;
 export type Rect = Static<typeof RectSchema>;
 export type ProjectManifest = Static<typeof ProjectManifestSchema>;
 export type SceneShape = Static<typeof SceneShapeSchema>;
+export type CursorValue = Static<typeof HotspotCursorSchema>;
 export type Hotspot = Static<typeof HotspotSchema>;
 export type Layered2DScene = Static<typeof Layered2DSceneSchema>;
 export type Hybrid3DScene = Static<typeof Hybrid3DSceneSchema>;
@@ -210,4 +215,3 @@ export interface ProjectBundle {
   flows: Record<string, FlowDocument>;
   locales: Record<string, LocaleDocument>;
 }
-

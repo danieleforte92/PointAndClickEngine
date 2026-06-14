@@ -227,12 +227,12 @@ button {
 
 .tree-group::before {
   width: 15px;
-  content: "›";
+  content: ">";
   color: #627c88;
 }
 
 .tree-group.open::before {
-  content: "⌄";
+  content: "v";
 }
 
 .tree-item {
