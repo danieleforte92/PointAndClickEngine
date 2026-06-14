@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import path from "node:path";
-import type { Hotspot, Layered2DScene, ProjectBundle } from "@pointclick/contracts";
+import type { Hotspot, Layered2DScene, LocaleDocument, ProjectBundle } from "@pointclick/contracts";
 import { applyProjectCommand, loadProjectFromDirectory, type EditorProjectCommand } from "@pointclick/project-io";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 
@@ -126,17 +126,24 @@ function summarizeProject(projectDirectory: string, bundle: ProjectBundle) {
           (scene): scene is Layered2DScene => scene.type === "layered-2d"
         ) ?? null;
   const activeHotspot: Hotspot | null = activeScene?.hotspots[0] ?? null;
+  const activeLocale: LocaleDocument | null =
+    bundle.locales[bundle.manifest.defaultLocale] ??
+    Object.values(bundle.locales)[0] ??
+    null;
 
   return {
     activeHotspotId: activeHotspot?.id ?? null,
+    activeLocale: activeLocale?.locale ?? null,
     activeSceneId: activeScene?.id ?? bundle.manifest.initialSceneId,
     directory: projectDirectory,
     flowCount: Object.keys(bundle.flows).length,
     localeCount: Object.keys(bundle.locales).length,
+    locales: Object.values(bundle.locales),
     manifest: bundle.manifest,
     sceneCount: Object.keys(bundle.scenes).length,
     scenes: Object.values(bundle.scenes),
     selectedHotspot: activeHotspot,
+    selectedLocale: activeLocale,
     selectedScene: activeScene
   };
 }

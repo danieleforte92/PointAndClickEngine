@@ -20,7 +20,8 @@ body,
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -503,7 +504,8 @@ button {
 }
 
 .inspector-content input,
-.inspector-content select {
+.inspector-content select,
+.inspector-content textarea {
   width: 100%;
   height: 31px;
   margin-top: 6px;
@@ -517,10 +519,40 @@ button {
   font-size: 0.68rem;
 }
 
+.inspector-content textarea {
+  min-height: 88px;
+  height: auto;
+  padding: 8px;
+  resize: vertical;
+}
+
 .four-fields {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 5px;
+}
+
+.locale-strings {
+  display: grid;
+  gap: 12px;
+}
+
+.locale-entry {
+  padding: 10px;
+  border: 1px solid #2f414b;
+  border-radius: 3px 10px 3px 10px;
+  background: #162129;
+}
+
+.locale-entry button,
+.flow-link button {
+  margin-top: 10px;
+  padding: 0;
+  color: #9cb3bc;
+  border: 0;
+  background: transparent;
+  font-size: 0.62rem;
+  cursor: pointer;
 }
 
 .flow-link {
@@ -547,14 +579,4 @@ button {
   color: #d9a561;
   font-family: "Courier New", monospace;
   font-size: 0.66rem;
-}
-
-.flow-link button {
-  margin-top: 10px;
-  padding: 0;
-  color: #9cb3bc;
-  border: 0;
-  background: transparent;
-  font-size: 0.62rem;
-  cursor: pointer;
 }

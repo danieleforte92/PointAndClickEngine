@@ -66,4 +66,112 @@ describe("loadProjectFromDirectory", () => {
       "hotspot.tavern-entrance-updated"
     );
   });
+
+  it("persists scene inspector edits back to the scene document", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+
+    const updated = await applyProjectCommand(projectRoot, {
+      type: "scene/update",
+      patch: {
+        background: "#204060",
+        name: "Moonlit Dock Revised",
+        playerStart: {
+          x: 490,
+          y: 575
+        },
+        walkArea: {
+          x: 90,
+          y: 460,
+          width: 1080,
+          height: 180
+        }
+      },
+      sceneId: "moonlit-dock"
+    });
+
+    const scene = updated.bundle.scenes["moonlit-dock"];
+    expect(scene?.type).toBe("layered-2d");
+    if (!scene || scene.type !== "layered-2d") {
+      throw new Error("Expected layered 2D scene");
+    }
+
+    expect(scene).toMatchObject({
+      background: "#204060",
+      name: "Moonlit Dock Revised",
+      playerStart: {
+        x: 490,
+        y: 575
+      },
+      walkArea: {
+        x: 90,
+        y: 460,
+        width: 1080,
+        height: 180
+      }
+    });
+
+    const scenePath = path.join(projectRoot, "scenes", "moonlit-dock.scene.json");
+    const sceneFile = JSON.parse(await readFile(scenePath, "utf8")) as {
+      background: string;
+      name: string;
+    };
+    expect(sceneFile.background).toBe("#204060");
+    expect(sceneFile.name).toBe("Moonlit Dock Revised");
+  });
+
+  it("updates an existing locale string on disk", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+
+    const updated = await applyProjectCommand(projectRoot, {
+      type: "locale/upsert",
+      locale: "en",
+      patch: {
+        key: "hotspot.tavern-entrance",
+        value: "The Lantern and Gull"
+      }
+    });
+
+    expect(updated.bundle.locales["en"]?.strings["hotspot.tavern-entrance"]).toBe(
+      "The Lantern and Gull"
+    );
+
+    const localePath = path.join(projectRoot, "locales", "en.json");
+    const localeFile = JSON.parse(await readFile(localePath, "utf8")) as {
+      strings: Record<string, string>;
+    };
+    expect(localeFile.strings["hotspot.tavern-entrance"]).toBe("The Lantern and Gull");
+  });
+
+  it("inserts a new locale string on disk", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+
+    const updated = await applyProjectCommand(projectRoot, {
+      type: "locale/upsert",
+      locale: "en",
+      patch: {
+        key: "ui.editor.scene",
+        value: "Scene"
+      }
+    });
+
+    expect(updated.bundle.locales["en"]?.strings["ui.editor.scene"]).toBe("Scene");
+
+    const localePath = path.join(projectRoot, "locales", "en.json");
+    const localeFile = JSON.parse(await readFile(localePath, "utf8")) as {
+      strings: Record<string, string>;
+    };
+    expect(localeFile.strings["ui.editor.scene"]).toBe("Scene");
+  });
 });

@@ -1,17 +1,26 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { Hotspot, Layered2DScene, ProjectManifest, SceneDocument } from "@pointclick/contracts";
+import type {
+  Hotspot,
+  Layered2DScene,
+  LocaleDocument,
+  ProjectManifest,
+  SceneDocument
+} from "@pointclick/contracts";
 import type { EditorProjectCommand } from "@pointclick/project-io";
 
 export interface EditorProjectSnapshot {
   activeHotspotId: string | null;
+  activeLocale: string | null;
   activeSceneId: string;
   directory: string;
   flowCount: number;
   localeCount: number;
+  locales: LocaleDocument[];
   manifest: ProjectManifest;
   sceneCount: number;
   scenes: SceneDocument[];
   selectedHotspot: Hotspot | null;
+  selectedLocale: LocaleDocument | null;
   selectedScene: Layered2DScene | null;
 }
 

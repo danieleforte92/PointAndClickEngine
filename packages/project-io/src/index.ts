@@ -10,7 +10,8 @@ import {
   type ProjectBundle,
   type ProjectManifest,
   type Rect,
-  type SceneDocument
+  type SceneDocument,
+  type Vector2
 } from "@pointclick/contracts";
 
 export interface LoadedProject {
@@ -25,12 +26,41 @@ export interface HotspotPatch {
   labelKey: string;
 }
 
-export type EditorProjectCommand = {
+export interface ScenePatch {
+  background: string;
+  name: string;
+  playerStart: Vector2;
+  walkArea: Rect;
+}
+
+export interface LocaleUpsertPatch {
+  key: string;
+  value: string;
+}
+
+export type HotspotUpdateCommand = {
   type: "hotspot/update";
   hotspotId: string;
   patch: HotspotPatch;
   sceneId: string;
 };
+
+export type SceneUpdateCommand = {
+  type: "scene/update";
+  patch: ScenePatch;
+  sceneId: string;
+};
+
+export type LocaleUpsertCommand = {
+  type: "locale/upsert";
+  locale: string;
+  patch: LocaleUpsertPatch;
+};
+
+export type EditorProjectCommand =
+  | HotspotUpdateCommand
+  | SceneUpdateCommand
+  | LocaleUpsertCommand;
 
 async function readJson(filePath: string): Promise<unknown> {
   return JSON.parse(await readFile(filePath, "utf8")) as unknown;
@@ -95,6 +125,14 @@ function scenePathFor(project: LoadedProject, sceneId: string): string {
   return path.resolve(project.directory, reference.path);
 }
 
+function localePathFor(project: LoadedProject, locale: string): string {
+  const reference = project.bundle.manifest.locales.find((entry) => entry.locale === locale);
+  if (!reference) {
+    throw new Error(`Locale "${locale}" is not referenced by the project manifest`);
+  }
+  return path.resolve(project.directory, reference.path);
+}
+
 function patchHotspot(scene: Layered2DScene, hotspotId: string, patch: HotspotPatch): Layered2DScene {
   const index = scene.hotspots.findIndex((hotspot) => hotspot.id === hotspotId);
   if (index < 0) {
@@ -122,6 +160,26 @@ function patchHotspot(scene: Layered2DScene, hotspotId: string, patch: HotspotPa
   };
 }
 
+function patchScene(scene: Layered2DScene, patch: ScenePatch): Layered2DScene {
+  return {
+    ...scene,
+    background: patch.background,
+    name: patch.name,
+    playerStart: patch.playerStart,
+    walkArea: patch.walkArea
+  };
+}
+
+function patchLocale(locale: LocaleDocument, patch: LocaleUpsertPatch): LocaleDocument {
+  return {
+    ...locale,
+    strings: {
+      ...locale.strings,
+      [patch.key]: patch.value
+    }
+  };
+}
+
 export async function applyProjectCommand(
   projectDirectory: string,
   command: EditorProjectCommand
@@ -140,6 +198,34 @@ export async function applyProjectCommand(
     const nextScene = patchHotspot(scene, command.hotspotId, command.patch);
     assertDocument<Layered2DScene>("layered2dScene", nextScene);
     await writeJson(scenePathFor(project, command.sceneId), nextScene);
+  }
+
+  if (command.type === "scene/update") {
+    const scene = project.bundle.scenes[command.sceneId];
+    if (!scene) {
+      throw new Error(`Scene "${command.sceneId}" was not found in the loaded project`);
+    }
+    if (scene.type !== "layered-2d") {
+      throw new Error(`Scene "${command.sceneId}" does not support inspector scene editing yet`);
+    }
+
+    const nextScene = patchScene(scene, command.patch);
+    assertDocument<Layered2DScene>("layered2dScene", nextScene);
+    await writeJson(scenePathFor(project, command.sceneId), nextScene);
+  }
+
+  if (command.type === "locale/upsert") {
+    const locale = project.bundle.locales[command.locale];
+    if (!locale) {
+      throw new Error(`Locale "${command.locale}" was not found in the loaded project`);
+    }
+
+    const nextLocale = patchLocale(locale, {
+      key: command.patch.key.trim(),
+      value: command.patch.value
+    });
+    assertDocument<LocaleDocument>("locale", nextLocale);
+    await writeJson(localePathFor(project, command.locale), nextLocale);
   }
 
   return loadProjectFromDirectory(projectDirectory);

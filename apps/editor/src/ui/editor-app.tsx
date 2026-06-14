@@ -1,5 +1,11 @@
-import type { CursorValue, Hotspot, Layered2DScene, SceneDocument } from "@pointclick/contracts";
-import { startTransition, useEffect, useState } from "react";
+import type {
+  CursorValue,
+  Hotspot,
+  Layered2DScene,
+  LocaleDocument,
+  SceneDocument
+} from "@pointclick/contracts";
+import { startTransition, useEffect, useMemo, useState } from "react";
 import type { EditorProjectSnapshot } from "../preload";
 
 type Workspace = "scene" | "narrative" | "assets" | "build";
@@ -14,6 +20,17 @@ interface HotspotDraft {
   y: string;
 }
 
+interface SceneDraft {
+  background: string;
+  name: string;
+  playerStartX: string;
+  playerStartY: string;
+  walkAreaHeight: string;
+  walkAreaWidth: string;
+  walkAreaX: string;
+  walkAreaY: string;
+}
+
 const workspaces: { id: Workspace; label: string }[] = [
   { id: "scene", label: "Scene" },
   { id: "narrative", label: "Narrative" },
@@ -22,16 +39,13 @@ const workspaces: { id: Workspace; label: string }[] = [
 ];
 
 const cursorOptions: CursorValue[] = ["look", "talk", "use", "enter"];
+const hexColorPattern = /^#[0-9a-fA-F]{6}$/;
 
 function sceneItems(scenes: SceneDocument[]) {
   return scenes.filter((scene): scene is Layered2DScene => scene.type === "layered-2d");
 }
 
-function firstHotspot(scene: Layered2DScene | null): Hotspot | null {
-  return scene?.hotspots[0] ?? null;
-}
-
-function createDraft(hotspot: Hotspot | null): HotspotDraft {
+function createHotspotDraft(hotspot: Hotspot | null): HotspotDraft {
   return {
     actionFlowId: hotspot?.actionFlowId ?? "",
     cursor: hotspot?.cursor ?? "",
@@ -40,6 +54,19 @@ function createDraft(hotspot: Hotspot | null): HotspotDraft {
     width: hotspot ? String(hotspot.bounds.width) : "",
     x: hotspot ? String(hotspot.bounds.x) : "",
     y: hotspot ? String(hotspot.bounds.y) : ""
+  };
+}
+
+function createSceneDraft(scene: Layered2DScene | null): SceneDraft {
+  return {
+    background: scene?.background ?? "",
+    name: scene?.name ?? "",
+    playerStartX: scene ? String(scene.playerStart.x) : "",
+    playerStartY: scene ? String(scene.playerStart.y) : "",
+    walkAreaHeight: scene ? String(scene.walkArea.height) : "",
+    walkAreaWidth: scene ? String(scene.walkArea.width) : "",
+    walkAreaX: scene ? String(scene.walkArea.x) : "",
+    walkAreaY: scene ? String(scene.walkArea.y) : ""
   };
 }
 
@@ -61,7 +88,12 @@ export function EditorApp() {
   const [project, setProject] = useState<EditorProjectSnapshot | null>(null);
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
   const [activeHotspotId, setActiveHotspotId] = useState<string | null>(null);
-  const [hotspotDraft, setHotspotDraft] = useState<HotspotDraft>(() => createDraft(null));
+  const [activeLocale, setActiveLocale] = useState<string | null>(null);
+  const [hotspotDraft, setHotspotDraft] = useState<HotspotDraft>(() => createHotspotDraft(null));
+  const [sceneDraft, setSceneDraft] = useState<SceneDraft>(() => createSceneDraft(null));
+  const [localeDraft, setLocaleDraft] = useState<Record<string, string>>({});
+  const [newLocaleKey, setNewLocaleKey] = useState("");
+  const [newLocaleValue, setNewLocaleValue] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -74,7 +106,12 @@ export function EditorApp() {
           setProject(snapshot);
           setActiveSceneId(snapshot.activeSceneId);
           setActiveHotspotId(snapshot.activeHotspotId);
-          setHotspotDraft(createDraft(snapshot.selectedHotspot));
+          setActiveLocale(null);
+          setHotspotDraft(createHotspotDraft(snapshot.selectedHotspot));
+          setSceneDraft(createSceneDraft(snapshot.selectedScene));
+          setLocaleDraft(snapshot.selectedLocale?.strings ?? {});
+          setNewLocaleKey("");
+          setNewLocaleValue("");
         });
         setStatus(`Loaded ${snapshot.manifest.title}`);
       } catch (error) {
@@ -96,8 +133,17 @@ export function EditorApp() {
     scenes[0] ??
     null;
   const selectedHotspot =
-    selectedScene?.hotspots.find((hotspot) => hotspot.id === activeHotspotId) ??
-    firstHotspot(selectedScene);
+    activeHotspotId && selectedScene
+      ? selectedScene.hotspots.find((hotspot) => hotspot.id === activeHotspotId) ?? null
+      : null;
+  const selectedLocale =
+    activeLocale && project
+      ? project.locales.find((locale) => locale.locale === activeLocale) ?? null
+      : null;
+  const localeEntries = useMemo(
+    () => Object.entries(localeDraft).sort(([left], [right]) => left.localeCompare(right)),
+    [localeDraft]
+  );
   const sceneLabel = selectedScene
     ? `${selectedScene.size.width} x ${selectedScene.size.height}`
     : "No scene";
@@ -126,30 +172,55 @@ export function EditorApp() {
       setProject(snapshot);
       setActiveSceneId(snapshot.activeSceneId);
       setActiveHotspotId(snapshot.activeHotspotId);
-      setHotspotDraft(createDraft(snapshot.selectedHotspot));
+      setActiveLocale(null);
+      setHotspotDraft(createHotspotDraft(snapshot.selectedHotspot));
+      setSceneDraft(createSceneDraft(snapshot.selectedScene));
+      setLocaleDraft(snapshot.selectedLocale?.strings ?? {});
+      setNewLocaleKey("");
+      setNewLocaleValue("");
     });
     setStatus(`Loaded ${snapshot.manifest.title}`);
   };
 
   const selectScene = (sceneId: string) => {
     const scene = scenes.find((entry) => entry.id === sceneId) ?? null;
-    const hotspot = firstHotspot(scene);
     startTransition(() => {
       setActiveSceneId(sceneId);
-      setActiveHotspotId(hotspot?.id ?? null);
-      setHotspotDraft(createDraft(hotspot));
+      setActiveHotspotId(null);
+      setActiveLocale(null);
+      setSceneDraft(createSceneDraft(scene));
+      setHotspotDraft(createHotspotDraft(null));
     });
   };
 
   const selectHotspot = (hotspot: Hotspot) => {
     startTransition(() => {
       setActiveHotspotId(hotspot.id);
-      setHotspotDraft(createDraft(hotspot));
+      setActiveLocale(null);
+      setHotspotDraft(createHotspotDraft(hotspot));
     });
   };
 
-  const updateDraft = (field: keyof HotspotDraft, value: string) => {
+  const selectLocale = (locale: LocaleDocument) => {
+    startTransition(() => {
+      setActiveLocale(locale.locale);
+      setActiveHotspotId(null);
+      setLocaleDraft(locale.strings);
+      setNewLocaleKey("");
+      setNewLocaleValue("");
+    });
+  };
+
+  const updateHotspotDraft = (field: keyof HotspotDraft, value: string) => {
     setHotspotDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  const updateSceneDraft = (field: keyof SceneDraft, value: string) => {
+    setSceneDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  const updateLocaleValue = (key: string, value: string) => {
+    setLocaleDraft((current) => ({ ...current, [key]: value }));
   };
 
   const applyHotspotChanges = async () => {
@@ -203,18 +274,127 @@ export function EditorApp() {
         sceneItems(snapshot.scenes).find((scene) => scene.id === selectedScene.id) ??
         snapshot.selectedScene;
       const refreshedHotspot =
-        refreshedScene?.hotspots.find((hotspot) => hotspot.id === selectedHotspot.id) ??
-        snapshot.selectedHotspot;
+        refreshedScene?.hotspots.find((hotspot) => hotspot.id === selectedHotspot.id) ?? null;
 
       startTransition(() => {
         setProject(snapshot);
         setActiveSceneId(selectedScene.id);
         setActiveHotspotId(refreshedHotspot?.id ?? selectedHotspot.id);
-        setHotspotDraft(createDraft(refreshedHotspot ?? null));
+        setActiveLocale(null);
+        setHotspotDraft(createHotspotDraft(refreshedHotspot));
+        setSceneDraft(createSceneDraft(refreshedScene ?? null));
       });
       setStatus(`Saved ${selectedHotspot.id}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Failed to save hotspot");
+    }
+  };
+
+  const applySceneChanges = async () => {
+    if (!selectedScene) return;
+
+    const playerStartX = parseNumber(sceneDraft.playerStartX);
+    const playerStartY = parseNumber(sceneDraft.playerStartY);
+    const walkAreaX = parseNumber(sceneDraft.walkAreaX);
+    const walkAreaY = parseNumber(sceneDraft.walkAreaY);
+    const walkAreaWidth = parsePositiveNumber(sceneDraft.walkAreaWidth);
+    const walkAreaHeight = parsePositiveNumber(sceneDraft.walkAreaHeight);
+    const name = sceneDraft.name.trim();
+    const background = sceneDraft.background.trim();
+
+    if (!name) {
+      setStatus("Scene name is required");
+      return;
+    }
+    if (!hexColorPattern.test(background)) {
+      setStatus("Background must be a valid #RRGGBB color");
+      return;
+    }
+    if (
+      playerStartX === null ||
+      playerStartY === null ||
+      walkAreaX === null ||
+      walkAreaY === null ||
+      walkAreaWidth === null ||
+      walkAreaHeight === null
+    ) {
+      setStatus("Scene coordinates must be valid numbers, with walk area size above zero");
+      return;
+    }
+
+    setStatus(`Saving ${selectedScene.id}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "scene/update",
+        patch: {
+          background,
+          name,
+          playerStart: {
+            x: playerStartX,
+            y: playerStartY
+          },
+          walkArea: {
+            x: walkAreaX,
+            y: walkAreaY,
+            width: walkAreaWidth,
+            height: walkAreaHeight
+          }
+        },
+        sceneId: selectedScene.id
+      });
+
+      const refreshedScene =
+        sceneItems(snapshot.scenes).find((scene) => scene.id === selectedScene.id) ?? null;
+
+      startTransition(() => {
+        setProject(snapshot);
+        setActiveSceneId(selectedScene.id);
+        setActiveHotspotId(null);
+        setActiveLocale(null);
+        setSceneDraft(createSceneDraft(refreshedScene));
+      });
+      setStatus(`Saved ${selectedScene.id}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to save scene");
+    }
+  };
+
+  const applyLocaleUpsert = async (key: string, value: string) => {
+    if (!selectedLocale) return;
+
+    const normalizedKey = key.trim();
+    if (!normalizedKey) {
+      setStatus("Locale keys cannot be empty");
+      return;
+    }
+
+    setStatus(`Saving ${normalizedKey}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "locale/upsert",
+        locale: selectedLocale.locale,
+        patch: {
+          key: normalizedKey,
+          value
+        }
+      });
+
+      const refreshedLocale =
+        snapshot.locales.find((locale) => locale.locale === selectedLocale.locale) ?? null;
+
+      startTransition(() => {
+        setProject(snapshot);
+        setActiveLocale(selectedLocale.locale);
+        setActiveHotspotId(null);
+        setLocaleDraft(refreshedLocale?.strings ?? {});
+        if (normalizedKey === newLocaleKey.trim()) {
+          setNewLocaleKey("");
+          setNewLocaleValue("");
+        }
+      });
+      setStatus(`Saved ${normalizedKey}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to save locale string");
     }
   };
 
@@ -267,7 +447,7 @@ export function EditorApp() {
             <div className="tree-group open">Scenes</div>
             {scenes.map((scene) => (
               <button
-                className={`tree-item ${selectedScene?.id === scene.id ? "selected" : ""}`}
+                className={`tree-item ${activeLocale === null && selectedScene?.id === scene.id ? "selected" : ""}`}
                 key={scene.id}
                 type="button"
                 onClick={() => selectScene(scene.id)}
@@ -281,11 +461,16 @@ export function EditorApp() {
                 {flow.id}
               </div>
             ))}
-            <div className="tree-group">Locales ({project?.localeCount ?? 0})</div>
-            {project?.manifest.locales.map((locale) => (
-              <div className="tree-item tree-meta" key={locale.locale}>
-                {locale.locale}
-              </div>
+            <div className="tree-group open">Locales ({project?.localeCount ?? 0})</div>
+            {project?.locales.map((locale) => (
+              <button
+                className={`tree-item ${activeLocale === locale.locale ? "selected" : ""}`}
+                key={locale.locale}
+                type="button"
+                onClick={() => selectLocale(locale)}
+              >
+                <span className="scene-dot muted" /> {locale.locale}
+              </button>
             ))}
           </div>
           <div className="project-health">
@@ -388,10 +573,55 @@ export function EditorApp() {
         <aside className="inspector-panel panel">
           <div className="panel-heading">
             <span>Inspector</span>
-            <small>{selectedHotspot ? "Hotspot" : "Scene"}</small>
+            <small>
+              {selectedLocale ? "Locale" : selectedHotspot ? "Hotspot" : selectedScene ? "Scene" : ""}
+            </small>
           </div>
           <div className="inspector-content">
-            {selectedHotspot ? (
+            {selectedLocale ? (
+              <>
+                <label>
+                  Locale
+                  <input value={selectedLocale.locale} readOnly />
+                </label>
+                <div className="locale-strings">
+                  {localeEntries.map(([key, value]) => (
+                    <div className="locale-entry" key={key}>
+                      <label>
+                        Key
+                        <input value={key} readOnly />
+                      </label>
+                      <label>
+                        Value
+                        <input
+                          value={value}
+                          onChange={(event) => updateLocaleValue(key, event.target.value)}
+                        />
+                      </label>
+                      <button type="button" onClick={() => applyLocaleUpsert(key, localeDraft[key] ?? "")}>
+                        Save string
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flow-link">
+                  <span>Add string</span>
+                  <input
+                    placeholder="key.path"
+                    value={newLocaleKey}
+                    onChange={(event) => setNewLocaleKey(event.target.value)}
+                  />
+                  <textarea
+                    placeholder="Localized text"
+                    value={newLocaleValue}
+                    onChange={(event) => setNewLocaleValue(event.target.value)}
+                  />
+                  <button type="button" onClick={() => applyLocaleUpsert(newLocaleKey, newLocaleValue)}>
+                    Add or update
+                  </button>
+                </div>
+              </>
+            ) : selectedHotspot ? (
               <>
                 <label>
                   Name
@@ -401,7 +631,7 @@ export function EditorApp() {
                   Display label
                   <input
                     value={hotspotDraft.labelKey}
-                    onChange={(event) => updateDraft("labelKey", event.target.value)}
+                    onChange={(event) => updateHotspotDraft("labelKey", event.target.value)}
                   />
                 </label>
                 <div className="field-group">
@@ -410,22 +640,22 @@ export function EditorApp() {
                     <input
                       aria-label="X"
                       value={hotspotDraft.x}
-                      onChange={(event) => updateDraft("x", event.target.value)}
+                      onChange={(event) => updateHotspotDraft("x", event.target.value)}
                     />
                     <input
                       aria-label="Y"
                       value={hotspotDraft.y}
-                      onChange={(event) => updateDraft("y", event.target.value)}
+                      onChange={(event) => updateHotspotDraft("y", event.target.value)}
                     />
                     <input
                       aria-label="Width"
                       value={hotspotDraft.width}
-                      onChange={(event) => updateDraft("width", event.target.value)}
+                      onChange={(event) => updateHotspotDraft("width", event.target.value)}
                     />
                     <input
                       aria-label="Height"
                       value={hotspotDraft.height}
-                      onChange={(event) => updateDraft("height", event.target.value)}
+                      onChange={(event) => updateHotspotDraft("height", event.target.value)}
                     />
                   </div>
                 </div>
@@ -433,7 +663,7 @@ export function EditorApp() {
                   Cursor
                   <select
                     value={hotspotDraft.cursor}
-                    onChange={(event) => updateDraft("cursor", event.target.value)}
+                    onChange={(event) => updateHotspotDraft("cursor", event.target.value)}
                   >
                     <option value="">Default</option>
                     <option value="enter">Enter</option>
@@ -446,7 +676,7 @@ export function EditorApp() {
                   Flow
                   <input
                     value={hotspotDraft.actionFlowId}
-                    onChange={(event) => updateDraft("actionFlowId", event.target.value)}
+                    onChange={(event) => updateHotspotDraft("actionFlowId", event.target.value)}
                   />
                 </label>
                 <div className="flow-link">
@@ -461,20 +691,68 @@ export function EditorApp() {
               <>
                 <label>
                   Scene
-                  <input value={selectedScene.name} readOnly />
-                </label>
-                <label>
-                  Identifier
                   <input value={selectedScene.id} readOnly />
                 </label>
                 <label>
-                  Background
-                  <input value={selectedScene.background} readOnly />
+                  Name
+                  <input
+                    value={sceneDraft.name}
+                    onChange={(event) => updateSceneDraft("name", event.target.value)}
+                  />
                 </label>
+                <label>
+                  Background
+                  <input
+                    value={sceneDraft.background}
+                    onChange={(event) => updateSceneDraft("background", event.target.value)}
+                  />
+                </label>
+                <div className="field-group">
+                  <span>Player start</span>
+                  <div className="four-fields">
+                    <input
+                      aria-label="Player start X"
+                      value={sceneDraft.playerStartX}
+                      onChange={(event) => updateSceneDraft("playerStartX", event.target.value)}
+                    />
+                    <input
+                      aria-label="Player start Y"
+                      value={sceneDraft.playerStartY}
+                      onChange={(event) => updateSceneDraft("playerStartY", event.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="field-group">
+                  <span>Walk area</span>
+                  <div className="four-fields">
+                    <input
+                      aria-label="Walk area X"
+                      value={sceneDraft.walkAreaX}
+                      onChange={(event) => updateSceneDraft("walkAreaX", event.target.value)}
+                    />
+                    <input
+                      aria-label="Walk area Y"
+                      value={sceneDraft.walkAreaY}
+                      onChange={(event) => updateSceneDraft("walkAreaY", event.target.value)}
+                    />
+                    <input
+                      aria-label="Walk area width"
+                      value={sceneDraft.walkAreaWidth}
+                      onChange={(event) => updateSceneDraft("walkAreaWidth", event.target.value)}
+                    />
+                    <input
+                      aria-label="Walk area height"
+                      value={sceneDraft.walkAreaHeight}
+                      onChange={(event) => updateSceneDraft("walkAreaHeight", event.target.value)}
+                    />
+                  </div>
+                </div>
                 <div className="flow-link">
-                  <span>Hotspots</span>
-                  <strong>{selectedScene.hotspots.length}</strong>
-                  <button type="button">Select one in the viewport</button>
+                  <span>Layered 2D scene</span>
+                  <strong>{selectedScene.name}</strong>
+                  <button type="button" onClick={applySceneChanges}>
+                    Apply changes -&gt;
+                  </button>
                 </div>
               </>
             ) : (
