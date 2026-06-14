@@ -174,4 +174,126 @@ describe("loadProjectFromDirectory", () => {
     };
     expect(localeFile.strings["ui.editor.scene"]).toBe("Scene");
   });
+
+  it("updates flow name and start node on disk", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+
+    const sourceFlow = (await loadProjectFromDirectory(projectRoot)).bundle.flows["inspect-tavern-door"];
+    if (!sourceFlow) {
+      throw new Error("Expected sample flow");
+    }
+
+    const updated = await applyProjectCommand(projectRoot, {
+      type: "flow/update",
+      flowId: "inspect-tavern-door",
+      patch: {
+        name: "Inspect the tavern door again",
+        nodes: sourceFlow.nodes,
+        startNodeId: "mara-one"
+      }
+    });
+
+    const flow = updated.bundle.flows["inspect-tavern-door"];
+    expect(flow).toMatchObject({
+      name: "Inspect the tavern door again",
+      startNodeId: "mara-one"
+    });
+
+    const flowPath = path.join(projectRoot, "flows", "inspect-tavern-door.flow.json");
+    const flowFile = JSON.parse(await readFile(flowPath, "utf8")) as {
+      name: string;
+      startNodeId: string;
+    };
+    expect(flowFile.name).toBe("Inspect the tavern door again");
+    expect(flowFile.startNodeId).toBe("mara-one");
+  });
+
+  it("persists an added flow node on disk", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+
+    const sourceFlow = (await loadProjectFromDirectory(projectRoot)).bundle.flows["inspect-tavern-door"];
+    if (!sourceFlow) {
+      throw new Error("Expected sample flow");
+    }
+
+    const nodes = sourceFlow.nodes.map((node) =>
+      node.id === "mara-two" && node.type === "line"
+        ? { ...node, next: "mara-three" }
+        : node
+    );
+    nodes.splice(nodes.length - 1, 0, {
+      id: "mara-three",
+      next: "end",
+      speakerId: "mara",
+      textKey: "dialogue.tavern.03",
+      type: "line"
+    });
+
+    const updated = await applyProjectCommand(projectRoot, {
+      type: "flow/update",
+      flowId: "inspect-tavern-door",
+      patch: {
+        name: sourceFlow.name,
+        nodes,
+        startNodeId: sourceFlow.startNodeId
+      }
+    });
+
+    expect(updated.bundle.flows["inspect-tavern-door"]?.nodes.some((node) => node.id === "mara-three")).toBe(
+      true
+    );
+
+    const flowPath = path.join(projectRoot, "flows", "inspect-tavern-door.flow.json");
+    const flowFile = JSON.parse(await readFile(flowPath, "utf8")) as {
+      nodes: Array<{ id: string }>;
+    };
+    expect(flowFile.nodes.some((node) => node.id === "mara-three")).toBe(true);
+  });
+
+  it("persists a removed flow node on disk", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+
+    const sourceFlow = (await loadProjectFromDirectory(projectRoot)).bundle.flows["inspect-tavern-door"];
+    if (!sourceFlow) {
+      throw new Error("Expected sample flow");
+    }
+
+    const nodes = sourceFlow.nodes
+      .filter((node) => node.id !== "mara-two")
+      .map((node) =>
+        node.id === "mara-one" && node.type === "line" ? { ...node, next: "end" } : node
+      );
+
+    const updated = await applyProjectCommand(projectRoot, {
+      type: "flow/update",
+      flowId: "inspect-tavern-door",
+      patch: {
+        name: sourceFlow.name,
+        nodes,
+        startNodeId: sourceFlow.startNodeId
+      }
+    });
+
+    expect(updated.bundle.flows["inspect-tavern-door"]?.nodes.some((node) => node.id === "mara-two")).toBe(
+      false
+    );
+
+    const flowPath = path.join(projectRoot, "flows", "inspect-tavern-door.flow.json");
+    const flowFile = JSON.parse(await readFile(flowPath, "utf8")) as {
+      nodes: Array<{ id: string }>;
+    };
+    expect(flowFile.nodes.some((node) => node.id === "mara-two")).toBe(false);
+  });
 });

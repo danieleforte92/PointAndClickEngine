@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  FlowDocument,
   Hotspot,
   Layered2DScene,
   LocaleDocument,
@@ -9,16 +10,19 @@ import type {
 import type { EditorProjectCommand } from "@pointclick/project-io";
 
 export interface EditorProjectSnapshot {
+  activeFlowId: string | null;
   activeHotspotId: string | null;
   activeLocale: string | null;
   activeSceneId: string;
   directory: string;
   flowCount: number;
+  flows: FlowDocument[];
   localeCount: number;
   locales: LocaleDocument[];
   manifest: ProjectManifest;
   sceneCount: number;
   scenes: SceneDocument[];
+  selectedFlow: FlowDocument | null;
   selectedHotspot: Hotspot | null;
   selectedLocale: LocaleDocument | null;
   selectedScene: Layered2DScene | null;

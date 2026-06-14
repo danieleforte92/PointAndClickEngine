@@ -4,6 +4,7 @@ import {
   assertDocument,
   type CursorValue,
   type FlowDocument,
+  type FlowNode,
   type Hotspot,
   type LocaleDocument,
   type Layered2DScene,
@@ -38,6 +39,12 @@ export interface LocaleUpsertPatch {
   value: string;
 }
 
+export interface FlowPatch {
+  name: string;
+  nodes: FlowNode[];
+  startNodeId: string;
+}
+
 export type HotspotUpdateCommand = {
   type: "hotspot/update";
   hotspotId: string;
@@ -57,10 +64,17 @@ export type LocaleUpsertCommand = {
   patch: LocaleUpsertPatch;
 };
 
+export type FlowUpdateCommand = {
+  type: "flow/update";
+  flowId: string;
+  patch: FlowPatch;
+};
+
 export type EditorProjectCommand =
   | HotspotUpdateCommand
   | SceneUpdateCommand
-  | LocaleUpsertCommand;
+  | LocaleUpsertCommand
+  | FlowUpdateCommand;
 
 async function readJson(filePath: string): Promise<unknown> {
   return JSON.parse(await readFile(filePath, "utf8")) as unknown;
@@ -133,6 +147,14 @@ function localePathFor(project: LoadedProject, locale: string): string {
   return path.resolve(project.directory, reference.path);
 }
 
+function flowPathFor(project: LoadedProject, flowId: string): string {
+  const reference = project.bundle.manifest.flows.find((entry) => entry.id === flowId);
+  if (!reference) {
+    throw new Error(`Flow "${flowId}" is not referenced by the project manifest`);
+  }
+  return path.resolve(project.directory, reference.path);
+}
+
 function patchHotspot(scene: Layered2DScene, hotspotId: string, patch: HotspotPatch): Layered2DScene {
   const index = scene.hotspots.findIndex((hotspot) => hotspot.id === hotspotId);
   if (index < 0) {
@@ -178,6 +200,44 @@ function patchLocale(locale: LocaleDocument, patch: LocaleUpsertPatch): LocaleDo
       [patch.key]: patch.value
     }
   };
+}
+
+function patchFlow(flow: FlowDocument, patch: FlowPatch): FlowDocument {
+  return {
+    ...flow,
+    name: patch.name,
+    nodes: patch.nodes,
+    startNodeId: patch.startNodeId
+  };
+}
+
+function validateFlowReferences(flow: FlowDocument): void {
+  const seen = new Set<string>();
+  for (const node of flow.nodes) {
+    if (seen.has(node.id)) {
+      throw new Error(`Flow "${flow.id}" contains duplicate node id "${node.id}"`);
+    }
+    seen.add(node.id);
+  }
+
+  if (!seen.has(flow.startNodeId)) {
+    throw new Error(`Flow "${flow.id}" startNodeId "${flow.startNodeId}" does not exist`);
+  }
+
+  let hasEnd = false;
+  for (const node of flow.nodes) {
+    if (node.type === "end") {
+      hasEnd = true;
+      continue;
+    }
+    if (!seen.has(node.next)) {
+      throw new Error(`Flow "${flow.id}" node "${node.id}" points to missing next "${node.next}"`);
+    }
+  }
+
+  if (!hasEnd) {
+    throw new Error(`Flow "${flow.id}" must contain at least one end node`);
+  }
 }
 
 export async function applyProjectCommand(
@@ -226,6 +286,18 @@ export async function applyProjectCommand(
     });
     assertDocument<LocaleDocument>("locale", nextLocale);
     await writeJson(localePathFor(project, command.locale), nextLocale);
+  }
+
+  if (command.type === "flow/update") {
+    const flow = project.bundle.flows[command.flowId];
+    if (!flow) {
+      throw new Error(`Flow "${command.flowId}" was not found in the loaded project`);
+    }
+
+    const nextFlow = patchFlow(flow, command.patch);
+    assertDocument<FlowDocument>("flow", nextFlow);
+    validateFlowReferences(nextFlow);
+    await writeJson(flowPathFor(project, command.flowId), nextFlow);
   }
 
   return loadProjectFromDirectory(projectDirectory);

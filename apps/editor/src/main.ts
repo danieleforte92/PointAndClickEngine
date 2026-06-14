@@ -2,7 +2,13 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import path from "node:path";
-import type { Hotspot, Layered2DScene, LocaleDocument, ProjectBundle } from "@pointclick/contracts";
+import type {
+  FlowDocument,
+  Hotspot,
+  Layered2DScene,
+  LocaleDocument,
+  ProjectBundle
+} from "@pointclick/contracts";
 import { applyProjectCommand, loadProjectFromDirectory, type EditorProjectCommand } from "@pointclick/project-io";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 
@@ -130,18 +136,22 @@ function summarizeProject(projectDirectory: string, bundle: ProjectBundle) {
     bundle.locales[bundle.manifest.defaultLocale] ??
     Object.values(bundle.locales)[0] ??
     null;
+  const activeFlow: FlowDocument | null = Object.values(bundle.flows)[0] ?? null;
 
   return {
+    activeFlowId: activeFlow?.id ?? null,
     activeHotspotId: activeHotspot?.id ?? null,
     activeLocale: activeLocale?.locale ?? null,
     activeSceneId: activeScene?.id ?? bundle.manifest.initialSceneId,
     directory: projectDirectory,
     flowCount: Object.keys(bundle.flows).length,
+    flows: Object.values(bundle.flows),
     localeCount: Object.keys(bundle.locales).length,
     locales: Object.values(bundle.locales),
     manifest: bundle.manifest,
     sceneCount: Object.keys(bundle.scenes).length,
     scenes: Object.values(bundle.scenes),
+    selectedFlow: activeFlow,
     selectedHotspot: activeHotspot,
     selectedLocale: activeLocale,
     selectedScene: activeScene

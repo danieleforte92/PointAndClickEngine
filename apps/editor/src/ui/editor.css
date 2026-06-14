@@ -537,14 +537,34 @@ button {
   gap: 12px;
 }
 
-.locale-entry {
+.locale-entry,
+.flow-node-card {
   padding: 10px;
   border: 1px solid #2f414b;
   border-radius: 3px 10px 3px 10px;
   background: #162129;
 }
 
+.flow-nodes {
+  display: grid;
+  gap: 12px;
+}
+
+.flow-node-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.flow-node-header strong {
+  color: #d9a561;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
 .locale-entry button,
+.flow-node-header button,
 .flow-link button {
   margin-top: 10px;
   padding: 0;
@@ -553,6 +573,16 @@ button {
   background: transparent;
   font-size: 0.62rem;
   cursor: pointer;
+}
+
+.flow-node-header button {
+  margin-top: 0;
+}
+
+.flow-actions {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
 }
 
 .flow-link {

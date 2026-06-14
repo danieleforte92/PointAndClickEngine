@@ -1,5 +1,7 @@
 import type {
   CursorValue,
+  FlowDocument,
+  FlowNode,
   Hotspot,
   Layered2DScene,
   LocaleDocument,
@@ -9,6 +11,8 @@ import { startTransition, useEffect, useMemo, useState } from "react";
 import type { EditorProjectSnapshot } from "../preload";
 
 type Workspace = "scene" | "narrative" | "assets" | "build";
+type FlagValueKind = "string" | "number" | "boolean";
+type DraftNodeType = "line" | "set-flag" | "end";
 
 interface HotspotDraft {
   actionFlowId: string;
@@ -29,6 +33,37 @@ interface SceneDraft {
   walkAreaWidth: string;
   walkAreaX: string;
   walkAreaY: string;
+}
+
+interface FlowLineDraftNode {
+  id: string;
+  next: string;
+  speakerId: string;
+  textKey: string;
+  type: "line";
+}
+
+interface FlowFlagDraftNode {
+  id: string;
+  key: string;
+  next: string;
+  type: "set-flag";
+  value: string;
+  valueKind: FlagValueKind;
+}
+
+interface FlowEndDraftNode {
+  id: string;
+  type: "end";
+}
+
+type FlowDraftNode = FlowLineDraftNode | FlowFlagDraftNode | FlowEndDraftNode;
+
+interface FlowDraft {
+  id: string;
+  name: string;
+  nodes: FlowDraftNode[];
+  startNodeId: string;
 }
 
 const workspaces: { id: Workspace; label: string }[] = [
@@ -70,6 +105,46 @@ function createSceneDraft(scene: Layered2DScene | null): SceneDraft {
   };
 }
 
+function inferFlagValueKind(value: string | number | boolean): FlagValueKind {
+  if (typeof value === "boolean") return "boolean";
+  if (typeof value === "number") return "number";
+  return "string";
+}
+
+function createFlowDraft(flow: FlowDocument | null): FlowDraft | null {
+  if (!flow) return null;
+  return {
+    id: flow.id,
+    name: flow.name,
+    nodes: flow.nodes.map((node) => {
+      if (node.type === "line") {
+        return {
+          id: node.id,
+          next: node.next,
+          speakerId: node.speakerId,
+          textKey: node.textKey,
+          type: "line"
+        };
+      }
+      if (node.type === "set-flag") {
+        return {
+          id: node.id,
+          key: node.key,
+          next: node.next,
+          type: "set-flag",
+          value: String(node.value),
+          valueKind: inferFlagValueKind(node.value)
+        };
+      }
+      return {
+        id: node.id,
+        type: "end"
+      };
+    }),
+    startNodeId: flow.startNodeId
+  };
+}
+
 function parsePositiveNumber(value: string): number | null {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
@@ -82,6 +157,80 @@ function parseNumber(value: string): number | null {
   return parsed;
 }
 
+function nextNodeTarget(nodes: FlowDraftNode[]): string {
+  return nodes.find((node) => node.type === "end")?.id ?? nodes[0]?.id ?? "";
+}
+
+function generateNodeId(nodes: FlowDraftNode[], prefix: string): string {
+  const ids = new Set(nodes.map((node) => node.id));
+  for (let index = 1; index < nodes.length + 10; index += 1) {
+    const candidate = `${prefix}-${index}`;
+    if (!ids.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `${prefix}-${Date.now()}`;
+}
+
+function createNewFlowNode(type: DraftNodeType, nodes: FlowDraftNode[]): FlowDraftNode {
+  if (type === "line") {
+    return {
+      id: generateNodeId(nodes, "line"),
+      next: nextNodeTarget(nodes),
+      speakerId: "speaker",
+      textKey: "dialogue.new-line",
+      type: "line"
+    };
+  }
+  if (type === "set-flag") {
+    return {
+      id: generateNodeId(nodes, "flag"),
+      key: "story.flag",
+      next: nextNodeTarget(nodes),
+      type: "set-flag",
+      value: "true",
+      valueKind: "boolean"
+    };
+  }
+  return {
+    id: generateNodeId(nodes, "end"),
+    type: "end"
+  };
+}
+
+function buildFlowNodes(nodes: FlowDraftNode[]): FlowNode[] {
+  return nodes.map((node) => {
+    if (node.type === "line") {
+      return {
+        id: node.id.trim(),
+        next: node.next.trim(),
+        speakerId: node.speakerId.trim(),
+        textKey: node.textKey.trim(),
+        type: "line"
+      };
+    }
+    if (node.type === "set-flag") {
+      let value: string | number | boolean = node.value;
+      if (node.valueKind === "boolean") {
+        value = node.value.trim().toLowerCase() === "true";
+      } else if (node.valueKind === "number") {
+        value = Number(node.value);
+      }
+      return {
+        id: node.id.trim(),
+        key: node.key.trim(),
+        next: node.next.trim(),
+        type: "set-flag",
+        value
+      };
+    }
+    return {
+      id: node.id.trim(),
+      type: "end"
+    };
+  });
+}
+
 export function EditorApp() {
   const [workspace, setWorkspace] = useState<Workspace>("scene");
   const [status, setStatus] = useState("Loading project...");
@@ -89,8 +238,10 @@ export function EditorApp() {
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
   const [activeHotspotId, setActiveHotspotId] = useState<string | null>(null);
   const [activeLocale, setActiveLocale] = useState<string | null>(null);
+  const [activeFlowId, setActiveFlowId] = useState<string | null>(null);
   const [hotspotDraft, setHotspotDraft] = useState<HotspotDraft>(() => createHotspotDraft(null));
   const [sceneDraft, setSceneDraft] = useState<SceneDraft>(() => createSceneDraft(null));
+  const [flowDraft, setFlowDraft] = useState<FlowDraft | null>(null);
   const [localeDraft, setLocaleDraft] = useState<Record<string, string>>({});
   const [newLocaleKey, setNewLocaleKey] = useState("");
   const [newLocaleValue, setNewLocaleValue] = useState("");
@@ -107,8 +258,10 @@ export function EditorApp() {
           setActiveSceneId(snapshot.activeSceneId);
           setActiveHotspotId(snapshot.activeHotspotId);
           setActiveLocale(null);
+          setActiveFlowId(null);
           setHotspotDraft(createHotspotDraft(snapshot.selectedHotspot));
           setSceneDraft(createSceneDraft(snapshot.selectedScene));
+          setFlowDraft(createFlowDraft(snapshot.selectedFlow));
           setLocaleDraft(snapshot.selectedLocale?.strings ?? {});
           setNewLocaleKey("");
           setNewLocaleValue("");
@@ -140,9 +293,15 @@ export function EditorApp() {
     activeLocale && project
       ? project.locales.find((locale) => locale.locale === activeLocale) ?? null
       : null;
+  const selectedFlow =
+    activeFlowId && project ? project.flows.find((flow) => flow.id === activeFlowId) ?? null : null;
   const localeEntries = useMemo(
     () => Object.entries(localeDraft).sort(([left], [right]) => left.localeCompare(right)),
     [localeDraft]
+  );
+  const flowNodeIds = useMemo(
+    () => (flowDraft ? flowDraft.nodes.map((node) => node.id) : []),
+    [flowDraft]
   );
   const sceneLabel = selectedScene
     ? `${selectedScene.size.width} x ${selectedScene.size.height}`
@@ -173,8 +332,10 @@ export function EditorApp() {
       setActiveSceneId(snapshot.activeSceneId);
       setActiveHotspotId(snapshot.activeHotspotId);
       setActiveLocale(null);
+      setActiveFlowId(null);
       setHotspotDraft(createHotspotDraft(snapshot.selectedHotspot));
       setSceneDraft(createSceneDraft(snapshot.selectedScene));
+      setFlowDraft(createFlowDraft(snapshot.selectedFlow));
       setLocaleDraft(snapshot.selectedLocale?.strings ?? {});
       setNewLocaleKey("");
       setNewLocaleValue("");
@@ -188,6 +349,7 @@ export function EditorApp() {
       setActiveSceneId(sceneId);
       setActiveHotspotId(null);
       setActiveLocale(null);
+      setActiveFlowId(null);
       setSceneDraft(createSceneDraft(scene));
       setHotspotDraft(createHotspotDraft(null));
     });
@@ -197,6 +359,7 @@ export function EditorApp() {
     startTransition(() => {
       setActiveHotspotId(hotspot.id);
       setActiveLocale(null);
+      setActiveFlowId(null);
       setHotspotDraft(createHotspotDraft(hotspot));
     });
   };
@@ -205,9 +368,19 @@ export function EditorApp() {
     startTransition(() => {
       setActiveLocale(locale.locale);
       setActiveHotspotId(null);
+      setActiveFlowId(null);
       setLocaleDraft(locale.strings);
       setNewLocaleKey("");
       setNewLocaleValue("");
+    });
+  };
+
+  const selectFlow = (flow: FlowDocument) => {
+    startTransition(() => {
+      setActiveFlowId(flow.id);
+      setActiveHotspotId(null);
+      setActiveLocale(null);
+      setFlowDraft(createFlowDraft(flow));
     });
   };
 
@@ -221,6 +394,40 @@ export function EditorApp() {
 
   const updateLocaleValue = (key: string, value: string) => {
     setLocaleDraft((current) => ({ ...current, [key]: value }));
+  };
+
+  const updateFlowDraft = (recipe: (current: FlowDraft) => FlowDraft) => {
+    setFlowDraft((current) => (current ? recipe(current) : current));
+  };
+
+  const updateFlowNode = (index: number, recipe: (node: FlowDraftNode) => FlowDraftNode) => {
+    updateFlowDraft((current) => {
+      const nodes = [...current.nodes];
+      nodes[index] = recipe(nodes[index]!);
+      return { ...current, nodes };
+    });
+  };
+
+  const addFlowNode = (type: DraftNodeType) => {
+    updateFlowDraft((current) => ({
+      ...current,
+      nodes: [...current.nodes, createNewFlowNode(type, current.nodes)]
+    }));
+  };
+
+  const removeFlowNode = (index: number) => {
+    updateFlowDraft((current) => {
+      const nodeId = current.nodes[index]?.id;
+      if (!nodeId) return current;
+      const nodes = current.nodes.filter((_, nodeIndex) => nodeIndex !== index);
+      const nextStartNodeId =
+        current.startNodeId === nodeId ? nodes[0]?.id ?? current.startNodeId : current.startNodeId;
+      return {
+        ...current,
+        nodes,
+        startNodeId: nextStartNodeId
+      };
+    });
   };
 
   const applyHotspotChanges = async () => {
@@ -281,6 +488,7 @@ export function EditorApp() {
         setActiveSceneId(selectedScene.id);
         setActiveHotspotId(refreshedHotspot?.id ?? selectedHotspot.id);
         setActiveLocale(null);
+        setActiveFlowId(null);
         setHotspotDraft(createHotspotDraft(refreshedHotspot));
         setSceneDraft(createSceneDraft(refreshedScene ?? null));
       });
@@ -351,6 +559,7 @@ export function EditorApp() {
         setActiveSceneId(selectedScene.id);
         setActiveHotspotId(null);
         setActiveLocale(null);
+        setActiveFlowId(null);
         setSceneDraft(createSceneDraft(refreshedScene));
       });
       setStatus(`Saved ${selectedScene.id}`);
@@ -386,6 +595,7 @@ export function EditorApp() {
         setProject(snapshot);
         setActiveLocale(selectedLocale.locale);
         setActiveHotspotId(null);
+        setActiveFlowId(null);
         setLocaleDraft(refreshedLocale?.strings ?? {});
         if (normalizedKey === newLocaleKey.trim()) {
           setNewLocaleKey("");
@@ -395,6 +605,91 @@ export function EditorApp() {
       setStatus(`Saved ${normalizedKey}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Failed to save locale string");
+    }
+  };
+
+  const applyFlowChanges = async () => {
+    if (!selectedFlow || !flowDraft) return;
+
+    const name = flowDraft.name.trim();
+    const startNodeId = flowDraft.startNodeId.trim();
+    const ids = flowDraft.nodes.map((node) => node.id.trim());
+
+    if (!name) {
+      setStatus("Flow name is required");
+      return;
+    }
+    if (flowDraft.nodes.length === 0) {
+      setStatus("A flow must contain at least one node");
+      return;
+    }
+    if (ids.some((id) => id.length === 0)) {
+      setStatus("Each node needs a non-empty id");
+      return;
+    }
+    if (new Set(ids).size !== ids.length) {
+      setStatus("Node ids must be unique");
+      return;
+    }
+    if (!ids.includes(startNodeId)) {
+      setStatus("Start node must reference an existing node id");
+      return;
+    }
+    if (!flowDraft.nodes.some((node) => node.type === "end")) {
+      setStatus("A flow must contain at least one end node");
+      return;
+    }
+    for (const node of flowDraft.nodes) {
+      if (node.type === "line") {
+        if (!node.speakerId.trim() || !node.textKey.trim() || !node.next.trim()) {
+          setStatus(`Line node "${node.id}" is incomplete`);
+          return;
+        }
+        if (!ids.includes(node.next.trim())) {
+          setStatus(`Line node "${node.id}" points to a missing next node`);
+          return;
+        }
+      }
+      if (node.type === "set-flag") {
+        if (!node.key.trim() || !node.next.trim() || node.value.trim() === "") {
+          setStatus(`Set-flag node "${node.id}" is incomplete`);
+          return;
+        }
+        if (!ids.includes(node.next.trim())) {
+          setStatus(`Set-flag node "${node.id}" points to a missing next node`);
+          return;
+        }
+        if (node.valueKind === "number" && Number.isNaN(Number(node.value))) {
+          setStatus(`Set-flag node "${node.id}" needs a valid numeric value`);
+          return;
+        }
+      }
+    }
+
+    setStatus(`Saving ${selectedFlow.id}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "flow/update",
+        flowId: selectedFlow.id,
+        patch: {
+          name,
+          nodes: buildFlowNodes(flowDraft.nodes),
+          startNodeId
+        }
+      });
+
+      const refreshedFlow = snapshot.flows.find((flow) => flow.id === selectedFlow.id) ?? null;
+
+      startTransition(() => {
+        setProject(snapshot);
+        setActiveFlowId(selectedFlow.id);
+        setActiveHotspotId(null);
+        setActiveLocale(null);
+        setFlowDraft(createFlowDraft(refreshedFlow));
+      });
+      setStatus(`Saved ${selectedFlow.id}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to save flow");
     }
   };
 
@@ -447,7 +742,7 @@ export function EditorApp() {
             <div className="tree-group open">Scenes</div>
             {scenes.map((scene) => (
               <button
-                className={`tree-item ${activeLocale === null && selectedScene?.id === scene.id ? "selected" : ""}`}
+                className={`tree-item ${activeLocale === null && activeFlowId === null && selectedScene?.id === scene.id ? "selected" : ""}`}
                 key={scene.id}
                 type="button"
                 onClick={() => selectScene(scene.id)}
@@ -455,11 +750,16 @@ export function EditorApp() {
                 <span className="scene-dot" /> {scene.name}
               </button>
             ))}
-            <div className="tree-group">Flows ({project?.flowCount ?? 0})</div>
-            {project?.manifest.flows.map((flow) => (
-              <div className="tree-item tree-meta" key={flow.id}>
-                {flow.id}
-              </div>
+            <div className="tree-group open">Flows ({project?.flowCount ?? 0})</div>
+            {project?.flows.map((flow) => (
+              <button
+                className={`tree-item ${activeFlowId === flow.id ? "selected" : ""}`}
+                key={flow.id}
+                type="button"
+                onClick={() => selectFlow(flow)}
+              >
+                <span className="scene-dot muted" /> {flow.id}
+              </button>
             ))}
             <div className="tree-group open">Locales ({project?.localeCount ?? 0})</div>
             {project?.locales.map((locale) => (
@@ -574,11 +874,198 @@ export function EditorApp() {
           <div className="panel-heading">
             <span>Inspector</span>
             <small>
-              {selectedLocale ? "Locale" : selectedHotspot ? "Hotspot" : selectedScene ? "Scene" : ""}
+              {selectedFlow
+                ? "Flow"
+                : selectedLocale
+                  ? "Locale"
+                  : selectedHotspot
+                    ? "Hotspot"
+                    : selectedScene
+                      ? "Scene"
+                      : ""}
             </small>
           </div>
           <div className="inspector-content">
-            {selectedLocale ? (
+            {selectedFlow && flowDraft ? (
+              <>
+                <label>
+                  Flow
+                  <input value={flowDraft.id} readOnly />
+                </label>
+                <label>
+                  Name
+                  <input
+                    value={flowDraft.name}
+                    onChange={(event) =>
+                      updateFlowDraft((current) => ({ ...current, name: event.target.value }))
+                    }
+                  />
+                </label>
+                <label>
+                  Start node
+                  <select
+                    value={flowDraft.startNodeId}
+                    onChange={(event) =>
+                      updateFlowDraft((current) => ({ ...current, startNodeId: event.target.value }))
+                    }
+                  >
+                    {flowNodeIds.map((nodeId) => (
+                      <option key={nodeId} value={nodeId}>
+                        {nodeId}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="flow-nodes">
+                  {flowDraft.nodes.map((node, index) => (
+                    <div className="flow-node-card" key={`${node.type}-${index}-${node.id}`}>
+                      <div className="flow-node-header">
+                        <strong>{node.type}</strong>
+                        <button type="button" onClick={() => removeFlowNode(index)}>
+                          Remove
+                        </button>
+                      </div>
+                      <label>
+                        Node id
+                        <input
+                          value={node.id}
+                          onChange={(event) =>
+                            updateFlowNode(index, (current) => ({ ...current, id: event.target.value }))
+                          }
+                        />
+                      </label>
+                      {node.type === "line" ? (
+                        <>
+                          <label>
+                            Speaker id
+                            <input
+                              value={node.speakerId}
+                              onChange={(event) =>
+                                updateFlowNode(index, (current) =>
+                                  current.type === "line"
+                                    ? { ...current, speakerId: event.target.value }
+                                    : current
+                                )
+                              }
+                            />
+                          </label>
+                          <label>
+                            Text key
+                            <input
+                              value={node.textKey}
+                              onChange={(event) =>
+                                updateFlowNode(index, (current) =>
+                                  current.type === "line"
+                                    ? { ...current, textKey: event.target.value }
+                                    : current
+                                )
+                              }
+                            />
+                          </label>
+                          <label>
+                            Next
+                            <select
+                              value={node.next}
+                              onChange={(event) =>
+                                updateFlowNode(index, (current) =>
+                                  current.type === "line" ? { ...current, next: event.target.value } : current
+                                )
+                              }
+                            >
+                              {flowNodeIds.map((nodeId) => (
+                                <option key={nodeId} value={nodeId}>
+                                  {nodeId}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </>
+                      ) : null}
+                      {node.type === "set-flag" ? (
+                        <>
+                          <label>
+                            Flag key
+                            <input
+                              value={node.key}
+                              onChange={(event) =>
+                                updateFlowNode(index, (current) =>
+                                  current.type === "set-flag" ? { ...current, key: event.target.value } : current
+                                )
+                              }
+                            />
+                          </label>
+                          <label>
+                            Value type
+                            <select
+                              value={node.valueKind}
+                              onChange={(event) =>
+                                updateFlowNode(index, (current) =>
+                                  current.type === "set-flag"
+                                    ? { ...current, valueKind: event.target.value as FlagValueKind }
+                                    : current
+                                )
+                              }
+                            >
+                              <option value="boolean">boolean</option>
+                              <option value="number">number</option>
+                              <option value="string">string</option>
+                            </select>
+                          </label>
+                          <label>
+                            Value
+                            <input
+                              value={node.value}
+                              onChange={(event) =>
+                                updateFlowNode(index, (current) =>
+                                  current.type === "set-flag" ? { ...current, value: event.target.value } : current
+                                )
+                              }
+                            />
+                          </label>
+                          <label>
+                            Next
+                            <select
+                              value={node.next}
+                              onChange={(event) =>
+                                updateFlowNode(index, (current) =>
+                                  current.type === "set-flag"
+                                    ? { ...current, next: event.target.value }
+                                    : current
+                                )
+                              }
+                            >
+                              {flowNodeIds.map((nodeId) => (
+                                <option key={nodeId} value={nodeId}>
+                                  {nodeId}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+                <div className="flow-link">
+                  <span>Add node</span>
+                  <strong>{flowDraft.nodes.length} node(s)</strong>
+                  <div className="flow-actions">
+                    <button type="button" onClick={() => addFlowNode("line")}>
+                      Add line
+                    </button>
+                    <button type="button" onClick={() => addFlowNode("set-flag")}>
+                      Add set-flag
+                    </button>
+                    <button type="button" onClick={() => addFlowNode("end")}>
+                      Add end
+                    </button>
+                    <button type="button" onClick={applyFlowChanges}>
+                      Apply changes -&gt;
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : selectedLocale ? (
               <>
                 <label>
                   Locale
