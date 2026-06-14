@@ -1,20 +1,20 @@
 {
-  "name": "@pointclick/cli",
+  "name": "@pointclick/project-io",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "bin": {
-    "pointclick": "./src/index.ts"
+  "exports": {
+    ".": "./src/index.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@pointclick/contracts": "workspace:*",
-    "@pointclick/project-io": "workspace:*"
+    "@pointclick/contracts": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "typescript": "^5.8.3"
+    "typescript": "^5.9.3"
   }
 }
+

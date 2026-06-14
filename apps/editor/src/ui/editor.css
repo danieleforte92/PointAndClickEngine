@@ -241,6 +241,13 @@ button {
   cursor: pointer;
 }
 
+.tree-item.tree-meta {
+  color: #6f8792;
+  cursor: default;
+  font-family: "Courier New", monospace;
+  font-size: 0.66rem;
+}
+
 .tree-item.selected {
   color: #e3ecee;
   background: #253541;
@@ -342,6 +349,21 @@ button {
   box-shadow: 0 26px 70px rgba(0, 0, 0, 0.35);
 }
 
+.scene-shape,
+.walk-region,
+.character,
+.hotspot-box {
+  position: absolute;
+}
+
+.scene-shape.ellipse {
+  border-radius: 999px;
+}
+
+.scene-shape.rect {
+  border-radius: 2px;
+}
+
 .moon {
   position: absolute;
   top: 9%;
@@ -353,63 +375,14 @@ button {
   box-shadow: 0 0 38px rgba(232, 220, 174, 0.24);
 }
 
-.sea {
-  position: absolute;
-  inset: 49% 0 0;
-  background:
-    repeating-linear-gradient(174deg, transparent 0 19px, rgba(134, 194, 202, 0.08) 20px 22px),
-    #17445a;
-}
-
-.tavern {
-  position: absolute;
-  right: 14.8%;
-  top: 32%;
-  width: 25.7%;
-  height: 44%;
-  background: #5b3b31;
-}
-
-.roof {
-  position: absolute;
-  left: -12%;
-  top: -11%;
-  width: 124%;
-  height: 19%;
-  background: #281f26;
-  transform: skewX(-9deg);
-}
-
-.door {
-  position: absolute;
-  left: 31.5%;
-  bottom: 0;
-  width: 28.7%;
-  height: 58.7%;
-  background: #c07b42;
-}
-
-.dock {
-  position: absolute;
-  left: 4.3%;
-  right: 5%;
-  bottom: 5.5%;
-  height: 25%;
-  background:
-    repeating-linear-gradient(90deg, transparent 0 79px, rgba(35, 25, 25, 0.35) 80px 84px),
-    #70513b;
-  transform: perspective(450px) rotateX(8deg);
-}
-
 .character {
-  position: absolute;
-  left: 39%;
-  bottom: 17%;
   width: 28px;
   height: 72px;
   border-radius: 14px 14px 4px 4px;
   background: #d98b52;
   box-shadow: 12px 19px 10px rgba(0, 0, 0, 0.35);
+  transform: translate(-50%, -78%);
+  z-index: 999;
 }
 
 .character::before {
@@ -434,18 +407,18 @@ button {
 }
 
 .hotspot-box {
-  position: absolute;
-  right: 23.5%;
-  top: 46%;
-  width: 10%;
-  height: 31%;
   border: 1px solid #e2ad60;
   background: rgba(226, 173, 96, 0.08);
+  cursor: pointer;
+}
+
+.hotspot-box.selected {
+  border-color: #f3d9a1;
+  box-shadow: inset 0 0 0 1px rgba(255, 241, 209, 0.35);
 }
 
 .hotspot-box span,
 .walk-region {
-  position: absolute;
   padding: 3px 5px;
   color: #1b201d;
   border-radius: 2px;
@@ -455,28 +428,32 @@ button {
 }
 
 .hotspot-box span {
+  position: absolute;
   left: 0;
   top: -18px;
 }
 
 .walk-region {
-  left: 9%;
-  bottom: 10%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
   color: #13231e;
-  background: #62b593;
+  border: 1px dashed rgba(98, 181, 147, 0.8);
+  background: rgba(98, 181, 147, 0.14);
 }
 
-.crate {
+.empty-scene,
+.empty-inspector {
+  color: #89a3ad;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.1rem;
+}
+
+.empty-scene {
   position: absolute;
-  z-index: 2;
-  left: 14%;
-  bottom: 6%;
-  width: 12%;
-  height: 17%;
-  background:
-    linear-gradient(45deg, transparent 46%, #72503b 47% 53%, transparent 54%),
-    linear-gradient(-45deg, transparent 46%, #72503b 47% 53%, transparent 54%),
-    #3a2d2a;
+  inset: 0;
+  display: grid;
+  place-items: center;
 }
 
 .timeline-strip {
