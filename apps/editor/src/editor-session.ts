@@ -5,6 +5,7 @@ import type {
   Hotspot,
   Layered2DScene,
   LocaleDocument,
+  Polygon2,
   SceneDocument
 } from "@pointclick/contracts";
 
@@ -27,10 +28,7 @@ export interface SceneDraft {
   name: string;
   playerStartX: string;
   playerStartY: string;
-  walkAreaHeight: string;
-  walkAreaWidth: string;
-  walkAreaX: string;
-  walkAreaY: string;
+  walkAreaPoints: Array<{ x: string; y: string }>;
 }
 
 export interface FlowLineDraftNode {
@@ -137,11 +135,26 @@ export function createSceneDraft(scene: Layered2DScene | null): SceneDraft {
     name: scene?.name ?? "",
     playerStartX: scene ? String(scene.playerStart.x) : "",
     playerStartY: scene ? String(scene.playerStart.y) : "",
-    walkAreaHeight: scene ? String(scene.walkArea.height) : "",
-    walkAreaWidth: scene ? String(scene.walkArea.width) : "",
-    walkAreaX: scene ? String(scene.walkArea.x) : "",
-    walkAreaY: scene ? String(scene.walkArea.y) : ""
+    walkAreaPoints:
+      scene?.walkArea.points.map((point) => ({
+        x: String(point.x),
+        y: String(point.y)
+      })) ?? [
+        { x: "0", y: "0" },
+        { x: "100", y: "0" },
+        { x: "100", y: "100" }
+      ]
   };
+}
+
+export function polygonArea(polygon: Polygon2): number {
+  let total = 0;
+  for (let index = 0; index < polygon.points.length; index += 1) {
+    const current = polygon.points[index]!;
+    const next = polygon.points[(index + 1) % polygon.points.length]!;
+    total += current.x * next.y - next.x * current.y;
+  }
+  return Math.abs(total) / 2;
 }
 
 export function inferFlagValueKind(value: string | number | boolean): FlagValueKind {

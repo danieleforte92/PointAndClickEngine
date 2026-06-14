@@ -27,6 +27,13 @@ export const RectSchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const Polygon2Schema = Type.Object(
+  {
+    points: Type.Array(Vector2Schema, { minItems: 3 })
+  },
+  { additionalProperties: false }
+);
+
 export const ProjectManifestSchema = Type.Object(
   {
     schemaVersion: Type.Literal(1),
@@ -111,7 +118,7 @@ export const Layered2DSceneSchema = Type.Object(
     ),
     background: HexColor,
     playerStart: Vector2Schema,
-    walkArea: RectSchema,
+    walkArea: Polygon2Schema,
     shapes: Type.Array(SceneShapeSchema),
     hotspots: Type.Array(HotspotSchema)
   },
@@ -198,6 +205,7 @@ export const LocaleDocumentSchema = Type.Object(
 
 export type Vector2 = Static<typeof Vector2Schema>;
 export type Rect = Static<typeof RectSchema>;
+export type Polygon2 = Static<typeof Polygon2Schema>;
 export type ProjectManifest = Static<typeof ProjectManifestSchema>;
 export type SceneShape = Static<typeof SceneShapeSchema>;
 export type CursorValue = Static<typeof HotspotCursorSchema>;

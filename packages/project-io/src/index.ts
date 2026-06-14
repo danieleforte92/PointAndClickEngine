@@ -8,6 +8,7 @@ import {
   type Hotspot,
   type LocaleDocument,
   type Layered2DScene,
+  type Polygon2,
   type ProjectBundle,
   type ProjectManifest,
   type Rect,
@@ -31,7 +32,7 @@ export interface ScenePatch {
   background: string;
   name: string;
   playerStart: Vector2;
-  walkArea: Rect;
+  walkArea: Polygon2;
 }
 
 export interface LocaleUpsertPatch {

@@ -27,7 +27,13 @@ describe("project contracts", () => {
       size: { width: 1280, height: 720 },
       background: "navy",
       playerStart: { x: 100, y: 600 },
-      walkArea: { x: 0, y: 500, width: 1280, height: 220 },
+      walkArea: {
+        points: [
+          { x: 0, y: 500 },
+          { x: 1280, y: 500 },
+          { x: 1280, y: 720 }
+        ]
+      },
       shapes: [],
       hotspots: [],
       surprise: true
@@ -37,4 +43,3 @@ describe("project contracts", () => {
     expect(result.errors.length).toBeGreaterThan(0);
   });
 });
-

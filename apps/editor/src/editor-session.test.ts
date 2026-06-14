@@ -32,7 +32,16 @@ const sceneDocument: SceneDocument = {
   shapes: [],
   size: { height: 720, width: 1280 },
   type: "layered-2d",
-  walkArea: { height: 190, width: 1120, x: 80, y: 470 }
+  walkArea: {
+    points: [
+      { x: 80, y: 470 },
+      { x: 1180, y: 470 },
+      { x: 1200, y: 550 },
+      { x: 1120, y: 660 },
+      { x: 160, y: 675 },
+      { x: 60, y: 560 }
+    ]
+  }
 };
 
 const flowDocument: FlowDocument = {

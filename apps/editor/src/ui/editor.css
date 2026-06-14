@@ -461,8 +461,7 @@ button {
   box-shadow: inset 0 0 0 1px rgba(255, 241, 209, 0.35);
 }
 
-.hotspot-box span,
-.walk-region {
+.hotspot-box span {
   padding: 3px 5px;
   color: #1b201d;
   border-radius: 2px;
@@ -478,12 +477,35 @@ button {
 }
 
 .walk-region {
-  display: flex;
-  align-items: flex-start;
-  justify-content: flex-start;
-  color: #13231e;
-  border: 1px dashed rgba(98, 181, 147, 0.8);
-  background: rgba(98, 181, 147, 0.14);
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.walk-region-fill {
+  fill: rgba(98, 181, 147, 0.14);
+}
+
+.walk-region-outline {
+  fill: none;
+  stroke: rgba(98, 181, 147, 0.86);
+  stroke-dasharray: 14 10;
+  stroke-width: 4;
+}
+
+.walk-region-point {
+  fill: #62b593;
+  stroke: #d8ffef;
+  stroke-width: 2;
+}
+
+.walk-region-label {
+  fill: #d8ffef;
+  font-family: "Courier New", monospace;
+  font-size: 22px;
+  font-weight: 700;
 }
 
 .empty-scene,
@@ -626,6 +648,35 @@ button {
   display: grid;
   gap: 6px;
   margin-top: 10px;
+}
+
+.walk-points {
+  display: grid;
+  gap: 10px;
+}
+
+.walk-point-card {
+  padding: 10px;
+  border: 1px solid #2f414b;
+  border-radius: 3px 10px 3px 10px;
+  background: #162129;
+}
+
+.walk-point-card strong {
+  color: #d9a561;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.walk-point-card button,
+.field-group > button {
+  margin-top: 10px;
+  padding: 0;
+  color: #9cb3bc;
+  border: 0;
+  background: transparent;
+  font-size: 0.62rem;
+  cursor: pointer;
 }
 
 .flow-link {

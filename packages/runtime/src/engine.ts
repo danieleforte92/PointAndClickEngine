@@ -18,6 +18,7 @@ import {
   type DialogueLine,
   type FlowSession
 } from "@pointclick/flows";
+import { resolveWalkTarget } from "./navigation";
 
 export interface RuntimeFrame {
   state: WorldState;
@@ -64,12 +65,16 @@ export class AdventureEngine {
       return this.frame([], null);
     }
 
-    const clampedX = Math.max(scene.walkArea.x, Math.min(x, scene.walkArea.x + scene.walkArea.width));
-    const clampedY = Math.max(
-      scene.walkArea.y,
-      Math.min(y, scene.walkArea.y + scene.walkArea.height)
-    );
-    const events = this.dispatch({ type: "character/walk", x: clampedX, y: clampedY });
+    const resolution = resolveWalkTarget(scene.walkArea, this.world.player, { x, y });
+    if (!resolution) {
+      return this.frame([], null);
+    }
+
+    const events = this.dispatch({
+      type: "character/walk",
+      x: resolution.goal.x,
+      y: resolution.goal.y
+    });
     return this.frame(events, null);
   }
 
@@ -150,4 +155,3 @@ export class AdventureEngine {
     return this.bundle.locales[this.locale]?.strings[key] ?? `[${key}]`;
   }
 }
-

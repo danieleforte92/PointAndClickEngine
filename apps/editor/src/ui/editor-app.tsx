@@ -17,6 +17,7 @@ import {
   initializeEditorSession,
   parseNumber,
   parsePositiveNumber,
+  polygonArea,
   redoHistory,
   restoreSessionFromRecovery,
   sceneItems,
@@ -75,6 +76,24 @@ function localeFromSnapshot(snapshot: EditorProjectSnapshot | null, localeId: st
 function flowFromSnapshot(snapshot: EditorProjectSnapshot | null, flowId: string | null) {
   if (!snapshot || !flowId) return null;
   return snapshot.flows.find((flow) => flow.id === flowId) ?? null;
+}
+
+function parseWalkAreaDraft(
+  walkAreaPoints: Array<{ x: string; y: string }>
+): { points: Array<{ x: number; y: number }> } | null {
+  const points = walkAreaPoints.map((point) => {
+    const x = parseNumber(point.x);
+    const y = parseNumber(point.y);
+    return x === null || y === null ? null : { x, y };
+  });
+
+  if (points.some((point) => point === null)) {
+    return null;
+  }
+
+  return {
+    points: points as Array<{ x: number; y: number }>
+  };
 }
 
 export function EditorApp() {
@@ -137,6 +156,11 @@ export function EditorApp() {
     ? `${selectedScene.size.width} x ${selectedScene.size.height}`
     : "No scene";
   const localeLabel = project?.manifest.defaultLocale ?? "n/a";
+  const draftWalkArea = parseWalkAreaDraft(currentSceneDraft.walkAreaPoints);
+  const previewWalkArea = draftWalkArea ?? selectedScene?.walkArea ?? null;
+  const previewWalkAreaPoints = previewWalkArea
+    ? previewWalkArea.points.map((point) => `${point.x},${point.y}`).join(" ")
+    : "";
 
   const replaceSession = (recipe: (current: EditorHistoryState) => EditorHistoryState) => {
     setHistory((current) => recipe(current));
@@ -350,6 +374,65 @@ export function EditorApp() {
     }));
   };
 
+  const updateWalkAreaPoint = (index: number, axis: "x" | "y", value: string) => {
+    if (!selectedScene) return;
+    updateDraftWithHistory((current) => {
+      const sceneDraft = current.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene);
+      const walkAreaPoints = sceneDraft.walkAreaPoints.map((point, pointIndex) =>
+        pointIndex === index ? { ...point, [axis]: value } : point
+      );
+      return {
+        ...current,
+        sceneDrafts: {
+          ...current.sceneDrafts,
+          [selectedScene.id]: {
+            ...sceneDraft,
+            walkAreaPoints
+          }
+        }
+      };
+    });
+  };
+
+  const addWalkAreaPoint = () => {
+    if (!selectedScene) return;
+    updateDraftWithHistory((current) => {
+      const sceneDraft = current.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene);
+      const lastPoint =
+        sceneDraft.walkAreaPoints[sceneDraft.walkAreaPoints.length - 1] ?? { x: "0", y: "0" };
+      return {
+        ...current,
+        sceneDrafts: {
+          ...current.sceneDrafts,
+          [selectedScene.id]: {
+            ...sceneDraft,
+            walkAreaPoints: [
+              ...sceneDraft.walkAreaPoints,
+              { x: lastPoint.x, y: lastPoint.y }
+            ]
+          }
+        }
+      };
+    });
+  };
+
+  const removeWalkAreaPoint = (index: number) => {
+    if (!selectedScene || currentSceneDraft.walkAreaPoints.length <= 3) return;
+    updateDraftWithHistory((current) => {
+      const sceneDraft = current.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene);
+      return {
+        ...current,
+        sceneDrafts: {
+          ...current.sceneDrafts,
+          [selectedScene.id]: {
+            ...sceneDraft,
+            walkAreaPoints: sceneDraft.walkAreaPoints.filter((_, pointIndex) => pointIndex !== index)
+          }
+        }
+      };
+    });
+  };
+
   const updateLocaleValue = (key: string, value: string) => {
     if (!selectedLocale) return;
     updateDraftWithHistory((current) => ({
@@ -487,12 +570,9 @@ export function EditorApp() {
 
     const playerStartX = parseNumber(currentSceneDraft.playerStartX);
     const playerStartY = parseNumber(currentSceneDraft.playerStartY);
-    const walkAreaX = parseNumber(currentSceneDraft.walkAreaX);
-    const walkAreaY = parseNumber(currentSceneDraft.walkAreaY);
-    const walkAreaWidth = parsePositiveNumber(currentSceneDraft.walkAreaWidth);
-    const walkAreaHeight = parsePositiveNumber(currentSceneDraft.walkAreaHeight);
     const name = currentSceneDraft.name.trim();
     const background = currentSceneDraft.background.trim();
+    const walkArea = parseWalkAreaDraft(currentSceneDraft.walkAreaPoints);
 
     if (!name) {
       setStatus("Scene name is required");
@@ -502,15 +582,20 @@ export function EditorApp() {
       setStatus("Background must be a valid #RRGGBB color");
       return;
     }
-    if (
-      playerStartX === null ||
-      playerStartY === null ||
-      walkAreaX === null ||
-      walkAreaY === null ||
-      walkAreaWidth === null ||
-      walkAreaHeight === null
-    ) {
-      setStatus("Scene coordinates must be valid numbers, with walk area size above zero");
+    if (playerStartX === null || playerStartY === null) {
+      setStatus("Scene coordinates must be valid numbers");
+      return;
+    }
+    if (currentSceneDraft.walkAreaPoints.length < 3) {
+      setStatus("Walk area needs at least three points");
+      return;
+    }
+    if (!walkArea) {
+      setStatus("Walk area points must be valid numbers");
+      return;
+    }
+    if (polygonArea(walkArea) <= 0) {
+      setStatus("Walk area must enclose a non-zero area");
       return;
     }
 
@@ -525,12 +610,7 @@ export function EditorApp() {
             x: playerStartX,
             y: playerStartY
           },
-          walkArea: {
-            x: walkAreaX,
-            y: walkAreaY,
-            width: walkAreaWidth,
-            height: walkAreaHeight
-          }
+          walkArea
         },
         sceneId: selectedScene.id
       });
@@ -819,17 +899,24 @@ export function EditorApp() {
                     }}
                   />
                 ))}
-                <div
-                  className="walk-region"
-                  style={{
-                    height: `${(selectedScene.walkArea.height / selectedScene.size.height) * 100}%`,
-                    left: `${(selectedScene.walkArea.x / selectedScene.size.width) * 100}%`,
-                    top: `${(selectedScene.walkArea.y / selectedScene.size.height) * 100}%`,
-                    width: `${(selectedScene.walkArea.width / selectedScene.size.width) * 100}%`
-                  }}
-                >
-                  walk-area
-                </div>
+                {previewWalkArea ? (
+                  <svg
+                    className="walk-region"
+                    viewBox={`0 0 ${selectedScene.size.width} ${selectedScene.size.height}`}
+                    preserveAspectRatio="none"
+                  >
+                    <polygon className="walk-region-fill" points={previewWalkAreaPoints} />
+                    <polygon className="walk-region-outline" points={previewWalkAreaPoints} />
+                    {previewWalkArea.points.map((point, index) => (
+                      <g key={`walk-point-${index}`}>
+                        <circle className="walk-region-point" cx={point.x} cy={point.y} r="7" />
+                        <text className="walk-region-label" x={point.x + 10} y={point.y - 10}>
+                          {index + 1}
+                        </text>
+                      </g>
+                    ))}
+                  </svg>
+                ) : null}
                 <div
                   className="character"
                   style={{
@@ -1224,28 +1311,35 @@ export function EditorApp() {
                 </div>
                 <div className="field-group">
                   <span>Walk area</span>
-                  <div className="four-fields">
-                    <input
-                      aria-label="Walk area X"
-                      value={currentSceneDraft.walkAreaX}
-                      onChange={(event) => updateSceneDraft("walkAreaX", event.target.value)}
-                    />
-                    <input
-                      aria-label="Walk area Y"
-                      value={currentSceneDraft.walkAreaY}
-                      onChange={(event) => updateSceneDraft("walkAreaY", event.target.value)}
-                    />
-                    <input
-                      aria-label="Walk area width"
-                      value={currentSceneDraft.walkAreaWidth}
-                      onChange={(event) => updateSceneDraft("walkAreaWidth", event.target.value)}
-                    />
-                    <input
-                      aria-label="Walk area height"
-                      value={currentSceneDraft.walkAreaHeight}
-                      onChange={(event) => updateSceneDraft("walkAreaHeight", event.target.value)}
-                    />
+                  <div className="walk-points">
+                    {currentSceneDraft.walkAreaPoints.map((point, index) => (
+                      <div className="walk-point-card" key={`walk-point-editor-${index}`}>
+                        <strong>Point {index + 1}</strong>
+                        <div className="four-fields">
+                          <input
+                            aria-label={`Walk area point ${index + 1} X`}
+                            value={point.x}
+                            onChange={(event) => updateWalkAreaPoint(index, "x", event.target.value)}
+                          />
+                          <input
+                            aria-label={`Walk area point ${index + 1} Y`}
+                            value={point.y}
+                            onChange={(event) => updateWalkAreaPoint(index, "y", event.target.value)}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          disabled={currentSceneDraft.walkAreaPoints.length <= 3}
+                          onClick={() => removeWalkAreaPoint(index)}
+                        >
+                          Remove point
+                        </button>
+                      </div>
+                    ))}
                   </div>
+                  <button type="button" onClick={addWalkAreaPoint}>
+                    Add point
+                  </button>
                 </div>
                 <div className="flow-link">
                   <span>Layered 2D scene</span>

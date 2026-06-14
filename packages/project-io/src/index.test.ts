@@ -84,10 +84,14 @@ describe("loadProjectFromDirectory", () => {
           y: 575
         },
         walkArea: {
-          x: 90,
-          y: 460,
-          width: 1080,
-          height: 180
+          points: [
+            { x: 90, y: 460 },
+            { x: 1160, y: 460 },
+            { x: 1180, y: 545 },
+            { x: 1090, y: 650 },
+            { x: 170, y: 665 },
+            { x: 75, y: 560 }
+          ]
         }
       },
       sceneId: "moonlit-dock"
@@ -107,10 +111,14 @@ describe("loadProjectFromDirectory", () => {
         y: 575
       },
       walkArea: {
-        x: 90,
-        y: 460,
-        width: 1080,
-        height: 180
+        points: [
+          { x: 90, y: 460 },
+          { x: 1160, y: 460 },
+          { x: 1180, y: 545 },
+          { x: 1090, y: 650 },
+          { x: 170, y: 665 },
+          { x: 75, y: 560 }
+        ]
       }
     });
 
