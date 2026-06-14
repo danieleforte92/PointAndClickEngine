@@ -7,6 +7,7 @@ import type {
   ProjectManifest,
   SceneDocument
 } from "@pointclick/contracts";
+import type { EditorRecoverySnapshot } from "./editor-session";
 import type { EditorProjectCommand } from "@pointclick/project-io";
 
 export interface EditorProjectSnapshot {
@@ -30,18 +31,24 @@ export interface EditorProjectSnapshot {
 
 export interface PointClickEditorApi {
   applyCommand(command: EditorProjectCommand): Promise<EditorProjectSnapshot>;
+  clearRecovery(projectDirectory: string): Promise<void>;
   loadProject(projectDirectory?: string): Promise<EditorProjectSnapshot>;
+  loadRecovery(projectDirectory: string): Promise<EditorRecoverySnapshot | null>;
   openPreview(sceneId?: string): Promise<void>;
   openInBrowser(): Promise<void>;
   pickProject(): Promise<EditorProjectSnapshot | null>;
+  saveRecovery(snapshot: EditorRecoverySnapshot): Promise<void>;
 }
 
 const api: PointClickEditorApi = {
   applyCommand: (command) => ipcRenderer.invoke("project:command", command),
+  clearRecovery: (projectDirectory) => ipcRenderer.invoke("recovery:clear", projectDirectory),
   loadProject: (projectDirectory) => ipcRenderer.invoke("project:load", projectDirectory),
+  loadRecovery: (projectDirectory) => ipcRenderer.invoke("recovery:load", projectDirectory),
   openPreview: (sceneId) => ipcRenderer.invoke("preview:open", sceneId),
   openInBrowser: () => ipcRenderer.invoke("preview:browser"),
-  pickProject: () => ipcRenderer.invoke("project:pick")
+  pickProject: () => ipcRenderer.invoke("project:pick"),
+  saveRecovery: (snapshot) => ipcRenderer.invoke("recovery:save", snapshot)
 };
 
 contextBridge.exposeInMainWorld("pointClick", api);

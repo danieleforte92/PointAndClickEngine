@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import path from "node:path";
 import type {
@@ -9,6 +10,7 @@ import type {
   LocaleDocument,
   ProjectBundle
 } from "@pointclick/contracts";
+import type { EditorRecoverySnapshot } from "./editor-session";
 import { applyProjectCommand, loadProjectFromDirectory, type EditorProjectCommand } from "@pointclick/project-io";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 
@@ -123,6 +125,41 @@ function currentProjectPath(): string {
   return loadedProjectDirectory;
 }
 
+function recoveryDirectory(): string {
+  return path.join(app.getPath("userData"), "draft-recovery");
+}
+
+function recoveryFilePath(projectDirectory: string): string {
+  const hash = createHash("sha256").update(path.resolve(projectDirectory)).digest("hex");
+  return path.join(recoveryDirectory(), `${hash}.json`);
+}
+
+async function loadRecoverySnapshot(projectDirectory: string): Promise<EditorRecoverySnapshot | null> {
+  try {
+    const filePath = recoveryFilePath(projectDirectory);
+    const value = JSON.parse(await readFile(filePath, "utf8")) as EditorRecoverySnapshot;
+    return value.projectDirectory === projectDirectory ? value : null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function saveRecoverySnapshot(snapshot: EditorRecoverySnapshot): Promise<void> {
+  await mkdir(recoveryDirectory(), { recursive: true });
+  await writeFile(
+    recoveryFilePath(snapshot.projectDirectory),
+    `${JSON.stringify(snapshot, null, 2)}\n`,
+    "utf8"
+  );
+}
+
+async function clearRecoverySnapshot(projectDirectory: string): Promise<void> {
+  await rm(recoveryFilePath(projectDirectory), { force: true });
+}
+
 function summarizeProject(projectDirectory: string, bundle: ProjectBundle) {
   const initialScene = bundle.scenes[bundle.manifest.initialSceneId];
   const activeScene =
@@ -204,6 +241,15 @@ app.whenReady().then(() => {
   });
   ipcMain.handle("project:command", async (_event, command: EditorProjectCommand) => {
     return applyEditorCommand(command);
+  });
+  ipcMain.handle("recovery:load", async (_event, projectDirectory: string) => {
+    return loadRecoverySnapshot(projectDirectory);
+  });
+  ipcMain.handle("recovery:save", async (_event, snapshot: EditorRecoverySnapshot) => {
+    await saveRecoverySnapshot(snapshot);
+  });
+  ipcMain.handle("recovery:clear", async (_event, projectDirectory: string) => {
+    await clearRecoverySnapshot(projectDirectory);
   });
 
   createEditorWindow();

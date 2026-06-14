@@ -1,70 +1,34 @@
-import type {
-  CursorValue,
-  FlowDocument,
-  FlowNode,
-  Hotspot,
-  Layered2DScene,
-  LocaleDocument,
-  SceneDocument
-} from "@pointclick/contracts";
+import type { CursorValue, FlowDocument, Hotspot, LocaleDocument, SceneDocument } from "@pointclick/contracts";
 import { startTransition, useEffect, useMemo, useState } from "react";
+import {
+  buildFlowNodes,
+  buildRecoverySnapshot,
+  commitHistory,
+  createFlowDraft,
+  createHistoryState,
+  createHotspotDraft,
+  createNewFlowNode,
+  createSceneDraft,
+  createHotspotKey,
+  cursorOptions,
+  discardSavedDraft,
+  getDirtyState,
+  hexColorPattern,
+  initializeEditorSession,
+  parseNumber,
+  parsePositiveNumber,
+  redoHistory,
+  restoreSessionFromRecovery,
+  sceneItems,
+  type DraftNodeType,
+  type EditorHistoryState,
+  type EditorRecoverySnapshot,
+  type FlowDraft,
+  type FlowDraftNode,
+  undoHistory,
+  type Workspace
+} from "../editor-session";
 import type { EditorProjectSnapshot } from "../preload";
-
-type Workspace = "scene" | "narrative" | "assets" | "build";
-type FlagValueKind = "string" | "number" | "boolean";
-type DraftNodeType = "line" | "set-flag" | "end";
-
-interface HotspotDraft {
-  actionFlowId: string;
-  cursor: string;
-  height: string;
-  labelKey: string;
-  width: string;
-  x: string;
-  y: string;
-}
-
-interface SceneDraft {
-  background: string;
-  name: string;
-  playerStartX: string;
-  playerStartY: string;
-  walkAreaHeight: string;
-  walkAreaWidth: string;
-  walkAreaX: string;
-  walkAreaY: string;
-}
-
-interface FlowLineDraftNode {
-  id: string;
-  next: string;
-  speakerId: string;
-  textKey: string;
-  type: "line";
-}
-
-interface FlowFlagDraftNode {
-  id: string;
-  key: string;
-  next: string;
-  type: "set-flag";
-  value: string;
-  valueKind: FlagValueKind;
-}
-
-interface FlowEndDraftNode {
-  id: string;
-  type: "end";
-}
-
-type FlowDraftNode = FlowLineDraftNode | FlowFlagDraftNode | FlowEndDraftNode;
-
-interface FlowDraft {
-  id: string;
-  name: string;
-  nodes: FlowDraftNode[];
-  startNodeId: string;
-}
 
 const workspaces: { id: Workspace; label: string }[] = [
   { id: "scene", label: "Scene" },
@@ -73,178 +37,151 @@ const workspaces: { id: Workspace; label: string }[] = [
   { id: "build", label: "Build" }
 ];
 
-const cursorOptions: CursorValue[] = ["look", "talk", "use", "enter"];
-const hexColorPattern = /^#[0-9a-fA-F]{6}$/;
+const emptyHistory = createHistoryState(
+  initializeEditorSession({
+    activeFlowId: null,
+    activeHotspotId: null,
+    activeLocale: null,
+    activeSceneId: "",
+    directory: "",
+    flows: [],
+    locales: [],
+    scenes: []
+  })
+);
 
-function sceneItems(scenes: SceneDocument[]) {
-  return scenes.filter((scene): scene is Layered2DScene => scene.type === "layered-2d");
+const emptyLocaleEntry = { key: "", value: "" };
+
+function sceneFromSnapshot(snapshot: EditorProjectSnapshot | null, sceneId: string | null) {
+  if (!snapshot || !sceneId) return null;
+  return sceneItems(snapshot.scenes).find((scene) => scene.id === sceneId) ?? null;
 }
 
-function createHotspotDraft(hotspot: Hotspot | null): HotspotDraft {
-  return {
-    actionFlowId: hotspot?.actionFlowId ?? "",
-    cursor: hotspot?.cursor ?? "",
-    height: hotspot ? String(hotspot.bounds.height) : "",
-    labelKey: hotspot?.labelKey ?? "",
-    width: hotspot ? String(hotspot.bounds.width) : "",
-    x: hotspot ? String(hotspot.bounds.x) : "",
-    y: hotspot ? String(hotspot.bounds.y) : ""
-  };
+function hotspotFromSnapshot(
+  snapshot: EditorProjectSnapshot | null,
+  sceneId: string | null,
+  hotspotId: string | null
+) {
+  const scene = sceneFromSnapshot(snapshot, sceneId);
+  if (!scene || !hotspotId) return null;
+  return scene.hotspots.find((hotspot) => hotspot.id === hotspotId) ?? null;
 }
 
-function createSceneDraft(scene: Layered2DScene | null): SceneDraft {
-  return {
-    background: scene?.background ?? "",
-    name: scene?.name ?? "",
-    playerStartX: scene ? String(scene.playerStart.x) : "",
-    playerStartY: scene ? String(scene.playerStart.y) : "",
-    walkAreaHeight: scene ? String(scene.walkArea.height) : "",
-    walkAreaWidth: scene ? String(scene.walkArea.width) : "",
-    walkAreaX: scene ? String(scene.walkArea.x) : "",
-    walkAreaY: scene ? String(scene.walkArea.y) : ""
-  };
+function localeFromSnapshot(snapshot: EditorProjectSnapshot | null, localeId: string | null) {
+  if (!snapshot || !localeId) return null;
+  return snapshot.locales.find((locale) => locale.locale === localeId) ?? null;
 }
 
-function inferFlagValueKind(value: string | number | boolean): FlagValueKind {
-  if (typeof value === "boolean") return "boolean";
-  if (typeof value === "number") return "number";
-  return "string";
-}
-
-function createFlowDraft(flow: FlowDocument | null): FlowDraft | null {
-  if (!flow) return null;
-  return {
-    id: flow.id,
-    name: flow.name,
-    nodes: flow.nodes.map((node) => {
-      if (node.type === "line") {
-        return {
-          id: node.id,
-          next: node.next,
-          speakerId: node.speakerId,
-          textKey: node.textKey,
-          type: "line"
-        };
-      }
-      if (node.type === "set-flag") {
-        return {
-          id: node.id,
-          key: node.key,
-          next: node.next,
-          type: "set-flag",
-          value: String(node.value),
-          valueKind: inferFlagValueKind(node.value)
-        };
-      }
-      return {
-        id: node.id,
-        type: "end"
-      };
-    }),
-    startNodeId: flow.startNodeId
-  };
-}
-
-function parsePositiveNumber(value: string): number | null {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
-  return parsed;
-}
-
-function parseNumber(value: string): number | null {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return null;
-  return parsed;
-}
-
-function nextNodeTarget(nodes: FlowDraftNode[]): string {
-  return nodes.find((node) => node.type === "end")?.id ?? nodes[0]?.id ?? "";
-}
-
-function generateNodeId(nodes: FlowDraftNode[], prefix: string): string {
-  const ids = new Set(nodes.map((node) => node.id));
-  for (let index = 1; index < nodes.length + 10; index += 1) {
-    const candidate = `${prefix}-${index}`;
-    if (!ids.has(candidate)) {
-      return candidate;
-    }
-  }
-  return `${prefix}-${Date.now()}`;
-}
-
-function createNewFlowNode(type: DraftNodeType, nodes: FlowDraftNode[]): FlowDraftNode {
-  if (type === "line") {
-    return {
-      id: generateNodeId(nodes, "line"),
-      next: nextNodeTarget(nodes),
-      speakerId: "speaker",
-      textKey: "dialogue.new-line",
-      type: "line"
-    };
-  }
-  if (type === "set-flag") {
-    return {
-      id: generateNodeId(nodes, "flag"),
-      key: "story.flag",
-      next: nextNodeTarget(nodes),
-      type: "set-flag",
-      value: "true",
-      valueKind: "boolean"
-    };
-  }
-  return {
-    id: generateNodeId(nodes, "end"),
-    type: "end"
-  };
-}
-
-function buildFlowNodes(nodes: FlowDraftNode[]): FlowNode[] {
-  return nodes.map((node) => {
-    if (node.type === "line") {
-      return {
-        id: node.id.trim(),
-        next: node.next.trim(),
-        speakerId: node.speakerId.trim(),
-        textKey: node.textKey.trim(),
-        type: "line"
-      };
-    }
-    if (node.type === "set-flag") {
-      let value: string | number | boolean = node.value;
-      if (node.valueKind === "boolean") {
-        value = node.value.trim().toLowerCase() === "true";
-      } else if (node.valueKind === "number") {
-        value = Number(node.value);
-      }
-      return {
-        id: node.id.trim(),
-        key: node.key.trim(),
-        next: node.next.trim(),
-        type: "set-flag",
-        value
-      };
-    }
-    return {
-      id: node.id.trim(),
-      type: "end"
-    };
-  });
+function flowFromSnapshot(snapshot: EditorProjectSnapshot | null, flowId: string | null) {
+  if (!snapshot || !flowId) return null;
+  return snapshot.flows.find((flow) => flow.id === flowId) ?? null;
 }
 
 export function EditorApp() {
   const [workspace, setWorkspace] = useState<Workspace>("scene");
   const [status, setStatus] = useState("Loading project...");
   const [project, setProject] = useState<EditorProjectSnapshot | null>(null);
-  const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
-  const [activeHotspotId, setActiveHotspotId] = useState<string | null>(null);
-  const [activeLocale, setActiveLocale] = useState<string | null>(null);
-  const [activeFlowId, setActiveFlowId] = useState<string | null>(null);
-  const [hotspotDraft, setHotspotDraft] = useState<HotspotDraft>(() => createHotspotDraft(null));
-  const [sceneDraft, setSceneDraft] = useState<SceneDraft>(() => createSceneDraft(null));
-  const [flowDraft, setFlowDraft] = useState<FlowDraft | null>(null);
-  const [localeDraft, setLocaleDraft] = useState<Record<string, string>>({});
-  const [newLocaleKey, setNewLocaleKey] = useState("");
-  const [newLocaleValue, setNewLocaleValue] = useState("");
+  const [history, setHistory] = useState<EditorHistoryState>(emptyHistory);
+  const [pendingRecovery, setPendingRecovery] = useState<EditorRecoverySnapshot | null>(null);
+
+  const session = history.present;
+  const scenes = project ? sceneItems(project.scenes) : [];
+  const selectedScene =
+    sceneFromSnapshot(project, session.activeSceneId) ?? project?.selectedScene ?? scenes[0] ?? null;
+  const selectedHotspot =
+    hotspotFromSnapshot(project, session.activeSceneId, session.activeHotspotId) ?? null;
+  const selectedLocale = localeFromSnapshot(project, session.activeLocale) ?? null;
+  const selectedFlow = flowFromSnapshot(project, session.activeFlowId) ?? null;
+
+  const currentSceneDraft = selectedScene
+    ? session.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene)
+    : createSceneDraft(null);
+  const currentHotspotDraft = selectedHotspot
+    ? session.hotspotDrafts[createHotspotKey(selectedScene?.id ?? "", selectedHotspot.id)] ??
+      createHotspotDraft(selectedHotspot)
+    : createHotspotDraft(null);
+  const currentLocaleDraft = selectedLocale
+    ? session.localeDrafts[selectedLocale.locale] ?? selectedLocale.strings
+    : {};
+  const currentLocaleEntryDraft = selectedLocale
+    ? session.localeEntryDrafts[selectedLocale.locale] ?? emptyLocaleEntry
+    : emptyLocaleEntry;
+  const currentFlowDraft = selectedFlow
+    ? session.flowDrafts[selectedFlow.id] ?? createFlowDraft(selectedFlow)
+    : null;
+
+  const localeEntries = useMemo(
+    () => Object.entries(currentLocaleDraft).sort(([left], [right]) => left.localeCompare(right)),
+    [currentLocaleDraft]
+  );
+  const flowNodeIds = useMemo(
+    () => (currentFlowDraft ? currentFlowDraft.nodes.map((node) => node.id) : []),
+    [currentFlowDraft]
+  );
+  const dirtyState = useMemo(
+    () =>
+      project
+        ? getDirtyState(project, session)
+        : {
+            count: 0,
+            flowIds: new Set<string>(),
+            hotspotKeys: new Set<string>(),
+            localeIds: new Set<string>(),
+            sceneIds: new Set<string>()
+          },
+    [project, session]
+  );
+  const canUndo = history.past.length > 0;
+  const canRedo = history.future.length > 0;
+  const sceneLabel = selectedScene
+    ? `${selectedScene.size.width} x ${selectedScene.size.height}`
+    : "No scene";
+  const localeLabel = project?.manifest.defaultLocale ?? "n/a";
+
+  const replaceSession = (recipe: (current: EditorHistoryState) => EditorHistoryState) => {
+    setHistory((current) => recipe(current));
+  };
+
+  const updateSessionSelection = (
+    recipe: (current: EditorHistoryState["present"]) => EditorHistoryState["present"]
+  ) => {
+    setHistory((current) => ({
+      ...current,
+      present: recipe(current.present)
+    }));
+  };
+
+  const updateDraftWithHistory = (
+    recipe: (current: EditorHistoryState["present"]) => EditorHistoryState["present"]
+  ) => {
+    setHistory((current) => commitHistory(current, recipe(current.present)));
+  };
+
+  const loadRecoveryForProject = async (projectDirectory: string) => {
+    try {
+      return await window.pointClick.loadRecovery(projectDirectory);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Recovery snapshot could not be loaded");
+      return null;
+    }
+  };
+
+  const hydrateProject = async (snapshot: EditorProjectSnapshot) => {
+    const baseHistory = createHistoryState(initializeEditorSession(snapshot));
+    const recovery = await loadRecoveryForProject(snapshot.directory);
+
+    startTransition(() => {
+      setProject(snapshot);
+      setHistory(baseHistory);
+      setPendingRecovery(recovery);
+    });
+
+    if (recovery) {
+      setStatus(`Loaded ${snapshot.manifest.title} - recovery available`);
+    } else {
+      setStatus(`Loaded ${snapshot.manifest.title}`);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -253,20 +190,7 @@ export function EditorApp() {
       try {
         const snapshot = await window.pointClick.loadProject();
         if (cancelled) return;
-        startTransition(() => {
-          setProject(snapshot);
-          setActiveSceneId(snapshot.activeSceneId);
-          setActiveHotspotId(snapshot.activeHotspotId);
-          setActiveLocale(null);
-          setActiveFlowId(null);
-          setHotspotDraft(createHotspotDraft(snapshot.selectedHotspot));
-          setSceneDraft(createSceneDraft(snapshot.selectedScene));
-          setFlowDraft(createFlowDraft(snapshot.selectedFlow));
-          setLocaleDraft(snapshot.selectedLocale?.strings ?? {});
-          setNewLocaleKey("");
-          setNewLocaleValue("");
-        });
-        setStatus(`Loaded ${snapshot.manifest.title}`);
+        await hydrateProject(snapshot);
       } catch (error) {
         if (cancelled) return;
         setStatus(error instanceof Error ? error.message : "Failed to load project");
@@ -279,34 +203,64 @@ export function EditorApp() {
     };
   }, []);
 
-  const scenes = project ? sceneItems(project.scenes) : [];
-  const selectedScene =
-    scenes.find((scene) => scene.id === activeSceneId) ??
-    project?.selectedScene ??
-    scenes[0] ??
-    null;
-  const selectedHotspot =
-    activeHotspotId && selectedScene
-      ? selectedScene.hotspots.find((hotspot) => hotspot.id === activeHotspotId) ?? null
-      : null;
-  const selectedLocale =
-    activeLocale && project
-      ? project.locales.find((locale) => locale.locale === activeLocale) ?? null
-      : null;
-  const selectedFlow =
-    activeFlowId && project ? project.flows.find((flow) => flow.id === activeFlowId) ?? null : null;
-  const localeEntries = useMemo(
-    () => Object.entries(localeDraft).sort(([left], [right]) => left.localeCompare(right)),
-    [localeDraft]
-  );
-  const flowNodeIds = useMemo(
-    () => (flowDraft ? flowDraft.nodes.map((node) => node.id) : []),
-    [flowDraft]
-  );
-  const sceneLabel = selectedScene
-    ? `${selectedScene.size.width} x ${selectedScene.size.height}`
-    : "No scene";
-  const localeLabel = project?.manifest.defaultLocale ?? "n/a";
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey) return;
+      const wantsCommand = event.ctrlKey || event.metaKey;
+      if (!wantsCommand) return;
+
+      const key = event.key.toLowerCase();
+      if (key === "z" && !event.shiftKey) {
+        event.preventDefault();
+        replaceSession((current) => undoHistory(current));
+      } else if (key === "y" || (key === "z" && event.shiftKey)) {
+        event.preventDefault();
+        replaceSession((current) => redoHistory(current));
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!project || pendingRecovery) return;
+
+    const timeout = window.setTimeout(async () => {
+      try {
+        const snapshot = buildRecoverySnapshot(project.directory, project, history.present);
+        if (snapshot) {
+          await window.pointClick.saveRecovery(snapshot);
+        } else {
+          await window.pointClick.clearRecovery(project.directory);
+        }
+      } catch {
+        // Recovery issues should not block normal editing.
+      }
+    }, 800);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [history.present, pendingRecovery, project]);
+
+  const restoreRecovery = () => {
+    if (!project || !pendingRecovery) return;
+    startTransition(() => {
+      setHistory(createHistoryState(restoreSessionFromRecovery(project, pendingRecovery)));
+      setPendingRecovery(null);
+    });
+    setStatus("Restored unapplied drafts");
+  };
+
+  const discardRecovery = async () => {
+    if (!project) return;
+    await window.pointClick.clearRecovery(project.directory);
+    setPendingRecovery(null);
+    setStatus(`Loaded ${project.manifest.title}`);
+  };
 
   const play = async () => {
     const sceneId = selectedScene?.id ?? project?.activeSceneId;
@@ -327,77 +281,112 @@ export function EditorApp() {
       setStatus(project ? `Loaded ${project.manifest.title}` : "Project selection cancelled");
       return;
     }
-    startTransition(() => {
-      setProject(snapshot);
-      setActiveSceneId(snapshot.activeSceneId);
-      setActiveHotspotId(snapshot.activeHotspotId);
-      setActiveLocale(null);
-      setActiveFlowId(null);
-      setHotspotDraft(createHotspotDraft(snapshot.selectedHotspot));
-      setSceneDraft(createSceneDraft(snapshot.selectedScene));
-      setFlowDraft(createFlowDraft(snapshot.selectedFlow));
-      setLocaleDraft(snapshot.selectedLocale?.strings ?? {});
-      setNewLocaleKey("");
-      setNewLocaleValue("");
-    });
-    setStatus(`Loaded ${snapshot.manifest.title}`);
+    await hydrateProject(snapshot);
   };
 
   const selectScene = (sceneId: string) => {
-    const scene = scenes.find((entry) => entry.id === sceneId) ?? null;
-    startTransition(() => {
-      setActiveSceneId(sceneId);
-      setActiveHotspotId(null);
-      setActiveLocale(null);
-      setActiveFlowId(null);
-      setSceneDraft(createSceneDraft(scene));
-      setHotspotDraft(createHotspotDraft(null));
-    });
+    updateSessionSelection((current) => ({
+      ...current,
+      activeFlowId: null,
+      activeHotspotId: null,
+      activeLocale: null,
+      activeSceneId: sceneId
+    }));
   };
 
   const selectHotspot = (hotspot: Hotspot) => {
-    startTransition(() => {
-      setActiveHotspotId(hotspot.id);
-      setActiveLocale(null);
-      setActiveFlowId(null);
-      setHotspotDraft(createHotspotDraft(hotspot));
-    });
+    updateSessionSelection((current) => ({
+      ...current,
+      activeFlowId: null,
+      activeHotspotId: hotspot.id,
+      activeLocale: null
+    }));
   };
 
   const selectLocale = (locale: LocaleDocument) => {
-    startTransition(() => {
-      setActiveLocale(locale.locale);
-      setActiveHotspotId(null);
-      setActiveFlowId(null);
-      setLocaleDraft(locale.strings);
-      setNewLocaleKey("");
-      setNewLocaleValue("");
-    });
+    updateSessionSelection((current) => ({
+      ...current,
+      activeFlowId: null,
+      activeHotspotId: null,
+      activeLocale: locale.locale
+    }));
   };
 
   const selectFlow = (flow: FlowDocument) => {
-    startTransition(() => {
-      setActiveFlowId(flow.id);
-      setActiveHotspotId(null);
-      setActiveLocale(null);
-      setFlowDraft(createFlowDraft(flow));
-    });
+    updateSessionSelection((current) => ({
+      ...current,
+      activeFlowId: flow.id,
+      activeHotspotId: null,
+      activeLocale: null
+    }));
   };
 
-  const updateHotspotDraft = (field: keyof HotspotDraft, value: string) => {
-    setHotspotDraft((current) => ({ ...current, [field]: value }));
+  const updateHotspotDraft = (field: keyof typeof currentHotspotDraft, value: string) => {
+    if (!selectedScene || !selectedHotspot) return;
+    const key = createHotspotKey(selectedScene.id, selectedHotspot.id);
+    updateDraftWithHistory((current) => ({
+      ...current,
+      hotspotDrafts: {
+        ...current.hotspotDrafts,
+        [key]: {
+          ...(current.hotspotDrafts[key] ?? createHotspotDraft(selectedHotspot)),
+          [field]: value
+        }
+      }
+    }));
   };
 
-  const updateSceneDraft = (field: keyof SceneDraft, value: string) => {
-    setSceneDraft((current) => ({ ...current, [field]: value }));
+  const updateSceneDraft = (field: keyof typeof currentSceneDraft, value: string) => {
+    if (!selectedScene) return;
+    updateDraftWithHistory((current) => ({
+      ...current,
+      sceneDrafts: {
+        ...current.sceneDrafts,
+        [selectedScene.id]: {
+          ...(current.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene)),
+          [field]: value
+        }
+      }
+    }));
   };
 
   const updateLocaleValue = (key: string, value: string) => {
-    setLocaleDraft((current) => ({ ...current, [key]: value }));
+    if (!selectedLocale) return;
+    updateDraftWithHistory((current) => ({
+      ...current,
+      localeDrafts: {
+        ...current.localeDrafts,
+        [selectedLocale.locale]: {
+          ...(current.localeDrafts[selectedLocale.locale] ?? selectedLocale.strings),
+          [key]: value
+        }
+      }
+    }));
+  };
+
+  const updateLocaleEntryDraft = (field: "key" | "value", value: string) => {
+    if (!selectedLocale) return;
+    updateDraftWithHistory((current) => ({
+      ...current,
+      localeEntryDrafts: {
+        ...current.localeEntryDrafts,
+        [selectedLocale.locale]: {
+          ...(current.localeEntryDrafts[selectedLocale.locale] ?? emptyLocaleEntry),
+          [field]: value
+        }
+      }
+    }));
   };
 
   const updateFlowDraft = (recipe: (current: FlowDraft) => FlowDraft) => {
-    setFlowDraft((current) => (current ? recipe(current) : current));
+    if (!selectedFlow || !currentFlowDraft) return;
+    updateDraftWithHistory((current) => ({
+      ...current,
+      flowDrafts: {
+        ...current.flowDrafts,
+        [selectedFlow.id]: recipe(current.flowDrafts[selectedFlow.id] ?? currentFlowDraft)
+      }
+    }));
   };
 
   const updateFlowNode = (index: number, recipe: (node: FlowDraftNode) => FlowDraftNode) => {
@@ -433,13 +422,13 @@ export function EditorApp() {
   const applyHotspotChanges = async () => {
     if (!selectedScene || !selectedHotspot) return;
 
-    const x = parseNumber(hotspotDraft.x);
-    const y = parseNumber(hotspotDraft.y);
-    const width = parsePositiveNumber(hotspotDraft.width);
-    const height = parsePositiveNumber(hotspotDraft.height);
-    const labelKey = hotspotDraft.labelKey.trim();
-    const actionFlowId = hotspotDraft.actionFlowId.trim();
-    const cursor = hotspotDraft.cursor.trim();
+    const x = parseNumber(currentHotspotDraft.x);
+    const y = parseNumber(currentHotspotDraft.y);
+    const width = parsePositiveNumber(currentHotspotDraft.width);
+    const height = parsePositiveNumber(currentHotspotDraft.height);
+    const labelKey = currentHotspotDraft.labelKey.trim();
+    const actionFlowId = currentHotspotDraft.actionFlowId.trim();
+    const cursor = currentHotspotDraft.cursor.trim();
 
     if (x === null || y === null || width === null || height === null) {
       setStatus("Bounds must be valid numbers, with width and height above zero");
@@ -476,22 +465,17 @@ export function EditorApp() {
         patch,
         sceneId: selectedScene.id
       });
-
-      const refreshedScene =
-        sceneItems(snapshot.scenes).find((scene) => scene.id === selectedScene.id) ??
-        snapshot.selectedScene;
-      const refreshedHotspot =
-        refreshedScene?.hotspots.find((hotspot) => hotspot.id === selectedHotspot.id) ?? null;
-
-      startTransition(() => {
-        setProject(snapshot);
-        setActiveSceneId(selectedScene.id);
-        setActiveHotspotId(refreshedHotspot?.id ?? selectedHotspot.id);
-        setActiveLocale(null);
-        setActiveFlowId(null);
-        setHotspotDraft(createHotspotDraft(refreshedHotspot));
-        setSceneDraft(createSceneDraft(refreshedScene ?? null));
-      });
+      setProject(snapshot);
+      setHistory((current) =>
+        ({
+          ...current,
+          present: discardSavedDraft(
+            current.present,
+            "hotspot",
+            createHotspotKey(selectedScene.id, selectedHotspot.id)
+          )
+        })
+      );
       setStatus(`Saved ${selectedHotspot.id}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Failed to save hotspot");
@@ -501,14 +485,14 @@ export function EditorApp() {
   const applySceneChanges = async () => {
     if (!selectedScene) return;
 
-    const playerStartX = parseNumber(sceneDraft.playerStartX);
-    const playerStartY = parseNumber(sceneDraft.playerStartY);
-    const walkAreaX = parseNumber(sceneDraft.walkAreaX);
-    const walkAreaY = parseNumber(sceneDraft.walkAreaY);
-    const walkAreaWidth = parsePositiveNumber(sceneDraft.walkAreaWidth);
-    const walkAreaHeight = parsePositiveNumber(sceneDraft.walkAreaHeight);
-    const name = sceneDraft.name.trim();
-    const background = sceneDraft.background.trim();
+    const playerStartX = parseNumber(currentSceneDraft.playerStartX);
+    const playerStartY = parseNumber(currentSceneDraft.playerStartY);
+    const walkAreaX = parseNumber(currentSceneDraft.walkAreaX);
+    const walkAreaY = parseNumber(currentSceneDraft.walkAreaY);
+    const walkAreaWidth = parsePositiveNumber(currentSceneDraft.walkAreaWidth);
+    const walkAreaHeight = parsePositiveNumber(currentSceneDraft.walkAreaHeight);
+    const name = currentSceneDraft.name.trim();
+    const background = currentSceneDraft.background.trim();
 
     if (!name) {
       setStatus("Scene name is required");
@@ -550,18 +534,11 @@ export function EditorApp() {
         },
         sceneId: selectedScene.id
       });
-
-      const refreshedScene =
-        sceneItems(snapshot.scenes).find((scene) => scene.id === selectedScene.id) ?? null;
-
-      startTransition(() => {
-        setProject(snapshot);
-        setActiveSceneId(selectedScene.id);
-        setActiveHotspotId(null);
-        setActiveLocale(null);
-        setActiveFlowId(null);
-        setSceneDraft(createSceneDraft(refreshedScene));
-      });
+      setProject(snapshot);
+      setHistory((current) => ({
+        ...current,
+        present: discardSavedDraft(current.present, "scene", selectedScene.id)
+      }));
       setStatus(`Saved ${selectedScene.id}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Failed to save scene");
@@ -587,21 +564,11 @@ export function EditorApp() {
           value
         }
       });
-
-      const refreshedLocale =
-        snapshot.locales.find((locale) => locale.locale === selectedLocale.locale) ?? null;
-
-      startTransition(() => {
-        setProject(snapshot);
-        setActiveLocale(selectedLocale.locale);
-        setActiveHotspotId(null);
-        setActiveFlowId(null);
-        setLocaleDraft(refreshedLocale?.strings ?? {});
-        if (normalizedKey === newLocaleKey.trim()) {
-          setNewLocaleKey("");
-          setNewLocaleValue("");
-        }
-      });
+      setProject(snapshot);
+      setHistory((current) => ({
+        ...current,
+        present: discardSavedDraft(current.present, "locale", selectedLocale.locale)
+      }));
       setStatus(`Saved ${normalizedKey}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Failed to save locale string");
@@ -609,17 +576,17 @@ export function EditorApp() {
   };
 
   const applyFlowChanges = async () => {
-    if (!selectedFlow || !flowDraft) return;
+    if (!selectedFlow || !currentFlowDraft) return;
 
-    const name = flowDraft.name.trim();
-    const startNodeId = flowDraft.startNodeId.trim();
-    const ids = flowDraft.nodes.map((node) => node.id.trim());
+    const name = currentFlowDraft.name.trim();
+    const startNodeId = currentFlowDraft.startNodeId.trim();
+    const ids = currentFlowDraft.nodes.map((node) => node.id.trim());
 
     if (!name) {
       setStatus("Flow name is required");
       return;
     }
-    if (flowDraft.nodes.length === 0) {
+    if (currentFlowDraft.nodes.length === 0) {
       setStatus("A flow must contain at least one node");
       return;
     }
@@ -635,11 +602,11 @@ export function EditorApp() {
       setStatus("Start node must reference an existing node id");
       return;
     }
-    if (!flowDraft.nodes.some((node) => node.type === "end")) {
+    if (!currentFlowDraft.nodes.some((node) => node.type === "end")) {
       setStatus("A flow must contain at least one end node");
       return;
     }
-    for (const node of flowDraft.nodes) {
+    for (const node of currentFlowDraft.nodes) {
       if (node.type === "line") {
         if (!node.speakerId.trim() || !node.textKey.trim() || !node.next.trim()) {
           setStatus(`Line node "${node.id}" is incomplete`);
@@ -673,20 +640,15 @@ export function EditorApp() {
         flowId: selectedFlow.id,
         patch: {
           name,
-          nodes: buildFlowNodes(flowDraft.nodes),
+          nodes: buildFlowNodes(currentFlowDraft.nodes),
           startNodeId
         }
       });
-
-      const refreshedFlow = snapshot.flows.find((flow) => flow.id === selectedFlow.id) ?? null;
-
-      startTransition(() => {
-        setProject(snapshot);
-        setActiveFlowId(selectedFlow.id);
-        setActiveHotspotId(null);
-        setActiveLocale(null);
-        setFlowDraft(createFlowDraft(refreshedFlow));
-      });
+      setProject(snapshot);
+      setHistory((current) => ({
+        ...current,
+        present: discardSavedDraft(current.present, "flow", selectedFlow.id)
+      }));
       setStatus(`Saved ${selectedFlow.id}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Failed to save flow");
@@ -718,6 +680,22 @@ export function EditorApp() {
         </nav>
 
         <div className="preview-actions">
+          <button
+            className="secondary-action"
+            disabled={!canUndo}
+            type="button"
+            onClick={() => replaceSession((current) => undoHistory(current))}
+          >
+            Undo
+          </button>
+          <button
+            className="secondary-action"
+            disabled={!canRedo}
+            type="button"
+            onClick={() => replaceSession((current) => redoHistory(current))}
+          >
+            Redo
+          </button>
           <button className="secondary-action" type="button" onClick={openProject}>
             Open Project
           </button>
@@ -729,6 +707,23 @@ export function EditorApp() {
           </button>
         </div>
       </header>
+
+      {pendingRecovery ? (
+        <div className="recovery-banner">
+          <div>
+            <strong>Recovered draft available</strong>
+            <small>We found unapplied local edits for this project.</small>
+          </div>
+          <div className="recovery-actions">
+            <button className="secondary-action" type="button" onClick={discardRecovery}>
+              Discard
+            </button>
+            <button className="play-action" type="button" onClick={restoreRecovery}>
+              Restore drafts
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="workspace-grid">
         <aside className="project-panel panel">
@@ -742,34 +737,37 @@ export function EditorApp() {
             <div className="tree-group open">Scenes</div>
             {scenes.map((scene) => (
               <button
-                className={`tree-item ${activeLocale === null && activeFlowId === null && selectedScene?.id === scene.id ? "selected" : ""}`}
+                className={`tree-item ${session.activeLocale === null && session.activeFlowId === null && selectedScene?.id === scene.id ? "selected" : ""}`}
                 key={scene.id}
                 type="button"
                 onClick={() => selectScene(scene.id)}
               >
                 <span className="scene-dot" /> {scene.name}
+                {dirtyState.sceneIds.has(scene.id) ? <span className="dirty-mark">*</span> : null}
               </button>
             ))}
             <div className="tree-group open">Flows ({project?.flowCount ?? 0})</div>
             {project?.flows.map((flow) => (
               <button
-                className={`tree-item ${activeFlowId === flow.id ? "selected" : ""}`}
+                className={`tree-item ${session.activeFlowId === flow.id ? "selected" : ""}`}
                 key={flow.id}
                 type="button"
                 onClick={() => selectFlow(flow)}
               >
                 <span className="scene-dot muted" /> {flow.id}
+                {dirtyState.flowIds.has(flow.id) ? <span className="dirty-mark">*</span> : null}
               </button>
             ))}
             <div className="tree-group open">Locales ({project?.localeCount ?? 0})</div>
             {project?.locales.map((locale) => (
               <button
-                className={`tree-item ${activeLocale === locale.locale ? "selected" : ""}`}
+                className={`tree-item ${session.activeLocale === locale.locale ? "selected" : ""}`}
                 key={locale.locale}
                 type="button"
                 onClick={() => selectLocale(locale)}
               >
                 <span className="scene-dot muted" /> {locale.locale}
+                {dirtyState.localeIds.has(locale.locale) ? <span className="dirty-mark">*</span> : null}
               </button>
             ))}
           </div>
@@ -777,7 +775,9 @@ export function EditorApp() {
             <span className="health-light" />
             <div>
               <strong>{status}</strong>
-              <small>Schema v1 - {localeLabel}</small>
+              <small>
+                Schema v1 - {localeLabel} - {dirtyState.count} dirty draft(s)
+              </small>
             </div>
           </div>
         </aside>
@@ -886,16 +886,16 @@ export function EditorApp() {
             </small>
           </div>
           <div className="inspector-content">
-            {selectedFlow && flowDraft ? (
+            {selectedFlow && currentFlowDraft ? (
               <>
                 <label>
                   Flow
-                  <input value={flowDraft.id} readOnly />
+                  <input value={currentFlowDraft.id} readOnly />
                 </label>
                 <label>
                   Name
                   <input
-                    value={flowDraft.name}
+                    value={currentFlowDraft.name}
                     onChange={(event) =>
                       updateFlowDraft((current) => ({ ...current, name: event.target.value }))
                     }
@@ -904,7 +904,7 @@ export function EditorApp() {
                 <label>
                   Start node
                   <select
-                    value={flowDraft.startNodeId}
+                    value={currentFlowDraft.startNodeId}
                     onChange={(event) =>
                       updateFlowDraft((current) => ({ ...current, startNodeId: event.target.value }))
                     }
@@ -917,7 +917,7 @@ export function EditorApp() {
                   </select>
                 </label>
                 <div className="flow-nodes">
-                  {flowDraft.nodes.map((node, index) => (
+                  {currentFlowDraft.nodes.map((node, index) => (
                     <div className="flow-node-card" key={`${node.type}-${index}-${node.id}`}>
                       <div className="flow-node-header">
                         <strong>{node.type}</strong>
@@ -1001,7 +1001,7 @@ export function EditorApp() {
                               onChange={(event) =>
                                 updateFlowNode(index, (current) =>
                                   current.type === "set-flag"
-                                    ? { ...current, valueKind: event.target.value as FlagValueKind }
+                                    ? { ...current, valueKind: event.target.value as "string" | "number" | "boolean" }
                                     : current
                                 )
                               }
@@ -1048,7 +1048,10 @@ export function EditorApp() {
                 </div>
                 <div className="flow-link">
                   <span>Add node</span>
-                  <strong>{flowDraft.nodes.length} node(s)</strong>
+                  <strong>
+                    {currentFlowDraft.nodes.length} node(s)
+                    {dirtyState.flowIds.has(selectedFlow.id) ? " - unsaved draft" : ""}
+                  </strong>
                   <div className="flow-actions">
                     <button type="button" onClick={() => addFlowNode("line")}>
                       Add line
@@ -1085,7 +1088,7 @@ export function EditorApp() {
                           onChange={(event) => updateLocaleValue(key, event.target.value)}
                         />
                       </label>
-                      <button type="button" onClick={() => applyLocaleUpsert(key, localeDraft[key] ?? "")}>
+                      <button type="button" onClick={() => applyLocaleUpsert(key, currentLocaleDraft[key] ?? "")}>
                         Save string
                       </button>
                     </div>
@@ -1095,15 +1098,20 @@ export function EditorApp() {
                   <span>Add string</span>
                   <input
                     placeholder="key.path"
-                    value={newLocaleKey}
-                    onChange={(event) => setNewLocaleKey(event.target.value)}
+                    value={currentLocaleEntryDraft.key}
+                    onChange={(event) => updateLocaleEntryDraft("key", event.target.value)}
                   />
                   <textarea
                     placeholder="Localized text"
-                    value={newLocaleValue}
-                    onChange={(event) => setNewLocaleValue(event.target.value)}
+                    value={currentLocaleEntryDraft.value}
+                    onChange={(event) => updateLocaleEntryDraft("value", event.target.value)}
                   />
-                  <button type="button" onClick={() => applyLocaleUpsert(newLocaleKey, newLocaleValue)}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      applyLocaleUpsert(currentLocaleEntryDraft.key, currentLocaleEntryDraft.value)
+                    }
+                  >
                     Add or update
                   </button>
                 </div>
@@ -1117,7 +1125,7 @@ export function EditorApp() {
                 <label>
                   Display label
                   <input
-                    value={hotspotDraft.labelKey}
+                    value={currentHotspotDraft.labelKey}
                     onChange={(event) => updateHotspotDraft("labelKey", event.target.value)}
                   />
                 </label>
@@ -1126,22 +1134,22 @@ export function EditorApp() {
                   <div className="four-fields">
                     <input
                       aria-label="X"
-                      value={hotspotDraft.x}
+                      value={currentHotspotDraft.x}
                       onChange={(event) => updateHotspotDraft("x", event.target.value)}
                     />
                     <input
                       aria-label="Y"
-                      value={hotspotDraft.y}
+                      value={currentHotspotDraft.y}
                       onChange={(event) => updateHotspotDraft("y", event.target.value)}
                     />
                     <input
                       aria-label="Width"
-                      value={hotspotDraft.width}
+                      value={currentHotspotDraft.width}
                       onChange={(event) => updateHotspotDraft("width", event.target.value)}
                     />
                     <input
                       aria-label="Height"
-                      value={hotspotDraft.height}
+                      value={currentHotspotDraft.height}
                       onChange={(event) => updateHotspotDraft("height", event.target.value)}
                     />
                   </div>
@@ -1149,7 +1157,7 @@ export function EditorApp() {
                 <label>
                   Cursor
                   <select
-                    value={hotspotDraft.cursor}
+                    value={currentHotspotDraft.cursor}
                     onChange={(event) => updateHotspotDraft("cursor", event.target.value)}
                   >
                     <option value="">Default</option>
@@ -1162,13 +1170,18 @@ export function EditorApp() {
                 <label>
                   Flow
                   <input
-                    value={hotspotDraft.actionFlowId}
+                    value={currentHotspotDraft.actionFlowId}
                     onChange={(event) => updateHotspotDraft("actionFlowId", event.target.value)}
                   />
                 </label>
                 <div className="flow-link">
                   <span>On activate</span>
-                  <strong>{hotspotDraft.actionFlowId || "missing"}</strong>
+                  <strong>
+                    {currentHotspotDraft.actionFlowId || "missing"}
+                    {selectedScene && dirtyState.hotspotKeys.has(createHotspotKey(selectedScene.id, selectedHotspot.id))
+                      ? " - unsaved draft"
+                      : ""}
+                  </strong>
                   <button type="button" onClick={applyHotspotChanges}>
                     Apply changes -&gt;
                   </button>
@@ -1183,14 +1196,14 @@ export function EditorApp() {
                 <label>
                   Name
                   <input
-                    value={sceneDraft.name}
+                    value={currentSceneDraft.name}
                     onChange={(event) => updateSceneDraft("name", event.target.value)}
                   />
                 </label>
                 <label>
                   Background
                   <input
-                    value={sceneDraft.background}
+                    value={currentSceneDraft.background}
                     onChange={(event) => updateSceneDraft("background", event.target.value)}
                   />
                 </label>
@@ -1199,12 +1212,12 @@ export function EditorApp() {
                   <div className="four-fields">
                     <input
                       aria-label="Player start X"
-                      value={sceneDraft.playerStartX}
+                      value={currentSceneDraft.playerStartX}
                       onChange={(event) => updateSceneDraft("playerStartX", event.target.value)}
                     />
                     <input
                       aria-label="Player start Y"
-                      value={sceneDraft.playerStartY}
+                      value={currentSceneDraft.playerStartY}
                       onChange={(event) => updateSceneDraft("playerStartY", event.target.value)}
                     />
                   </div>
@@ -1214,29 +1227,32 @@ export function EditorApp() {
                   <div className="four-fields">
                     <input
                       aria-label="Walk area X"
-                      value={sceneDraft.walkAreaX}
+                      value={currentSceneDraft.walkAreaX}
                       onChange={(event) => updateSceneDraft("walkAreaX", event.target.value)}
                     />
                     <input
                       aria-label="Walk area Y"
-                      value={sceneDraft.walkAreaY}
+                      value={currentSceneDraft.walkAreaY}
                       onChange={(event) => updateSceneDraft("walkAreaY", event.target.value)}
                     />
                     <input
                       aria-label="Walk area width"
-                      value={sceneDraft.walkAreaWidth}
+                      value={currentSceneDraft.walkAreaWidth}
                       onChange={(event) => updateSceneDraft("walkAreaWidth", event.target.value)}
                     />
                     <input
                       aria-label="Walk area height"
-                      value={sceneDraft.walkAreaHeight}
+                      value={currentSceneDraft.walkAreaHeight}
                       onChange={(event) => updateSceneDraft("walkAreaHeight", event.target.value)}
                     />
                   </div>
                 </div>
                 <div className="flow-link">
                   <span>Layered 2D scene</span>
-                  <strong>{selectedScene.name}</strong>
+                  <strong>
+                    {selectedScene.name}
+                    {dirtyState.sceneIds.has(selectedScene.id) ? " - unsaved draft" : ""}
+                  </strong>
                   <button type="button" onClick={applySceneChanges}>
                     Apply changes -&gt;
                   </button>
