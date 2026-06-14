@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "isle-of-echoes",
+  "title": "The Isle of Echoes",
+  "initialSceneId": "moonlit-dock",
+  "defaultLocale": "en",
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "scenes": [
+    {
+      "id": "moonlit-dock",
+      "path": "scenes/moonlit-dock.scene.json"
+    }
+  ],
+  "flows": [
+    {
+      "id": "inspect-tavern-door",
+      "path": "flows/inspect-tavern-door.flow.json"
+    }
+  ],
+  "locales": [
+    {
+      "locale": "en",
+      "path": "locales/en.json"
+    }
+  ]
+}
+

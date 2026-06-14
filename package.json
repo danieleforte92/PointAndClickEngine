@@ -1,0 +1,31 @@
+{
+  "name": "point-and-click-engine",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "packageManager": "pnpm@9.6.0",
+  "engines": {
+    "node": ">=22.17.0"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n player,editor -c cyan,magenta \"pnpm --filter @pointclick/player-web dev\" \"pnpm --filter @pointclick/editor start\"",
+    "dev:player": "pnpm --filter @pointclick/player-web dev",
+    "dev:editor": "pnpm --filter @pointclick/editor start",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "build": "pnpm -r --if-present build",
+    "validate:sample": "tsx packages/cli/src/index.ts validate apps/sample-game/project",
+    "check": "pnpm test && pnpm typecheck && pnpm validate:sample && pnpm build"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@types/node": "^24.0.0",
+    "concurrently": "^9.2.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}

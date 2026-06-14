@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "id": "moonlit-dock",
+  "name": "Moonlit Dock",
+  "type": "layered-2d",
+  "size": {
+    "width": 1280,
+    "height": 720
+  },
+  "background": "#132538",
+  "playerStart": {
+    "x": 510,
+    "y": 590
+  },
+  "walkArea": {
+    "x": 80,
+    "y": 470,
+    "width": 1120,
+    "height": 190
+  },
+  "shapes": [
+    {
+      "id": "moon",
+      "shape": "ellipse",
+      "bounds": {
+        "x": 972,
+        "y": 72,
+        "width": 120,
+        "height": 120
+      },
+      "fill": "#e8dcae",
+      "depth": 0
+    },
+    {
+      "id": "sea",
+      "shape": "rect",
+      "bounds": {
+        "x": 0,
+        "y": 350,
+        "width": 1280,
+        "height": 370
+      },
+      "fill": "#17445a",
+      "depth": 1
+    },
+    {
+      "id": "tavern",
+      "shape": "rect",
+      "bounds": {
+        "x": 760,
+        "y": 225,
+        "width": 330,
+        "height": 315
+      },
+      "fill": "#5b3b31",
+      "depth": 2
+    },
+    {
+      "id": "tavern-roof",
+      "shape": "rect",
+      "bounds": {
+        "x": 720,
+        "y": 190,
+        "width": 410,
+        "height": 70
+      },
+      "fill": "#281f26",
+      "depth": 3
+    },
+    {
+      "id": "tavern-door",
+      "shape": "rect",
+      "bounds": {
+        "x": 865,
+        "y": 355,
+        "width": 95,
+        "height": 185
+      },
+      "fill": "#c07b42",
+      "depth": 4
+    },
+    {
+      "id": "dock",
+      "shape": "rect",
+      "bounds": {
+        "x": 55,
+        "y": 500,
+        "width": 1160,
+        "height": 180
+      },
+      "fill": "#70513b",
+      "depth": 5
+    },
+    {
+      "id": "foreground-crate",
+      "shape": "rect",
+      "bounds": {
+        "x": 180,
+        "y": 560,
+        "width": 150,
+        "height": 120
+      },
+      "fill": "#3a2d2a",
+      "depth": 10
+    }
+  ],
+  "hotspots": [
+    {
+      "id": "tavern-entrance",
+      "labelKey": "hotspot.tavern-entrance",
+      "bounds": {
+        "x": 850,
+        "y": 335,
+        "width": 125,
+        "height": 215
+      },
+      "actionFlowId": "inspect-tavern-door",
+      "cursor": "enter"
+    }
+  ]
+}
+

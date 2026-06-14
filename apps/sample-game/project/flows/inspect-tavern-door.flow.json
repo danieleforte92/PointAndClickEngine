@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "inspect-tavern-door",
+  "name": "Inspect the tavern door",
+  "startNodeId": "remember-door",
+  "nodes": [
+    {
+      "id": "remember-door",
+      "type": "set-flag",
+      "key": "tavern.discovered",
+      "value": true,
+      "next": "mara-one"
+    },
+    {
+      "id": "mara-one",
+      "type": "line",
+      "speakerId": "mara",
+      "textKey": "dialogue.tavern.01",
+      "next": "mara-two"
+    },
+    {
+      "id": "mara-two",
+      "type": "line",
+      "speakerId": "mara",
+      "textKey": "dialogue.tavern.02",
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}
+

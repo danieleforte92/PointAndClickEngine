@@ -1,0 +1,15 @@
+node_modules/
+dist/
+out/
+.vite/
+.cache/
+build/
+coverage/
+playwright-report/
+test-results/
+*.log
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.superpowers/
