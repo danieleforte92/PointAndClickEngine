@@ -1,8 +1,10 @@
 import type {
   FlowDocument,
   Hotspot,
+  ScenePickup,
   Layered2DScene,
   ProjectBundle,
+  Verb,
   SceneDocument
 } from "@pointclick/contracts";
 import {
@@ -24,6 +26,7 @@ export interface RuntimeFrame {
   state: WorldState;
   events: DomainEvent[];
   dialogue: (DialogueLine & { text: string }) | null;
+  feedback: string | null;
 }
 
 export class AdventureEngine {
@@ -56,18 +59,18 @@ export class AdventureEngine {
 
   start(): RuntimeFrame {
     const events = this.dispatch({ type: "game/start" });
-    return this.frame(events, null);
+    return this.frame(events, null, null);
   }
 
   walkTo(x: number, y: number): RuntimeFrame {
     const scene = this.currentScene;
     if (scene.type !== "layered-2d") {
-      return this.frame([], null);
+      return this.frame([], null, null);
     }
 
     const resolution = resolveWalkTarget(scene.walkArea, this.world.player, { x, y });
     if (!resolution) {
-      return this.frame([], null);
+      return this.frame([], null, "No path found.");
     }
 
     const events = this.dispatch({
@@ -75,16 +78,81 @@ export class AdventureEngine {
       x: resolution.goal.x,
       y: resolution.goal.y
     });
-    return this.frame(events, null);
+    return this.frame(events, null, null);
   }
 
-  activateHotspot(hotspotId: string): RuntimeFrame {
+  selectVerb(verb: Verb): RuntimeFrame {
+    const events = this.dispatch({ type: "verb/select", verb });
+    return this.frame(events, null, null);
+  }
+
+  toggleSelectedItem(itemId: string): RuntimeFrame {
+    if (!this.bundle.items[itemId]) {
+      return this.frame([], null, `Missing item "${itemId}".`);
+    }
+
+    const events = this.dispatch({ type: "inventory/select", itemId });
+    return this.frame(events, null, null);
+  }
+
+  clearSelectedItem(): RuntimeFrame {
+    const events = this.dispatch({ type: "inventory/clear-selection" });
+    return this.frame(events, null, null);
+  }
+
+  interactHotspot(hotspotId: string): RuntimeFrame {
     const hotspot = this.hotspot(hotspotId);
-    const events = this.dispatch({ type: "hotspot/activate", hotspotId });
-    events.push(...this.dispatch({ type: "flow/start", flowId: hotspot.actionFlowId }));
-    const flow = this.flow(hotspot.actionFlowId);
-    this.flowSession = createFlowSession(flow);
-    return this.advanceActiveFlow(events);
+    const verb = this.world.activeVerb;
+    const itemId = this.world.selectedItemId;
+
+    if (verb === "walk") {
+      return this.frame([], null, "Walk there instead of talking to it.");
+    }
+
+    const events = this.dispatch({ type: "hotspot/interact", hotspotId, verb, itemId });
+    const flowId = this.resolveHotspotFlow(hotspot, verb, itemId);
+    if (!flowId) {
+      return this.frame(events, null, this.unsupportedHotspotFeedback(verb, hotspot));
+    }
+
+    return this.startFlow(flowId, events);
+  }
+
+  interactPickup(pickupId: string): RuntimeFrame {
+    const pickup = this.pickup(pickupId);
+    const verb = this.world.activeVerb;
+    const itemId = this.world.selectedItemId;
+
+    if (this.world.collectedPickups.includes(pickupId)) {
+      return this.frame([], null, null);
+    }
+
+    if (verb === "walk") {
+      return this.frame([], null, "Walk won't pick it up.");
+    }
+
+    if (verb === "talk") {
+      return this.frame([], null, "Talking to loose hardware feels optimistic.");
+    }
+
+    if (verb === "use" && itemId) {
+      return this.frame([], null, "That item does not help with this pickup.");
+    }
+
+    const events: DomainEvent[] = [];
+    if (verb === "use") {
+      events.push(...this.dispatch({ type: "pickup/collect", pickupId: pickup.id, itemId: pickup.itemId }));
+    }
+
+    if (pickup.pickupFlowId) {
+      return this.startFlow(pickup.pickupFlowId, events);
+    }
+
+    if (verb === "use") {
+      return this.frame(events, null, `Collected ${this.itemLabel(pickup.itemId)}.`);
+    }
+
+    return this.frame(events, null, this.localize(pickup.labelKey));
   }
 
   advanceDialogue(): RuntimeFrame {
@@ -93,7 +161,7 @@ export class AdventureEngine {
 
   private advanceActiveFlow(events: DomainEvent[]): RuntimeFrame {
     if (!this.flowSession) {
-      return this.frame(events, null);
+      return this.frame(events, null, null);
     }
 
     const flow = this.flow(this.flowSession.flowId);
@@ -114,7 +182,8 @@ export class AdventureEngine {
             ...step.line,
             text: this.localize(step.line.textKey)
           }
-        : null
+        : null,
+      null
     );
   }
 
@@ -127,9 +196,17 @@ export class AdventureEngine {
 
   private frame(
     events: DomainEvent[],
-    dialogue: (DialogueLine & { text: string }) | null
+    dialogue: (DialogueLine & { text: string }) | null,
+    feedback: string | null
   ): RuntimeFrame {
-    return { state: this.world, events, dialogue };
+    return { state: this.world, events, dialogue, feedback };
+  }
+
+  private startFlow(flowId: string, events: DomainEvent[]): RuntimeFrame {
+    events.push(...this.dispatch({ type: "flow/start", flowId }));
+    const flow = this.flow(flowId);
+    this.flowSession = createFlowSession(flow);
+    return this.advanceActiveFlow(events);
   }
 
   private scene(id: string): SceneDocument {
@@ -151,7 +228,50 @@ export class AdventureEngine {
     return hotspot;
   }
 
+  private pickup(id: string): ScenePickup {
+    const scene = this.currentScene;
+    if (scene.type !== "layered-2d") {
+      throw new Error(`Scene "${scene.id}" does not support pickups`);
+    }
+    const pickup = scene.pickups.find((candidate) => candidate.id === id);
+    if (!pickup) throw new Error(`Missing pickup "${id}" in scene "${scene.id}"`);
+    return pickup;
+  }
+
+  private resolveHotspotFlow(hotspot: Hotspot, verb: Verb, itemId: string | null): string | null {
+    if (verb === "look") {
+      return hotspot.actions.lookFlowId ?? null;
+    }
+    if (verb === "talk") {
+      return hotspot.actions.talkFlowId ?? null;
+    }
+    if (verb === "use") {
+      if (itemId) {
+        return (
+          hotspot.actions.useItemFlows.find((entry) => entry.itemId === itemId)?.flowId ??
+          hotspot.actions.useFlowId ??
+          null
+        );
+      }
+      return hotspot.actions.useFlowId ?? null;
+    }
+    return null;
+  }
+
+  private unsupportedHotspotFeedback(verb: Verb, hotspot: Hotspot): string {
+    const label = this.localize(hotspot.labelKey);
+    if (verb === "look") return `Nothing new stands out about ${label}.`;
+    if (verb === "talk") return `${label} is not feeling conversational.`;
+    if (verb === "use") return `That does not seem useful on ${label}.`;
+    return "Nothing happens.";
+  }
+
   private localize(key: string): string {
     return this.bundle.locales[this.locale]?.strings[key] ?? `[${key}]`;
+  }
+
+  private itemLabel(itemId: string): string {
+    const item = this.bundle.items[itemId];
+    return item ? this.localize(item.labelKey) : itemId;
   }
 }

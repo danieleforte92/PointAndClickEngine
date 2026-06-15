@@ -24,5 +24,41 @@ describe("deterministic command/event core", () => {
     expect(first.events).toHaveLength(1);
     expect(duplicate.events).toEqual([]);
   });
-});
 
+  it("tracks active verb and selected inventory item", () => {
+    const initial = createInitialState("dock", { x: 0, y: 0 });
+
+    const selectedVerb = executeCommand(initial, { type: "verb/select", verb: "use" });
+    const selectedItem = executeCommand(selectedVerb.state, {
+      type: "inventory/select",
+      itemId: "rusty-hook"
+    });
+    const toggledOff = executeCommand(selectedItem.state, {
+      type: "inventory/select",
+      itemId: "rusty-hook"
+    });
+
+    expect(selectedVerb.state.activeVerb).toBe("use");
+    expect(selectedItem.state.selectedItemId).toBe("rusty-hook");
+    expect(toggledOff.state.selectedItemId).toBeNull();
+  });
+
+  it("collects pickups only once and keeps inventory unique", () => {
+    const initial = createInitialState("dock", { x: 0, y: 0 });
+
+    const first = executeCommand(initial, {
+      type: "pickup/collect",
+      pickupId: "dock-hook",
+      itemId: "rusty-hook"
+    });
+    const duplicate = executeCommand(first.state, {
+      type: "pickup/collect",
+      pickupId: "dock-hook",
+      itemId: "rusty-hook"
+    });
+
+    expect(first.state.inventory).toEqual(["rusty-hook"]);
+    expect(first.state.collectedPickups).toEqual(["dock-hook"]);
+    expect(duplicate.events).toEqual([]);
+  });
+});

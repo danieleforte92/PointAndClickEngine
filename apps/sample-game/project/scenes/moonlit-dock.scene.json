@@ -40,6 +40,20 @@
       }
     ]
   },
+  "pickups": [
+    {
+      "id": "dock-hook",
+      "itemId": "rusty-hook",
+      "labelKey": "pickup.rusty-hook",
+      "bounds": {
+        "x": 300,
+        "y": 560,
+        "width": 70,
+        "height": 60
+      },
+      "pickupFlowId": "pickup-rusty-hook"
+    }
+  ],
   "shapes": [
     {
       "id": "moon",
@@ -136,7 +150,16 @@
         "width": 125,
         "height": 215
       },
-      "actionFlowId": "inspect-tavern-door",
+      "actions": {
+        "lookFlowId": "look-tavern-door",
+        "talkFlowId": "talk-tavern-door",
+        "useItemFlows": [
+          {
+            "itemId": "rusty-hook",
+            "flowId": "use-rusty-hook-on-door"
+          }
+        ]
+      },
       "cursor": "enter"
     }
   ]

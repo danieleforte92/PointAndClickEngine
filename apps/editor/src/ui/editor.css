@@ -105,6 +105,9 @@ button {
 
 .workspace-tabs button {
   height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 0 16px;
   color: #819aa6;
   border-bottom: 2px solid transparent;
@@ -128,6 +131,34 @@ button {
 .preview-actions button:disabled {
   cursor: default;
   opacity: 0.45;
+}
+
+.capability-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 0.56rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.capability-badge.good {
+  color: #143122;
+  background: #6fc091;
+}
+
+.capability-badge.warn {
+  color: #352614;
+  background: #d9a561;
+}
+
+.capability-badge.muted {
+  color: #b2c2c9;
+  background: #30414c;
 }
 
 .secondary-action,
@@ -223,11 +254,12 @@ button {
 }
 
 .panel-heading button {
-  width: 24px;
+  min-width: 24px;
   height: 24px;
+  padding: 0 8px;
   color: #d7a765;
   border: 1px solid #374a55;
-  border-radius: 50%;
+  border-radius: 999px;
   background: transparent;
   cursor: pointer;
 }
@@ -279,6 +311,10 @@ button {
   cursor: pointer;
 }
 
+.tree-item.tree-child {
+  padding-left: 34px;
+}
+
 .dirty-mark {
   margin-left: auto;
   color: #d9a561;
@@ -327,6 +363,16 @@ button {
   box-shadow: 0 0 10px rgba(97, 185, 138, 0.5);
 }
 
+.health-light.warn {
+  background: #d9a561;
+  box-shadow: 0 0 10px rgba(217, 165, 97, 0.5);
+}
+
+.health-light.error {
+  background: #d96f61;
+  box-shadow: 0 0 10px rgba(217, 111, 97, 0.55);
+}
+
 .project-health strong,
 .project-health small {
   display: block;
@@ -369,6 +415,11 @@ button {
   font-size: 0.66rem;
 }
 
+.toolset button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .toolset button.active {
   color: #dfe9eb;
   background: #2b3d49;
@@ -396,7 +447,8 @@ button {
 .scene-shape,
 .walk-region,
 .character,
-.hotspot-box {
+.hotspot-box,
+.pickup-box {
   position: absolute;
 }
 
@@ -476,6 +528,29 @@ button {
   top: -18px;
 }
 
+.pickup-box {
+  border: 1px solid #62b593;
+  background: rgba(98, 181, 147, 0.12);
+  cursor: pointer;
+}
+
+.pickup-box.selected {
+  border-color: #d8ffef;
+  box-shadow: inset 0 0 0 1px rgba(216, 255, 239, 0.38);
+}
+
+.pickup-box span {
+  position: absolute;
+  left: 0;
+  top: -18px;
+  padding: 3px 5px;
+  color: #102018;
+  border-radius: 2px;
+  background: #62b593;
+  font-family: "Courier New", monospace;
+  font-size: 0.55rem;
+}
+
 .walk-region {
   inset: 0;
   width: 100%;
@@ -513,6 +588,96 @@ button {
   color: #89a3ad;
   font-family: Georgia, "Times New Roman", serif;
   font-size: 1.1rem;
+}
+
+.workspace-overview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 18px;
+}
+
+.overview-card,
+.workspace-placeholder {
+  padding: 16px;
+  border: 1px solid #30414c;
+  border-radius: 6px 18px 6px 18px;
+  background: linear-gradient(180deg, #18232d, #141d25);
+}
+
+.overview-card strong,
+.overview-card p,
+.workspace-placeholder strong,
+.workspace-placeholder p {
+  display: block;
+}
+
+.overview-label {
+  color: #708995;
+  font-size: 0.58rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.overview-card strong,
+.workspace-placeholder strong {
+  margin-top: 8px;
+  color: #e2ecee;
+  font-size: 1rem;
+}
+
+.overview-card p,
+.workspace-placeholder p,
+.inspector-copy {
+  margin: 8px 0 0;
+  color: #8ea5af;
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+.capability-list,
+.diagnostic-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.capability-card,
+.diagnostic-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid #2f414b;
+  border-radius: 4px 12px 4px 12px;
+  background: #162129;
+}
+
+.capability-card strong,
+.diagnostic-item strong {
+  margin-top: 0;
+  font-size: 0.76rem;
+}
+
+.diagnostic-item.error strong {
+  color: #f0a59c;
+}
+
+.diagnostic-item.warning strong {
+  color: #f0d49c;
+}
+
+.workspace-placeholder {
+  margin: 20px;
+  align-self: center;
+  justify-self: center;
+  max-width: 560px;
+}
+
+.workspace-placeholder.compact {
+  margin: 0;
 }
 
 .empty-scene {

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "pickup-rusty-hook",
+  "name": "Pick up the rusty hook",
+  "startNodeId": "mara-one",
+  "nodes": [
+    {
+      "id": "mara-one",
+      "type": "line",
+      "speakerId": "mara",
+      "textKey": "dialogue.hook.pickup.01",
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

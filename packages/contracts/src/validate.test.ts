@@ -12,6 +12,7 @@ describe("project contracts", () => {
       viewport: { width: 1280, height: 720 },
       scenes: [{ id: "dock", path: "scenes/dock.scene.json" }],
       flows: [],
+      items: [{ id: "rusty-hook", path: "items/rusty-hook.item.json" }],
       locales: [{ locale: "en", path: "locales/en.json" }]
     });
 
@@ -34,6 +35,7 @@ describe("project contracts", () => {
           { x: 1280, y: 720 }
         ]
       },
+      pickups: [],
       shapes: [],
       hotspots: [],
       surprise: true
@@ -41,5 +43,16 @@ describe("project contracts", () => {
 
     expect(result.valid).toBe(false);
     expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  it("accepts item definitions", () => {
+    const result = validateDocument("item", {
+      schemaVersion: 1,
+      id: "rusty-hook",
+      name: "Rusty Hook",
+      labelKey: "item.rusty-hook"
+    });
+
+    expect(result).toEqual({ valid: true, errors: [] });
   });
 });

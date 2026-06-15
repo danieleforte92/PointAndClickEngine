@@ -3,6 +3,7 @@ import addFormats from "ajv-formats";
 import type { TSchema } from "@sinclair/typebox";
 import {
   FlowDocumentSchema,
+  ItemDocumentSchema,
   Layered2DSceneSchema,
   LocaleDocumentSchema,
   ProjectManifestSchema,
@@ -17,7 +18,8 @@ const validators = {
   scene: ajv.compile(SceneDocumentSchema),
   layered2dScene: ajv.compile(Layered2DSceneSchema),
   flow: ajv.compile(FlowDocumentSchema),
-  locale: ajv.compile(LocaleDocumentSchema)
+  locale: ajv.compile(LocaleDocumentSchema),
+  item: ajv.compile(ItemDocumentSchema)
 } satisfies Record<string, ValidateFunction>;
 
 export type DocumentKind = keyof typeof validators;
@@ -49,4 +51,3 @@ export function assertDocument<T>(kind: DocumentKind, value: unknown): asserts v
 export function exportSchema(schema: TSchema): string {
   return JSON.stringify(schema, null, 2);
 }
-

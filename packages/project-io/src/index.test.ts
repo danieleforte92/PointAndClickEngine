@@ -2,7 +2,7 @@ import { cp, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { applyProjectCommand, loadProjectFromDirectory } from "./index";
+import { applyProjectCommand, loadProjectFromDirectory, validateProjectBundle } from "./index";
 
 describe("loadProjectFromDirectory", () => {
   it("loads the sample project bundle from disk", async () => {
@@ -26,7 +26,17 @@ describe("loadProjectFromDirectory", () => {
       type: "hotspot/update",
       hotspotId: "tavern-entrance",
       patch: {
-        actionFlowId: "inspect-tavern-door",
+        actions: {
+          lookFlowId: "look-tavern-door",
+          talkFlowId: "talk-tavern-door",
+          useFlowId: "look-tavern-door",
+          useItemFlows: [
+            {
+              itemId: "rusty-hook",
+              flowId: "use-rusty-hook-on-door"
+            }
+          ]
+        },
         bounds: {
           x: 840,
           y: 330,
@@ -47,7 +57,11 @@ describe("loadProjectFromDirectory", () => {
 
     const hotspot = scene.hotspots.find((entry) => entry.id === "tavern-entrance");
     expect(hotspot).toMatchObject({
-      actionFlowId: "inspect-tavern-door",
+      actions: {
+        lookFlowId: "look-tavern-door",
+        talkFlowId: "talk-tavern-door",
+        useFlowId: "look-tavern-door"
+      },
       bounds: {
         x: 840,
         y: 330,
@@ -190,14 +204,14 @@ describe("loadProjectFromDirectory", () => {
 
     await cp(fixtureRoot, projectRoot, { recursive: true });
 
-    const sourceFlow = (await loadProjectFromDirectory(projectRoot)).bundle.flows["inspect-tavern-door"];
+    const sourceFlow = (await loadProjectFromDirectory(projectRoot)).bundle.flows["look-tavern-door"];
     if (!sourceFlow) {
       throw new Error("Expected sample flow");
     }
 
     const updated = await applyProjectCommand(projectRoot, {
       type: "flow/update",
-      flowId: "inspect-tavern-door",
+      flowId: "look-tavern-door",
       patch: {
         name: "Inspect the tavern door again",
         nodes: sourceFlow.nodes,
@@ -205,13 +219,13 @@ describe("loadProjectFromDirectory", () => {
       }
     });
 
-    const flow = updated.bundle.flows["inspect-tavern-door"];
+    const flow = updated.bundle.flows["look-tavern-door"];
     expect(flow).toMatchObject({
       name: "Inspect the tavern door again",
       startNodeId: "mara-one"
     });
 
-    const flowPath = path.join(projectRoot, "flows", "inspect-tavern-door.flow.json");
+    const flowPath = path.join(projectRoot, "flows", "look-tavern-door.flow.json");
     const flowFile = JSON.parse(await readFile(flowPath, "utf8")) as {
       name: string;
       startNodeId: string;
@@ -227,13 +241,13 @@ describe("loadProjectFromDirectory", () => {
 
     await cp(fixtureRoot, projectRoot, { recursive: true });
 
-    const sourceFlow = (await loadProjectFromDirectory(projectRoot)).bundle.flows["inspect-tavern-door"];
+    const sourceFlow = (await loadProjectFromDirectory(projectRoot)).bundle.flows["look-tavern-door"];
     if (!sourceFlow) {
       throw new Error("Expected sample flow");
     }
 
     const nodes = sourceFlow.nodes.map((node) =>
-      node.id === "mara-two" && node.type === "line"
+      node.id === "mara-one" && node.type === "line"
         ? { ...node, next: "mara-three" }
         : node
     );
@@ -247,7 +261,7 @@ describe("loadProjectFromDirectory", () => {
 
     const updated = await applyProjectCommand(projectRoot, {
       type: "flow/update",
-      flowId: "inspect-tavern-door",
+      flowId: "look-tavern-door",
       patch: {
         name: sourceFlow.name,
         nodes,
@@ -255,11 +269,11 @@ describe("loadProjectFromDirectory", () => {
       }
     });
 
-    expect(updated.bundle.flows["inspect-tavern-door"]?.nodes.some((node) => node.id === "mara-three")).toBe(
+    expect(updated.bundle.flows["look-tavern-door"]?.nodes.some((node) => node.id === "mara-three")).toBe(
       true
     );
 
-    const flowPath = path.join(projectRoot, "flows", "inspect-tavern-door.flow.json");
+    const flowPath = path.join(projectRoot, "flows", "look-tavern-door.flow.json");
     const flowFile = JSON.parse(await readFile(flowPath, "utf8")) as {
       nodes: Array<{ id: string }>;
     };
@@ -273,35 +287,147 @@ describe("loadProjectFromDirectory", () => {
 
     await cp(fixtureRoot, projectRoot, { recursive: true });
 
-    const sourceFlow = (await loadProjectFromDirectory(projectRoot)).bundle.flows["inspect-tavern-door"];
+    const sourceFlow = (await loadProjectFromDirectory(projectRoot)).bundle.flows["look-tavern-door"];
     if (!sourceFlow) {
       throw new Error("Expected sample flow");
     }
 
     const nodes = sourceFlow.nodes
-      .filter((node) => node.id !== "mara-two")
+      .filter((node) => node.id !== "mara-one")
       .map((node) =>
-        node.id === "mara-one" && node.type === "line" ? { ...node, next: "end" } : node
+        node.id === "mara-three" && node.type === "line" ? { ...node, next: "end" } : node
       );
 
     const updated = await applyProjectCommand(projectRoot, {
       type: "flow/update",
-      flowId: "inspect-tavern-door",
+      flowId: "look-tavern-door",
       patch: {
         name: sourceFlow.name,
         nodes,
-        startNodeId: sourceFlow.startNodeId
+        startNodeId: "end"
       }
     });
 
-    expect(updated.bundle.flows["inspect-tavern-door"]?.nodes.some((node) => node.id === "mara-two")).toBe(
+    expect(updated.bundle.flows["look-tavern-door"]?.nodes.some((node) => node.id === "mara-one")).toBe(
       false
     );
 
-    const flowPath = path.join(projectRoot, "flows", "inspect-tavern-door.flow.json");
+    const flowPath = path.join(projectRoot, "flows", "look-tavern-door.flow.json");
     const flowFile = JSON.parse(await readFile(flowPath, "utf8")) as {
       nodes: Array<{ id: string }>;
     };
-    expect(flowFile.nodes.some((node) => node.id === "mara-two")).toBe(false);
+    expect(flowFile.nodes.some((node) => node.id === "mara-one")).toBe(false);
+  });
+
+  it("persists pickup edits back to the scene document", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+
+    const updated = await applyProjectCommand(projectRoot, {
+      type: "pickup/update",
+      pickupId: "dock-hook",
+      patch: {
+        bounds: {
+          x: 320,
+          y: 548,
+          width: 84,
+          height: 52
+        },
+        itemId: "rusty-hook",
+        labelKey: "pickup.rusty-hook.updated",
+        pickupFlowId: "pickup-rusty-hook"
+      },
+      sceneId: "moonlit-dock"
+    });
+
+    const scene = updated.bundle.scenes["moonlit-dock"];
+    expect(scene?.type).toBe("layered-2d");
+    if (!scene || scene.type !== "layered-2d") {
+      throw new Error("Expected layered 2D scene");
+    }
+
+    expect(scene.pickups.find((pickup) => pickup.id === "dock-hook")).toMatchObject({
+      bounds: {
+        x: 320,
+        y: 548,
+        width: 84,
+        height: 52
+      },
+      itemId: "rusty-hook",
+      labelKey: "pickup.rusty-hook.updated",
+      pickupFlowId: "pickup-rusty-hook"
+    });
+  });
+
+  it("persists item edits back to the item document", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+
+    const updated = await applyProjectCommand(projectRoot, {
+      type: "item/update",
+      itemId: "rusty-hook",
+      patch: {
+        labelKey: "item.rusty-hook.updated",
+        name: "Harbor Hook"
+      }
+    });
+
+    expect(updated.bundle.items["rusty-hook"]).toMatchObject({
+      labelKey: "item.rusty-hook.updated",
+      name: "Harbor Hook"
+    });
+
+    const itemPath = path.join(projectRoot, "items", "rusty-hook.item.json");
+    const itemFile = JSON.parse(await readFile(itemPath, "utf8")) as {
+      labelKey: string;
+      name: string;
+    };
+    expect(itemFile.labelKey).toBe("item.rusty-hook.updated");
+    expect(itemFile.name).toBe("Harbor Hook");
+  });
+
+  it("reports semantic diagnostics for missing item and flow references", async () => {
+    const loaded = await loadProjectFromDirectory(
+      path.resolve(import.meta.dirname, "../../../apps/sample-game/project")
+    );
+    const scene = loaded.bundle.scenes["moonlit-dock"];
+    expect(scene?.type).toBe("layered-2d");
+    if (!scene || scene.type !== "layered-2d") {
+      throw new Error("Expected layered 2D scene");
+    }
+
+    const diagnostics = validateProjectBundle({
+      ...loaded.bundle,
+      scenes: {
+        ...loaded.bundle.scenes,
+        "moonlit-dock": {
+          ...scene,
+          pickups: [
+            {
+              ...scene.pickups[0]!,
+              itemId: "missing-item"
+            }
+          ],
+          hotspots: [
+            {
+              ...scene.hotspots[0]!,
+              actions: {
+                ...scene.hotspots[0]!.actions,
+                lookFlowId: "missing-flow"
+              }
+            }
+          ]
+        }
+      }
+    });
+
+    expect(diagnostics.some((item) => item.code === "scene.pickup-item-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "scene.hotspot-look-missing-flow")).toBe(true);
   });
 });

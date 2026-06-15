@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "look-tavern-door",
+  "name": "Look at the tavern door",
+  "startNodeId": "mara-one",
+  "nodes": [
+    {
+      "id": "mara-one",
+      "type": "line",
+      "speakerId": "mara",
+      "textKey": "dialogue.tavern.look.01",
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

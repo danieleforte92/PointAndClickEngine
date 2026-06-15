@@ -1,15 +1,33 @@
-import type { CursorValue, FlowDocument, Hotspot, LocaleDocument, SceneDocument } from "@pointclick/contracts";
+import type {
+  CursorValue,
+  FlowDocument,
+  Hotspot,
+  ItemDocument,
+  LocaleDocument,
+  SceneDocument,
+  ScenePickup
+} from "@pointclick/contracts";
 import { startTransition, useEffect, useMemo, useState } from "react";
 import {
+  capabilityBadgeLabel,
+  capabilityStatusTone,
+  toolCapabilities,
+  workspaceCapabilities
+} from "../editor-capabilities";
+import {
+  buildHotspotUseItemFlows,
   buildFlowNodes,
   buildRecoverySnapshot,
   commitHistory,
   createFlowDraft,
   createHistoryState,
   createHotspotDraft,
+  createItemDraft,
   createNewFlowNode,
+  createPickupDraft,
   createSceneDraft,
   createHotspotKey,
+  createPickupKey,
   cursorOptions,
   discardSavedDraft,
   getDirtyState,
@@ -29,23 +47,20 @@ import {
   undoHistory,
   type Workspace
 } from "../editor-session";
+import { buildDraftProjectBundle } from "../preview-session";
 import type { EditorProjectSnapshot } from "../preload";
-
-const workspaces: { id: Workspace; label: string }[] = [
-  { id: "scene", label: "Scene" },
-  { id: "narrative", label: "Narrative" },
-  { id: "assets", label: "Asset Studio" },
-  { id: "build", label: "Build" }
-];
 
 const emptyHistory = createHistoryState(
   initializeEditorSession({
     activeFlowId: null,
     activeHotspotId: null,
+    activeItemId: null,
     activeLocale: null,
+    activePickupId: null,
     activeSceneId: "",
     directory: "",
     flows: [],
+    items: [],
     locales: [],
     scenes: []
   })
@@ -78,6 +93,21 @@ function flowFromSnapshot(snapshot: EditorProjectSnapshot | null, flowId: string
   return snapshot.flows.find((flow) => flow.id === flowId) ?? null;
 }
 
+function itemFromSnapshot(snapshot: EditorProjectSnapshot | null, itemId: string | null) {
+  if (!snapshot || !itemId) return null;
+  return snapshot.items.find((item) => item.id === itemId) ?? null;
+}
+
+function pickupFromSnapshot(
+  snapshot: EditorProjectSnapshot | null,
+  sceneId: string | null,
+  pickupId: string | null
+) {
+  const scene = sceneFromSnapshot(snapshot, sceneId);
+  if (!scene || !pickupId) return null;
+  return scene.pickups.find((pickup) => pickup.id === pickupId) ?? null;
+}
+
 function parseWalkAreaDraft(
   walkAreaPoints: Array<{ x: string; y: string }>
 ): { points: Array<{ x: number; y: number }> } | null {
@@ -96,8 +126,36 @@ function parseWalkAreaDraft(
   };
 }
 
+function healthSummary(
+  diagnostics: EditorProjectSnapshot["diagnostics"],
+  dirtyDraftCount: number
+) {
+  const errorCount = diagnostics.filter((diagnostic) => diagnostic.severity === "error").length;
+  const warningCount = diagnostics.filter((diagnostic) => diagnostic.severity === "warning").length;
+
+  if (errorCount > 0) {
+    return {
+      detail: `${dirtyDraftCount} dirty draft(s)`,
+      label: `${errorCount} error(s), ${warningCount} warning(s)`,
+      tone: "error" as const
+    };
+  }
+  if (warningCount > 0 || dirtyDraftCount > 0) {
+    return {
+      detail: `${dirtyDraftCount} dirty draft(s)`,
+      label: `${warningCount} warning(s), project needs review`,
+      tone: "warn" as const
+    };
+  }
+  return {
+    detail: "No draft changes pending",
+    label: "Project ready for preview",
+    tone: "good" as const
+  };
+}
+
 export function EditorApp() {
-  const [workspace, setWorkspace] = useState<Workspace>("scene");
+  const [workspace, setWorkspace] = useState<Workspace>("overview");
   const [status, setStatus] = useState("Loading project...");
   const [project, setProject] = useState<EditorProjectSnapshot | null>(null);
   const [history, setHistory] = useState<EditorHistoryState>(emptyHistory);
@@ -111,6 +169,9 @@ export function EditorApp() {
     hotspotFromSnapshot(project, session.activeSceneId, session.activeHotspotId) ?? null;
   const selectedLocale = localeFromSnapshot(project, session.activeLocale) ?? null;
   const selectedFlow = flowFromSnapshot(project, session.activeFlowId) ?? null;
+  const selectedItem = itemFromSnapshot(project, session.activeItemId) ?? project?.selectedItem ?? null;
+  const selectedPickup =
+    pickupFromSnapshot(project, session.activeSceneId, session.activePickupId) ?? null;
 
   const currentSceneDraft = selectedScene
     ? session.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene)
@@ -128,6 +189,14 @@ export function EditorApp() {
   const currentFlowDraft = selectedFlow
     ? session.flowDrafts[selectedFlow.id] ?? createFlowDraft(selectedFlow)
     : null;
+  const currentItemDraft = selectedItem
+    ? session.itemDrafts[selectedItem.id] ?? createItemDraft(selectedItem)
+    : createItemDraft(null);
+  const currentPickupDraft =
+    selectedScene && selectedPickup
+      ? session.pickupDrafts[createPickupKey(selectedScene.id, selectedPickup.id)] ??
+        createPickupDraft(selectedPickup)
+      : createPickupDraft(null);
 
   const localeEntries = useMemo(
     () => Object.entries(currentLocaleDraft).sort(([left], [right]) => left.localeCompare(right)),
@@ -145,7 +214,9 @@ export function EditorApp() {
             count: 0,
             flowIds: new Set<string>(),
             hotspotKeys: new Set<string>(),
+            itemIds: new Set<string>(),
             localeIds: new Set<string>(),
+            pickupKeys: new Set<string>(),
             sceneIds: new Set<string>()
           },
     [project, session]
@@ -161,6 +232,14 @@ export function EditorApp() {
   const previewWalkAreaPoints = previewWalkArea
     ? previewWalkArea.points.map((point) => `${point.x},${point.y}`).join(" ")
     : "";
+  const workspaceCapability = workspaceCapabilities.find((item) => item.workspace === workspace) ?? workspaceCapabilities[0]!;
+  const previewRequest = project
+    ? {
+        bundle: buildDraftProjectBundle(project, history.present),
+        sceneId: selectedScene?.id ?? project.activeSceneId
+      }
+    : undefined;
+  const projectHealth = project ? healthSummary(project.diagnostics, dirtyState.count) : null;
 
   const replaceSession = (recipe: (current: EditorHistoryState) => EditorHistoryState) => {
     setHistory((current) => recipe(current));
@@ -287,15 +366,14 @@ export function EditorApp() {
   };
 
   const play = async () => {
-    const sceneId = selectedScene?.id ?? project?.activeSceneId;
     setStatus("Opening isolated preview...");
-    await window.pointClick.openPreview(sceneId ?? undefined);
-    setStatus("Preview connected");
+    await window.pointClick.openPreview(previewRequest);
+    setStatus("Preview connected to the current project");
   };
 
   const openBrowser = async () => {
-    await window.pointClick.openInBrowser();
-    setStatus("Opened in default browser");
+    await window.pointClick.openInBrowser(previewRequest);
+    setStatus("Browser preview opened with the current project");
   };
 
   const openProject = async () => {
@@ -313,7 +391,9 @@ export function EditorApp() {
       ...current,
       activeFlowId: null,
       activeHotspotId: null,
+      activeItemId: null,
       activeLocale: null,
+      activePickupId: null,
       activeSceneId: sceneId
     }));
   };
@@ -323,7 +403,20 @@ export function EditorApp() {
       ...current,
       activeFlowId: null,
       activeHotspotId: hotspot.id,
-      activeLocale: null
+      activeItemId: null,
+      activeLocale: null,
+      activePickupId: null
+    }));
+  };
+
+  const selectPickup = (pickup: ScenePickup) => {
+    updateSessionSelection((current) => ({
+      ...current,
+      activeFlowId: null,
+      activeHotspotId: null,
+      activeItemId: null,
+      activeLocale: null,
+      activePickupId: pickup.id
     }));
   };
 
@@ -332,7 +425,9 @@ export function EditorApp() {
       ...current,
       activeFlowId: null,
       activeHotspotId: null,
-      activeLocale: locale.locale
+      activeItemId: null,
+      activeLocale: locale.locale,
+      activePickupId: null
     }));
   };
 
@@ -341,11 +436,27 @@ export function EditorApp() {
       ...current,
       activeFlowId: flow.id,
       activeHotspotId: null,
-      activeLocale: null
+      activeItemId: null,
+      activeLocale: null,
+      activePickupId: null
     }));
   };
 
-  const updateHotspotDraft = (field: keyof typeof currentHotspotDraft, value: string) => {
+  const selectItem = (item: ItemDocument) => {
+    updateSessionSelection((current) => ({
+      ...current,
+      activeFlowId: null,
+      activeHotspotId: null,
+      activeItemId: item.id,
+      activeLocale: null,
+      activePickupId: null
+    }));
+  };
+
+  const updateHotspotDraft = <K extends keyof typeof currentHotspotDraft>(
+    field: K,
+    value: (typeof currentHotspotDraft)[K]
+  ) => {
     if (!selectedScene || !selectedHotspot) return;
     const key = createHotspotKey(selectedScene.id, selectedHotspot.id);
     updateDraftWithHistory((current) => ({
@@ -368,6 +479,41 @@ export function EditorApp() {
         ...current.sceneDrafts,
         [selectedScene.id]: {
           ...(current.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene)),
+          [field]: value
+        }
+      }
+    }));
+  };
+
+  const updatePickupDraft = <K extends keyof typeof currentPickupDraft>(
+    field: K,
+    value: (typeof currentPickupDraft)[K]
+  ) => {
+    if (!selectedScene || !selectedPickup) return;
+    const key = createPickupKey(selectedScene.id, selectedPickup.id);
+    updateDraftWithHistory((current) => ({
+      ...current,
+      pickupDrafts: {
+        ...current.pickupDrafts,
+        [key]: {
+          ...(current.pickupDrafts[key] ?? createPickupDraft(selectedPickup)),
+          [field]: value
+        }
+      }
+    }));
+  };
+
+  const updateItemDraft = <K extends keyof typeof currentItemDraft>(
+    field: K,
+    value: (typeof currentItemDraft)[K]
+  ) => {
+    if (!selectedItem) return;
+    updateDraftWithHistory((current) => ({
+      ...current,
+      itemDrafts: {
+        ...current.itemDrafts,
+        [selectedItem.id]: {
+          ...(current.itemDrafts[selectedItem.id] ?? createItemDraft(selectedItem)),
           [field]: value
         }
       }
@@ -510,15 +656,17 @@ export function EditorApp() {
     const width = parsePositiveNumber(currentHotspotDraft.width);
     const height = parsePositiveNumber(currentHotspotDraft.height);
     const labelKey = currentHotspotDraft.labelKey.trim();
-    const actionFlowId = currentHotspotDraft.actionFlowId.trim();
+    const lookFlowId = currentHotspotDraft.lookFlowId.trim();
+    const talkFlowId = currentHotspotDraft.talkFlowId.trim();
+    const useFlowId = currentHotspotDraft.useFlowId.trim();
     const cursor = currentHotspotDraft.cursor.trim();
 
     if (x === null || y === null || width === null || height === null) {
       setStatus("Bounds must be valid numbers, with width and height above zero");
       return;
     }
-    if (!labelKey || !actionFlowId) {
-      setStatus("Label key and flow ID are required");
+    if (!labelKey) {
+      setStatus("Label key is required");
       return;
     }
     if (cursor && !cursorOptions.includes(cursor as CursorValue)) {
@@ -529,11 +677,21 @@ export function EditorApp() {
     setStatus(`Saving ${selectedHotspot.id}...`);
     try {
       const patch = {
-        actionFlowId,
+        actions: {
+          lookFlowId: lookFlowId || undefined,
+          talkFlowId: talkFlowId || undefined,
+          useFlowId: useFlowId || undefined,
+          useItemFlows: buildHotspotUseItemFlows(currentHotspotDraft.useItemFlows)
+        },
         bounds: { x, y, width, height },
         labelKey
       } as {
-        actionFlowId: string;
+        actions: {
+          lookFlowId?: string;
+          talkFlowId?: string;
+          useFlowId?: string;
+          useItemFlows: Array<{ itemId: string; flowId: string }>;
+        };
         bounds: { x: number; y: number; width: number; height: number };
         cursor?: CursorValue;
         labelKey: string;
@@ -622,6 +780,103 @@ export function EditorApp() {
       setStatus(`Saved ${selectedScene.id}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Failed to save scene");
+    }
+  };
+
+  const applyPickupChanges = async () => {
+    if (!selectedScene || !selectedPickup) return;
+
+    const x = parseNumber(currentPickupDraft.x);
+    const y = parseNumber(currentPickupDraft.y);
+    const width = parsePositiveNumber(currentPickupDraft.width);
+    const height = parsePositiveNumber(currentPickupDraft.height);
+    const itemId = currentPickupDraft.itemId.trim();
+    const labelKey = currentPickupDraft.labelKey.trim();
+    const pickupFlowId = currentPickupDraft.pickupFlowId.trim();
+
+    if (x === null || y === null || width === null || height === null) {
+      setStatus("Pickup bounds must be valid numbers, with width and height above zero");
+      return;
+    }
+    if (!itemId) {
+      setStatus("Pickup item id is required");
+      return;
+    }
+    if (!labelKey) {
+      setStatus("Pickup label key is required");
+      return;
+    }
+
+    setStatus(`Saving ${selectedPickup.id}...`);
+    try {
+      const patch = {
+        bounds: { x, y, width, height },
+        itemId,
+        labelKey
+      } as {
+        bounds: { x: number; y: number; width: number; height: number };
+        itemId: string;
+        labelKey: string;
+        pickupFlowId?: string;
+      };
+      if (pickupFlowId) {
+        patch.pickupFlowId = pickupFlowId;
+      }
+
+      const snapshot = await window.pointClick.applyCommand({
+        type: "pickup/update",
+        pickupId: selectedPickup.id,
+        patch,
+        sceneId: selectedScene.id
+      });
+      setProject(snapshot);
+      setHistory((current) => ({
+        ...current,
+        present: discardSavedDraft(
+          current.present,
+          "pickup",
+          createPickupKey(selectedScene.id, selectedPickup.id)
+        )
+      }));
+      setStatus(`Saved ${selectedPickup.id}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to save pickup");
+    }
+  };
+
+  const applyItemChanges = async () => {
+    if (!selectedItem) return;
+
+    const name = currentItemDraft.name.trim();
+    const labelKey = currentItemDraft.labelKey.trim();
+
+    if (!name) {
+      setStatus("Item name is required");
+      return;
+    }
+    if (!labelKey) {
+      setStatus("Item label key is required");
+      return;
+    }
+
+    setStatus(`Saving ${selectedItem.id}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "item/update",
+        itemId: selectedItem.id,
+        patch: {
+          labelKey,
+          name
+        }
+      });
+      setProject(snapshot);
+      setHistory((current) => ({
+        ...current,
+        present: discardSavedDraft(current.present, "item", selectedItem.id)
+      }));
+      setStatus(`Saved ${selectedItem.id}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to save item");
     }
   };
 
@@ -747,14 +1002,18 @@ export function EditorApp() {
         </div>
 
         <nav className="workspace-tabs" aria-label="Workspaces">
-          {workspaces.map((item) => (
+          {workspaceCapabilities.map((item) => (
             <button
-              className={workspace === item.id ? "active" : ""}
+              className={workspace === item.workspace ? "active" : ""}
               key={item.id}
+              title={item.detail}
               type="button"
-              onClick={() => setWorkspace(item.id)}
+              onClick={() => setWorkspace(item.workspace)}
             >
-              {item.label}
+              <span>{item.label}</span>
+              <span className={`capability-badge ${capabilityStatusTone(item.status)}`}>
+                {capabilityBadgeLabel(item.status)}
+              </span>
             </button>
           ))}
         </nav>
@@ -780,10 +1039,10 @@ export function EditorApp() {
             Open Project
           </button>
           <button className="secondary-action" type="button" onClick={openBrowser}>
-            Browser
+            Open in Browser
           </button>
           <button className="play-action" type="button" onClick={play}>
-            <span>&#9654;</span> Play from here
+            <span>&#9654;</span> {dirtyState.count > 0 ? "Play Draft Preview" : "Play Project"}
           </button>
         </div>
       </header>
@@ -810,20 +1069,34 @@ export function EditorApp() {
           <div className="panel-heading">
             <span>Project</span>
             <button type="button" aria-label="Open project" onClick={openProject}>
-              +
+              Open
             </button>
           </div>
           <div className="tree">
             <div className="tree-group open">Scenes</div>
             {scenes.map((scene) => (
               <button
-                className={`tree-item ${session.activeLocale === null && session.activeFlowId === null && selectedScene?.id === scene.id ? "selected" : ""}`}
+                className={`tree-item ${session.activeLocale === null && session.activeFlowId === null && !session.activeHotspotId && !session.activePickupId && !session.activeItemId && selectedScene?.id === scene.id ? "selected" : ""}`}
                 key={scene.id}
                 type="button"
                 onClick={() => selectScene(scene.id)}
               >
                 <span className="scene-dot" /> {scene.name}
                 {dirtyState.sceneIds.has(scene.id) ? <span className="dirty-mark">*</span> : null}
+              </button>
+            ))}
+            <div className="tree-group open">Pickups ({selectedScene?.pickups.length ?? 0})</div>
+            {selectedScene?.pickups.map((pickup) => (
+              <button
+                className={`tree-item tree-child ${session.activePickupId === pickup.id ? "selected" : ""}`}
+                key={pickup.id}
+                type="button"
+                onClick={() => selectPickup(pickup)}
+              >
+                <span className="scene-dot muted" /> {pickup.id}
+                {dirtyState.pickupKeys.has(createPickupKey(selectedScene.id, pickup.id)) ? (
+                  <span className="dirty-mark">*</span>
+                ) : null}
               </button>
             ))}
             <div className="tree-group open">Flows ({project?.flowCount ?? 0})</div>
@@ -836,6 +1109,18 @@ export function EditorApp() {
               >
                 <span className="scene-dot muted" /> {flow.id}
                 {dirtyState.flowIds.has(flow.id) ? <span className="dirty-mark">*</span> : null}
+              </button>
+            ))}
+            <div className="tree-group open">Items ({project?.itemCount ?? 0})</div>
+            {project?.items.map((item) => (
+              <button
+                className={`tree-item ${session.activeItemId === item.id ? "selected" : ""}`}
+                key={item.id}
+                type="button"
+                onClick={() => selectItem(item)}
+              >
+                <span className="scene-dot muted" /> {item.id}
+                {dirtyState.itemIds.has(item.id) ? <span className="dirty-mark">*</span> : null}
               </button>
             ))}
             <div className="tree-group open">Locales ({project?.localeCount ?? 0})</div>
@@ -852,11 +1137,11 @@ export function EditorApp() {
             ))}
           </div>
           <div className="project-health">
-            <span className="health-light" />
+            <span className={`health-light ${projectHealth?.tone ?? "warn"}`} />
             <div>
-              <strong>{status}</strong>
+              <strong>{projectHealth?.label ?? "Loading project health..."}</strong>
               <small>
-                Schema v1 - {localeLabel} - {dirtyState.count} dirty draft(s)
+                {projectHealth ? `${projectHealth.detail} - ${localeLabel}` : status}
               </small>
             </div>
           </div>
@@ -865,25 +1150,91 @@ export function EditorApp() {
         <section className="canvas-panel panel">
           <div className="canvas-toolbar">
             <div className="toolset">
-              <button className="active" type="button">
-                Select
-              </button>
-              <button type="button">Hotspot</button>
-              <button type="button">Walk area</button>
-              <button type="button">Occluder</button>
+              {toolCapabilities.map((tool) => (
+                <button
+                  className={tool.id === "tool-select" && workspace === "scene" ? "active" : ""}
+                  disabled={tool.status !== "available"}
+                  key={tool.id}
+                  title={`${capabilityBadgeLabel(tool.status)}: ${tool.detail}`}
+                  type="button"
+                >
+                  {tool.label}
+                </button>
+              ))}
             </div>
             <div className="canvas-meta">
-              {selectedScene
-                ? `Layered 2D - ${sceneLabel} - ${selectedScene.hotspots.length} hotspot(s)`
-                : "No scene loaded"}
+              {workspace === "overview"
+                ? "Editor overview and capability status"
+                : workspace === "scene" && selectedScene
+                  ? `Layered 2D - ${sceneLabel} - ${selectedScene.hotspots.length} hotspot(s) - ${selectedScene.pickups.length} pickup(s)`
+                  : workspace === "narrative"
+                    ? "Structured flow and locale editing"
+                    : workspaceCapability.summary}
             </div>
           </div>
 
-          <div
-            className="scene-viewport"
-            style={{ background: selectedScene?.background ?? "#24384a" }}
-          >
-            {selectedScene ? (
+          {workspace === "overview" ? (
+            <div className="workspace-overview">
+              <section className="overview-card">
+                <span className="overview-label">Project health</span>
+                <strong>{projectHealth?.label ?? "Loading project..."}</strong>
+                <p>{status}</p>
+              </section>
+              <section className="overview-card">
+                <span className="overview-label">Preview target</span>
+                <strong>{dirtyState.count > 0 ? "Draft bundle" : "Saved project bundle"}</strong>
+                <p>
+                  {selectedScene
+                    ? `Preview starts from ${selectedScene.id} in the currently opened project.`
+                    : "Open a project to prepare a preview bundle."}
+                </p>
+              </section>
+              <section className="overview-card">
+                <span className="overview-label">Capabilities</span>
+                <div className="capability-list">
+                  {workspaceCapabilities.map((item) => (
+                    <div className="capability-card" key={item.id}>
+                      <div>
+                        <strong>{item.label}</strong>
+                        <p>{item.summary}</p>
+                      </div>
+                      <span className={`capability-badge ${capabilityStatusTone(item.status)}`}>
+                        {capabilityBadgeLabel(item.status)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+              <section className="overview-card">
+                <span className="overview-label">Diagnostics</span>
+                <div className="diagnostic-list">
+                  {project?.diagnostics.length ? (
+                    project.diagnostics.slice(0, 6).map((diagnostic, index) => (
+                      <div className={`diagnostic-item ${diagnostic.severity}`} key={`${diagnostic.code}-${index}`}>
+                        <strong>{diagnostic.code}</strong>
+                        <p>{diagnostic.message}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p>No project diagnostics right now.</p>
+                  )}
+                </div>
+              </section>
+            </div>
+          ) : workspace === "assets" || workspace === "build" ? (
+            <div className="workspace-placeholder">
+              <span className={`capability-badge ${capabilityStatusTone(workspaceCapability.status)}`}>
+                {capabilityBadgeLabel(workspaceCapability.status)}
+              </span>
+              <strong>{workspaceCapability.label}</strong>
+              <p>{workspaceCapability.detail}</p>
+            </div>
+          ) : (
+            <div
+              className="scene-viewport"
+              style={{ background: selectedScene?.background ?? "#24384a" }}
+            >
+              {selectedScene ? (
               <>
                 {selectedScene.shapes.map((shape) => (
                   <div
@@ -942,17 +1293,36 @@ export function EditorApp() {
                     <span>{hotspot.id}</span>
                   </button>
                 ))}
+                {selectedScene.pickups.map((pickup) => (
+                  <button
+                    className={`pickup-box ${selectedPickup?.id === pickup.id ? "selected" : ""}`}
+                    key={pickup.id}
+                    type="button"
+                    onClick={() => selectPickup(pickup)}
+                    style={{
+                      height: `${(pickup.bounds.height / selectedScene.size.height) * 100}%`,
+                      left: `${(pickup.bounds.x / selectedScene.size.width) * 100}%`,
+                      top: `${(pickup.bounds.y / selectedScene.size.height) * 100}%`,
+                      width: `${(pickup.bounds.width / selectedScene.size.width) * 100}%`
+                    }}
+                  >
+                    <span>{pickup.id}</span>
+                  </button>
+                ))}
               </>
             ) : (
               <div className="empty-scene">Open a project to inspect a scene.</div>
             )}
-          </div>
+            </div>
+          )}
 
           <div className="timeline-strip">
             <span>Project</span>
             <div className="timeline-node selected">{project?.sceneCount ?? 0} scene(s)</div>
             <div className="timeline-node">{project?.flowCount ?? 0} flow(s)</div>
+            <div className="timeline-node">{project?.itemCount ?? 0} item(s)</div>
             <div className="timeline-node">{project?.localeCount ?? 0} locale(s)</div>
+            <div className="timeline-node">{project?.diagnostics.length ?? 0} diagnostic(s)</div>
             <div className="timeline-node">{project?.directory ?? "No folder"}</div>
           </div>
         </section>
@@ -961,19 +1331,60 @@ export function EditorApp() {
           <div className="panel-heading">
             <span>Inspector</span>
             <small>
-              {selectedFlow
+              {workspace === "overview"
+                ? "Status"
+                : workspace === "assets" || workspace === "build"
+                  ? capabilityBadgeLabel(workspaceCapability.status)
+                  : selectedFlow
                 ? "Flow"
                 : selectedLocale
                   ? "Locale"
                   : selectedHotspot
                     ? "Hotspot"
+                    : selectedPickup
+                      ? "Pickup"
+                      : selectedItem
+                        ? "Item"
                     : selectedScene
                       ? "Scene"
                       : ""}
             </small>
           </div>
           <div className="inspector-content">
-            {selectedFlow && currentFlowDraft ? (
+            {workspace === "overview" ? (
+              <>
+                <div className="flow-link">
+                  <span>Current workspace</span>
+                  <strong>{workspaceCapability.label}</strong>
+                  <p className="inspector-copy">{workspaceCapability.detail}</p>
+                </div>
+                <div className="flow-link">
+                  <span>Project diagnostics</span>
+                  <strong>{project?.diagnostics.length ?? 0} total</strong>
+                  <p className="inspector-copy">
+                    {project?.diagnostics.filter((item) => item.severity === "error").length ?? 0} error(s),{" "}
+                    {project?.diagnostics.filter((item) => item.severity === "warning").length ?? 0} warning(s)
+                  </p>
+                </div>
+                <div className="flow-link">
+                  <span>Draft status</span>
+                  <strong>{dirtyState.count} dirty draft(s)</strong>
+                  <p className="inspector-copy">
+                    {dirtyState.count > 0
+                      ? "Preview will use a temporary validated draft bundle."
+                      : "Preview will use the saved project bundle."}
+                  </p>
+                </div>
+              </>
+            ) : workspace === "assets" || workspace === "build" ? (
+              <div className="workspace-placeholder compact">
+                <span className={`capability-badge ${capabilityStatusTone(workspaceCapability.status)}`}>
+                  {capabilityBadgeLabel(workspaceCapability.status)}
+                </span>
+                <strong>{workspaceCapability.summary}</strong>
+                <p>{workspaceCapability.detail}</p>
+              </div>
+            ) : selectedFlow && currentFlowDraft ? (
               <>
                 <label>
                   Flow
@@ -1255,21 +1666,174 @@ export function EditorApp() {
                   </select>
                 </label>
                 <label>
-                  Flow
+                  Look flow
                   <input
-                    value={currentHotspotDraft.actionFlowId}
-                    onChange={(event) => updateHotspotDraft("actionFlowId", event.target.value)}
+                    value={currentHotspotDraft.lookFlowId}
+                    onChange={(event) => updateHotspotDraft("lookFlowId", event.target.value)}
                   />
                 </label>
+                <label>
+                  Talk flow
+                  <input
+                    value={currentHotspotDraft.talkFlowId}
+                    onChange={(event) => updateHotspotDraft("talkFlowId", event.target.value)}
+                  />
+                </label>
+                <label>
+                  Use flow
+                  <input
+                    value={currentHotspotDraft.useFlowId}
+                    onChange={(event) => updateHotspotDraft("useFlowId", event.target.value)}
+                  />
+                </label>
+                <div className="field-group">
+                  <span>Use item overrides</span>
+                  <div className="use-item-flows">
+                    {currentHotspotDraft.useItemFlows.map((entry, index) => (
+                      <div className="use-item-flow-card" key={`use-item-flow-${index}`}>
+                        <div className="four-fields">
+                          <input
+                            aria-label={`Use item ${index + 1}`}
+                            placeholder="item-id"
+                            value={entry.itemId}
+                            onChange={(event) => {
+                              const next = [...currentHotspotDraft.useItemFlows];
+                              next[index] = { ...entry, itemId: event.target.value };
+                              updateHotspotDraft("useItemFlows", next);
+                            }}
+                          />
+                          <input
+                            aria-label={`Use flow ${index + 1}`}
+                            placeholder="flow-id"
+                            value={entry.flowId}
+                            onChange={(event) => {
+                              const next = [...currentHotspotDraft.useItemFlows];
+                              next[index] = { ...entry, flowId: event.target.value };
+                              updateHotspotDraft("useItemFlows", next);
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateHotspotDraft(
+                        "useItemFlows",
+                        [...currentHotspotDraft.useItemFlows, { itemId: "", flowId: "" }]
+                      )
+                    }
+                  >
+                    Add item override
+                  </button>
+                </div>
                 <div className="flow-link">
-                  <span>On activate</span>
+                  <span>Verb-aware hotspot</span>
                   <strong>
-                    {currentHotspotDraft.actionFlowId || "missing"}
+                    {currentHotspotDraft.useFlowId || currentHotspotDraft.lookFlowId || currentHotspotDraft.talkFlowId || "missing"}
                     {selectedScene && dirtyState.hotspotKeys.has(createHotspotKey(selectedScene.id, selectedHotspot.id))
                       ? " - unsaved draft"
                       : ""}
                   </strong>
                   <button type="button" onClick={applyHotspotChanges}>
+                    Apply changes -&gt;
+                  </button>
+                </div>
+              </>
+            ) : selectedPickup ? (
+              <>
+                <label>
+                  Pickup
+                  <input value={selectedPickup.id} readOnly />
+                </label>
+                <label>
+                  Item id
+                  <input
+                    value={currentPickupDraft.itemId}
+                    onChange={(event) => updatePickupDraft("itemId", event.target.value)}
+                  />
+                </label>
+                <label>
+                  Display label
+                  <input
+                    value={currentPickupDraft.labelKey}
+                    onChange={(event) => updatePickupDraft("labelKey", event.target.value)}
+                  />
+                </label>
+                <label>
+                  Pickup flow
+                  <input
+                    value={currentPickupDraft.pickupFlowId}
+                    onChange={(event) => updatePickupDraft("pickupFlowId", event.target.value)}
+                  />
+                </label>
+                <div className="field-group">
+                  <span>Bounds</span>
+                  <div className="four-fields">
+                    <input
+                      aria-label="Pickup X"
+                      value={currentPickupDraft.x}
+                      onChange={(event) => updatePickupDraft("x", event.target.value)}
+                    />
+                    <input
+                      aria-label="Pickup Y"
+                      value={currentPickupDraft.y}
+                      onChange={(event) => updatePickupDraft("y", event.target.value)}
+                    />
+                    <input
+                      aria-label="Pickup Width"
+                      value={currentPickupDraft.width}
+                      onChange={(event) => updatePickupDraft("width", event.target.value)}
+                    />
+                    <input
+                      aria-label="Pickup Height"
+                      value={currentPickupDraft.height}
+                      onChange={(event) => updatePickupDraft("height", event.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="flow-link">
+                  <span>Scene pickup</span>
+                  <strong>
+                    {currentPickupDraft.itemId || "unbound item"}
+                    {selectedScene &&
+                    dirtyState.pickupKeys.has(createPickupKey(selectedScene.id, selectedPickup.id))
+                      ? " - unsaved draft"
+                      : ""}
+                  </strong>
+                  <button type="button" onClick={applyPickupChanges}>
+                    Apply changes -&gt;
+                  </button>
+                </div>
+              </>
+            ) : selectedItem ? (
+              <>
+                <label>
+                  Item
+                  <input value={selectedItem.id} readOnly />
+                </label>
+                <label>
+                  Name
+                  <input
+                    value={currentItemDraft.name}
+                    onChange={(event) => updateItemDraft("name", event.target.value)}
+                  />
+                </label>
+                <label>
+                  Label key
+                  <input
+                    value={currentItemDraft.labelKey}
+                    onChange={(event) => updateItemDraft("labelKey", event.target.value)}
+                  />
+                </label>
+                <div className="flow-link">
+                  <span>Inventory item</span>
+                  <strong>
+                    {currentItemDraft.name || "unnamed item"}
+                    {dirtyState.itemIds.has(selectedItem.id) ? " - unsaved draft" : ""}
+                  </strong>
+                  <button type="button" onClick={applyItemChanges}>
                     Apply changes -&gt;
                   </button>
                 </div>

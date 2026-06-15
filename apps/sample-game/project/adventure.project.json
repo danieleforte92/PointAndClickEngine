@@ -16,8 +16,26 @@
   ],
   "flows": [
     {
-      "id": "inspect-tavern-door",
-      "path": "flows/inspect-tavern-door.flow.json"
+      "id": "look-tavern-door",
+      "path": "flows/look-tavern-door.flow.json"
+    },
+    {
+      "id": "talk-tavern-door",
+      "path": "flows/talk-tavern-door.flow.json"
+    },
+    {
+      "id": "pickup-rusty-hook",
+      "path": "flows/pickup-rusty-hook.flow.json"
+    },
+    {
+      "id": "use-rusty-hook-on-door",
+      "path": "flows/use-rusty-hook-on-door.flow.json"
+    }
+  ],
+  "items": [
+    {
+      "id": "rusty-hook",
+      "path": "items/rusty-hook.item.json"
     }
   ],
   "locales": [
@@ -27,4 +45,3 @@
     }
   ]
 }
-

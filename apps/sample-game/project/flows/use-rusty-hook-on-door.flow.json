@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "use-rusty-hook-on-door",
+  "name": "Use the rusty hook on the tavern door",
+  "startNodeId": "set-flag",
+  "nodes": [
+    {
+      "id": "set-flag",
+      "type": "set-flag",
+      "key": "tavern.hook-used",
+      "value": true,
+      "next": "mara-one"
+    },
+    {
+      "id": "mara-one",
+      "type": "line",
+      "speakerId": "mara",
+      "textKey": "dialogue.tavern.use-hook.01",
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

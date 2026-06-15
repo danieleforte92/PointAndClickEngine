@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { FlowDocument, LocaleDocument, SceneDocument } from "@pointclick/contracts";
+import type { FlowDocument, ItemDocument, LocaleDocument, SceneDocument } from "@pointclick/contracts";
 import {
   buildRecoverySnapshot,
   commitHistory,
@@ -18,7 +18,10 @@ const sceneDocument: SceneDocument = {
   background: "#132538",
   hotspots: [
     {
-      actionFlowId: "inspect-tavern-door",
+      actions: {
+        lookFlowId: "inspect-tavern-door",
+        useItemFlows: []
+      },
       bounds: { height: 215, width: 125, x: 850, y: 335 },
       cursor: "enter",
       id: "tavern-entrance",
@@ -29,6 +32,7 @@ const sceneDocument: SceneDocument = {
   name: "Moonlit Dock",
   playerStart: { x: 510, y: 590 },
   schemaVersion: 1,
+  pickups: [],
   shapes: [],
   size: { height: 720, width: 1280 },
   type: "layered-2d",
@@ -80,13 +84,23 @@ const localeDocument: LocaleDocument = {
   }
 };
 
+const itemDocument: ItemDocument = {
+  id: "rusty-hook",
+  labelKey: "item.rusty-hook",
+  name: "Rusty Hook",
+  schemaVersion: 1
+};
+
 const project = {
   activeFlowId: "inspect-tavern-door",
   activeHotspotId: "tavern-entrance",
+  activeItemId: "rusty-hook",
   activeLocale: "en",
+  activePickupId: null,
   activeSceneId: "moonlit-dock",
   directory: "D:/Work/PointAndClickEngine/apps/sample-game/project",
   flows: [flowDocument],
+  items: [itemDocument],
   locales: [localeDocument],
   scenes: [sceneDocument]
 };

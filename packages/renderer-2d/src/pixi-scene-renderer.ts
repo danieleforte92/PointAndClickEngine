@@ -4,6 +4,7 @@ import { Application, Container, Graphics } from "pixi.js";
 export interface SceneInteractionHandlers {
   onWalk(position: Vector2): void;
   onHotspot(hotspotId: string): void;
+  onPickup(pickupId: string): void;
 }
 
 function colorNumber(color: string): number {
@@ -13,6 +14,7 @@ function colorNumber(color: string): number {
 export class PixiSceneRenderer {
   private readonly app = new Application();
   private readonly player = new Container();
+  private readonly pickupTargets = new Map<string, Graphics>();
   private pendingPlayerPosition: Vector2 = { x: 0, y: 0 };
   private mounted = false;
 
@@ -81,6 +83,27 @@ export class PixiSceneRenderer {
       this.app.stage.addChild(target);
     }
 
+    for (const pickup of this.scene.pickups) {
+      const target = new Graphics()
+        .roundRect(
+          pickup.bounds.x,
+          pickup.bounds.y,
+          pickup.bounds.width,
+          pickup.bounds.height,
+          8
+        )
+        .fill({ color: 0x9bd8b6, alpha: 0.18 });
+      target.zIndex = 90;
+      target.eventMode = "static";
+      target.cursor = "pointer";
+      target.on("pointertap", (event) => {
+        event.stopPropagation();
+        this.handlers.onPickup(pickup.id);
+      });
+      this.pickupTargets.set(pickup.id, target);
+      this.app.stage.addChild(target);
+    }
+
     const shadow = new Graphics().ellipse(0, 38, 30, 10).fill({ color: 0x071019, alpha: 0.45 });
     const body = new Graphics().roundRect(-16, -32, 32, 66, 14).fill(0xd98b52);
     const coat = new Graphics().poly([-22, 30, 0, -5, 22, 30]).fill(0x263a55);
@@ -95,6 +118,15 @@ export class PixiSceneRenderer {
     this.app.stage.addChild(this.player);
     this.app.stage.sortableChildren = true;
     this.mounted = true;
+  }
+
+  renderCollectedPickups(collectedPickupIds: string[]): void {
+    const collected = new Set(collectedPickupIds);
+    for (const [pickupId, target] of this.pickupTargets) {
+      const visible = !collected.has(pickupId);
+      target.visible = visible;
+      target.eventMode = visible ? "static" : "none";
+    }
   }
 
   renderPlayer(position: Vector2): void {

@@ -3,8 +3,11 @@
   "locale": "en",
   "strings": {
     "hotspot.tavern-entrance": "The Lantern & Gull",
-    "dialogue.tavern.01": "The tavern door is warm, though the harbor has been cold for years.",
-    "dialogue.tavern.02": "Someone inside is playing my song. That is either very good news, or impressively bad news."
+    "pickup.rusty-hook": "Rusty Hook",
+    "item.rusty-hook": "Rusty Hook",
+    "dialogue.tavern.look.01": "The tavern door is warm, though the harbor has been cold for years.",
+    "dialogue.tavern.talk.01": "I try talking to the door. The door, in a shocking break from etiquette, stays quiet.",
+    "dialogue.hook.pickup.01": "A rusty hook. Not elegant, but it might still persuade old wood.",
+    "dialogue.tavern.use-hook.01": "The hook catches the latch. Crude? Yes. Effective? Also yes."
   }
 }
-

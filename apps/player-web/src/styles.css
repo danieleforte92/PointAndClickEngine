@@ -134,6 +134,59 @@ h1 {
   padding-left: 8px;
 }
 
+.verb-bar,
+.inventory-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(182, 218, 228, 0.14);
+  border-radius: 4px 18px 4px 18px;
+  background: rgba(4, 12, 18, 0.56);
+}
+
+.verb-bar button,
+.inventory-items button {
+  padding: 8px 12px;
+  color: #d6e2e6;
+  border: 1px solid rgba(182, 218, 228, 0.16);
+  border-radius: 3px 10px 3px 10px;
+  background: rgba(16, 30, 41, 0.82);
+  cursor: pointer;
+  text-transform: capitalize;
+}
+
+.verb-bar button.active,
+.inventory-items button.selected {
+  color: #20170f;
+  border-color: #ddb06f;
+  background: #ddb06f;
+}
+
+.inventory-strip {
+  align-items: flex-start;
+}
+
+.inventory-strip > span {
+  min-width: 90px;
+  color: #86aabb;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.inventory-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.inventory-items small {
+  color: #86aabb;
+}
+
 .event-readout {
   min-width: 125px;
 }
@@ -161,6 +214,20 @@ h1 {
   transform: translateX(-50%);
   cursor: pointer;
   animation: dialogue-in 180ms ease-out both;
+}
+
+.feedback-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 150px;
+  transform: translateX(-50%);
+  z-index: 15;
+  padding: 8px 12px;
+  color: #d7e3e5;
+  border: 1px solid rgba(182, 218, 228, 0.16);
+  border-radius: 3px;
+  background: rgba(4, 12, 18, 0.78);
+  font-size: 0.8rem;
 }
 
 .speaker {

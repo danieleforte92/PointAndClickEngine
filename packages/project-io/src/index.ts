@@ -6,12 +6,15 @@ import {
   type FlowDocument,
   type FlowNode,
   type Hotspot,
+  type HotspotActions,
+  type ItemDocument,
   type LocaleDocument,
   type Layered2DScene,
   type Polygon2,
   type ProjectBundle,
   type ProjectManifest,
   type Rect,
+  type ScenePickup,
   type SceneDocument,
   type Vector2
 } from "@pointclick/contracts";
@@ -21,11 +24,28 @@ export interface LoadedProject {
   bundle: ProjectBundle;
 }
 
+export type ProjectDiagnosticSeverity = "error" | "warning";
+
+export interface ProjectDiagnostic {
+  code: string;
+  documentId?: string;
+  message: string;
+  path?: string;
+  severity: ProjectDiagnosticSeverity;
+}
+
 export interface HotspotPatch {
-  actionFlowId: string;
+  actions: HotspotActions;
   bounds: Rect;
   cursor?: CursorValue;
   labelKey: string;
+}
+
+export interface PickupPatch {
+  bounds: Rect;
+  itemId: string;
+  labelKey: string;
+  pickupFlowId?: string;
 }
 
 export interface ScenePatch {
@@ -33,6 +53,11 @@ export interface ScenePatch {
   name: string;
   playerStart: Vector2;
   walkArea: Polygon2;
+}
+
+export interface ItemPatch {
+  labelKey: string;
+  name: string;
 }
 
 export interface LocaleUpsertPatch {
@@ -59,6 +84,13 @@ export type SceneUpdateCommand = {
   sceneId: string;
 };
 
+export type PickupUpdateCommand = {
+  type: "pickup/update";
+  pickupId: string;
+  patch: PickupPatch;
+  sceneId: string;
+};
+
 export type LocaleUpsertCommand = {
   type: "locale/upsert";
   locale: string;
@@ -71,11 +103,19 @@ export type FlowUpdateCommand = {
   patch: FlowPatch;
 };
 
+export type ItemUpdateCommand = {
+  type: "item/update";
+  itemId: string;
+  patch: ItemPatch;
+};
+
 export type EditorProjectCommand =
   | HotspotUpdateCommand
   | SceneUpdateCommand
+  | PickupUpdateCommand
   | LocaleUpsertCommand
-  | FlowUpdateCommand;
+  | FlowUpdateCommand
+  | ItemUpdateCommand;
 
 async function readJson(filePath: string): Promise<unknown> {
   return JSON.parse(await readFile(filePath, "utf8")) as unknown;
@@ -83,6 +123,209 @@ async function readJson(filePath: string): Promise<unknown> {
 
 async function writeJson(filePath: string, value: unknown): Promise<void> {
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function createDiagnostic(
+  severity: ProjectDiagnosticSeverity,
+  code: string,
+  message: string,
+  options: { documentId?: string; path?: string } = {}
+): ProjectDiagnostic {
+  return {
+    code,
+    message,
+    severity,
+    ...options
+  };
+}
+
+function validateReferencedFlow(
+  bundle: ProjectBundle,
+  diagnostics: ProjectDiagnostic[],
+  flowId: string | undefined,
+  documentId: string,
+  pathValue: string,
+  code: string
+): void {
+  if (!flowId) return;
+  if (!bundle.flows[flowId]) {
+    diagnostics.push(
+      createDiagnostic("error", code, `Flow "${flowId}" does not exist.`, {
+        documentId,
+        path: pathValue
+      })
+    );
+  }
+}
+
+export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[] {
+  const diagnostics: ProjectDiagnostic[] = [];
+  const defaultLocale = bundle.locales[bundle.manifest.defaultLocale];
+
+  if (!bundle.scenes[bundle.manifest.initialSceneId]) {
+    diagnostics.push(
+      createDiagnostic(
+        "error",
+        "manifest.initial-scene-missing",
+        `Initial scene "${bundle.manifest.initialSceneId}" does not exist.`,
+        { path: "manifest.initialSceneId" }
+      )
+    );
+  }
+
+  if (!defaultLocale) {
+    diagnostics.push(
+      createDiagnostic(
+        "error",
+        "manifest.default-locale-missing",
+        `Default locale "${bundle.manifest.defaultLocale}" does not exist.`,
+        { path: "manifest.defaultLocale" }
+      )
+    );
+  }
+
+  for (const flow of Object.values(bundle.flows)) {
+    try {
+      validateFlowReferences(flow);
+    } catch (error) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "flow.invalid-references",
+          error instanceof Error ? error.message : `Flow "${flow.id}" is invalid.`,
+          { documentId: flow.id, path: `flows/${flow.id}` }
+        )
+      );
+    }
+
+    for (const node of flow.nodes) {
+      if (node.type !== "line" || !defaultLocale) continue;
+      if (!(node.textKey in defaultLocale.strings)) {
+        diagnostics.push(
+          createDiagnostic(
+            "warning",
+            "locale.missing-flow-text",
+            `Missing localized string "${node.textKey}" in default locale.`,
+            { documentId: flow.id, path: `flows/${flow.id}/nodes/${node.id}/textKey` }
+          )
+        );
+      }
+    }
+  }
+
+  for (const item of Object.values(bundle.items)) {
+    if (defaultLocale && !(item.labelKey in defaultLocale.strings)) {
+      diagnostics.push(
+        createDiagnostic(
+          "warning",
+          "locale.missing-item-label",
+          `Missing localized string "${item.labelKey}" in default locale.`,
+          { documentId: item.id, path: `items/${item.id}/labelKey` }
+        )
+      );
+    }
+  }
+
+  for (const scene of Object.values(bundle.scenes)) {
+    if (scene.type !== "layered-2d") continue;
+
+    for (const hotspot of scene.hotspots) {
+      if (defaultLocale && !(hotspot.labelKey in defaultLocale.strings)) {
+        diagnostics.push(
+          createDiagnostic(
+            "warning",
+            "locale.missing-hotspot-label",
+            `Missing localized string "${hotspot.labelKey}" in default locale.`,
+            { documentId: scene.id, path: `scenes/${scene.id}/hotspots/${hotspot.id}/labelKey` }
+          )
+        );
+      }
+
+      validateReferencedFlow(
+        bundle,
+        diagnostics,
+        hotspot.actions.lookFlowId,
+        scene.id,
+        `scenes/${scene.id}/hotspots/${hotspot.id}/actions/lookFlowId`,
+        "scene.hotspot-look-missing-flow"
+      );
+      validateReferencedFlow(
+        bundle,
+        diagnostics,
+        hotspot.actions.talkFlowId,
+        scene.id,
+        `scenes/${scene.id}/hotspots/${hotspot.id}/actions/talkFlowId`,
+        "scene.hotspot-talk-missing-flow"
+      );
+      validateReferencedFlow(
+        bundle,
+        diagnostics,
+        hotspot.actions.useFlowId,
+        scene.id,
+        `scenes/${scene.id}/hotspots/${hotspot.id}/actions/useFlowId`,
+        "scene.hotspot-use-missing-flow"
+      );
+
+      for (const mapping of hotspot.actions.useItemFlows) {
+        if (!bundle.items[mapping.itemId]) {
+          diagnostics.push(
+            createDiagnostic(
+              "error",
+              "scene.hotspot-item-missing",
+              `Hotspot "${hotspot.id}" references missing item "${mapping.itemId}".`,
+              {
+                documentId: scene.id,
+                path: `scenes/${scene.id}/hotspots/${hotspot.id}/actions/useItemFlows/${mapping.itemId}`
+              }
+            )
+          );
+        }
+        validateReferencedFlow(
+          bundle,
+          diagnostics,
+          mapping.flowId,
+          scene.id,
+          `scenes/${scene.id}/hotspots/${hotspot.id}/actions/useItemFlows/${mapping.itemId}/flowId`,
+          "scene.hotspot-item-flow-missing"
+        );
+      }
+    }
+
+    for (const pickup of scene.pickups) {
+      if (!bundle.items[pickup.itemId]) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "scene.pickup-item-missing",
+            `Pickup "${pickup.id}" references missing item "${pickup.itemId}".`,
+            { documentId: scene.id, path: `scenes/${scene.id}/pickups/${pickup.id}/itemId` }
+          )
+        );
+      }
+
+      validateReferencedFlow(
+        bundle,
+        diagnostics,
+        pickup.pickupFlowId,
+        scene.id,
+        `scenes/${scene.id}/pickups/${pickup.id}/pickupFlowId`,
+        "scene.pickup-flow-missing"
+      );
+
+      if (defaultLocale && !(pickup.labelKey in defaultLocale.strings)) {
+        diagnostics.push(
+          createDiagnostic(
+            "warning",
+            "locale.missing-pickup-label",
+            `Missing localized string "${pickup.labelKey}" in default locale.`,
+            { documentId: scene.id, path: `scenes/${scene.id}/pickups/${pickup.id}/labelKey` }
+          )
+        );
+      }
+    }
+  }
+
+  return diagnostics;
 }
 
 export async function loadProjectFromDirectory(projectDirectory: string): Promise<LoadedProject> {
@@ -121,13 +364,24 @@ export async function loadProjectFromDirectory(projectDirectory: string): Promis
     locales[value.locale] = value;
   }
 
+  const items: Record<string, ItemDocument> = {};
+  for (const reference of manifestValue.items) {
+    const value = await readJson(path.resolve(directory, reference.path));
+    assertDocument<ItemDocument>("item", value);
+    if (value.id !== reference.id) {
+      throw new Error(`Item reference "${reference.id}" points to document "${value.id}"`);
+    }
+    items[value.id] = value;
+  }
+
   return {
     directory,
     bundle: {
       manifest: manifestValue,
       scenes,
       flows,
-      locales
+      locales,
+      items
     }
   };
 }
@@ -156,6 +410,14 @@ function flowPathFor(project: LoadedProject, flowId: string): string {
   return path.resolve(project.directory, reference.path);
 }
 
+function itemPathFor(project: LoadedProject, itemId: string): string {
+  const reference = project.bundle.manifest.items.find((entry) => entry.id === itemId);
+  if (!reference) {
+    throw new Error(`Item "${itemId}" is not referenced by the project manifest`);
+  }
+  return path.resolve(project.directory, reference.path);
+}
+
 function patchHotspot(scene: Layered2DScene, hotspotId: string, patch: HotspotPatch): Layered2DScene {
   const index = scene.hotspots.findIndex((hotspot) => hotspot.id === hotspotId);
   if (index < 0) {
@@ -165,7 +427,7 @@ function patchHotspot(scene: Layered2DScene, hotspotId: string, patch: HotspotPa
   const currentHotspot = scene.hotspots[index]!;
   const nextHotspot: Hotspot = {
     ...currentHotspot,
-    actionFlowId: patch.actionFlowId,
+    actions: patch.actions,
     bounds: patch.bounds,
     labelKey: patch.labelKey
   };
@@ -193,6 +455,33 @@ function patchScene(scene: Layered2DScene, patch: ScenePatch): Layered2DScene {
   };
 }
 
+function patchPickup(scene: Layered2DScene, pickupId: string, patch: PickupPatch): Layered2DScene {
+  const index = scene.pickups.findIndex((pickup) => pickup.id === pickupId);
+  if (index < 0) {
+    throw new Error(`Pickup "${pickupId}" was not found in scene "${scene.id}"`);
+  }
+
+  const currentPickup = scene.pickups[index]!;
+  const nextPickup: ScenePickup = {
+    ...currentPickup,
+    bounds: patch.bounds,
+    itemId: patch.itemId,
+    labelKey: patch.labelKey
+  };
+  if (patch.pickupFlowId) {
+    nextPickup.pickupFlowId = patch.pickupFlowId;
+  } else {
+    delete nextPickup.pickupFlowId;
+  }
+
+  const pickups = [...scene.pickups];
+  pickups[index] = nextPickup;
+  return {
+    ...scene,
+    pickups
+  };
+}
+
 function patchLocale(locale: LocaleDocument, patch: LocaleUpsertPatch): LocaleDocument {
   return {
     ...locale,
@@ -209,6 +498,14 @@ function patchFlow(flow: FlowDocument, patch: FlowPatch): FlowDocument {
     name: patch.name,
     nodes: patch.nodes,
     startNodeId: patch.startNodeId
+  };
+}
+
+function patchItem(item: ItemDocument, patch: ItemPatch): ItemDocument {
+  return {
+    ...item,
+    labelKey: patch.labelKey,
+    name: patch.name
   };
 }
 
@@ -275,6 +572,20 @@ export async function applyProjectCommand(
     await writeJson(scenePathFor(project, command.sceneId), nextScene);
   }
 
+  if (command.type === "pickup/update") {
+    const scene = project.bundle.scenes[command.sceneId];
+    if (!scene) {
+      throw new Error(`Scene "${command.sceneId}" was not found in the loaded project`);
+    }
+    if (scene.type !== "layered-2d") {
+      throw new Error(`Scene "${command.sceneId}" does not support pickup editing yet`);
+    }
+
+    const nextScene = patchPickup(scene, command.pickupId, command.patch);
+    assertDocument<Layered2DScene>("layered2dScene", nextScene);
+    await writeJson(scenePathFor(project, command.sceneId), nextScene);
+  }
+
   if (command.type === "locale/upsert") {
     const locale = project.bundle.locales[command.locale];
     if (!locale) {
@@ -299,6 +610,17 @@ export async function applyProjectCommand(
     assertDocument<FlowDocument>("flow", nextFlow);
     validateFlowReferences(nextFlow);
     await writeJson(flowPathFor(project, command.flowId), nextFlow);
+  }
+
+  if (command.type === "item/update") {
+    const item = project.bundle.items[command.itemId];
+    if (!item) {
+      throw new Error(`Item "${command.itemId}" was not found in the loaded project`);
+    }
+
+    const nextItem = patchItem(item, command.patch);
+    assertDocument<ItemDocument>("item", nextItem);
+    await writeJson(itemPathFor(project, command.itemId), nextItem);
   }
 
   return loadProjectFromDirectory(projectDirectory);

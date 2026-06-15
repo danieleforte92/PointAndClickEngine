@@ -3,24 +3,45 @@ import type {
   FlowDocument,
   FlowNode,
   Hotspot,
+  HotspotUseItemFlow,
+  ItemDocument,
   Layered2DScene,
   LocaleDocument,
   Polygon2,
+  ScenePickup,
   SceneDocument
 } from "@pointclick/contracts";
 
-export type Workspace = "scene" | "narrative" | "assets" | "build";
+export type Workspace = "overview" | "scene" | "narrative" | "assets" | "build";
 export type FlagValueKind = "string" | "number" | "boolean";
 export type DraftNodeType = "line" | "set-flag" | "end";
 
 export interface HotspotDraft {
-  actionFlowId: string;
   cursor: string;
   height: string;
   labelKey: string;
+  lookFlowId: string;
+  talkFlowId: string;
+  useFlowId: string;
+  useItemFlows: Array<{ itemId: string; flowId: string }>;
   width: string;
   x: string;
   y: string;
+}
+
+export interface PickupDraft {
+  height: string;
+  itemId: string;
+  labelKey: string;
+  pickupFlowId: string;
+  width: string;
+  x: string;
+  y: string;
+}
+
+export interface ItemDraft {
+  labelKey: string;
+  name: string;
 }
 
 export interface SceneDraft {
@@ -70,10 +91,13 @@ export interface LocaleEntryDraft {
 export interface EditorProjectData {
   activeFlowId: string | null;
   activeHotspotId: string | null;
+  activeItemId: string | null;
   activeLocale: string | null;
+  activePickupId: string | null;
   activeSceneId: string;
   directory: string;
   flows: FlowDocument[];
+  items: ItemDocument[];
   locales: LocaleDocument[];
   scenes: SceneDocument[];
 }
@@ -81,12 +105,16 @@ export interface EditorProjectData {
 export interface EditorSessionState {
   activeFlowId: string | null;
   activeHotspotId: string | null;
+  activeItemId: string | null;
   activeLocale: string | null;
+  activePickupId: string | null;
   activeSceneId: string | null;
   flowDrafts: Record<string, FlowDraft>;
   hotspotDrafts: Record<string, HotspotDraft>;
+  itemDrafts: Record<string, ItemDraft>;
   localeDrafts: Record<string, Record<string, string>>;
   localeEntryDrafts: Record<string, LocaleEntryDraft>;
+  pickupDrafts: Record<string, PickupDraft>;
   sceneDrafts: Record<string, SceneDraft>;
 }
 
@@ -106,7 +134,9 @@ export interface DirtyState {
   count: number;
   flowIds: Set<string>;
   hotspotKeys: Set<string>;
+  itemIds: Set<string>;
   localeIds: Set<string>;
+  pickupKeys: Set<string>;
   sceneIds: Set<string>;
 }
 
@@ -119,13 +149,39 @@ export function sceneItems(scenes: SceneDocument[]) {
 
 export function createHotspotDraft(hotspot: Hotspot | null): HotspotDraft {
   return {
-    actionFlowId: hotspot?.actionFlowId ?? "",
     cursor: hotspot?.cursor ?? "",
     height: hotspot ? String(hotspot.bounds.height) : "",
     labelKey: hotspot?.labelKey ?? "",
+    lookFlowId: hotspot?.actions.lookFlowId ?? "",
+    talkFlowId: hotspot?.actions.talkFlowId ?? "",
+    useFlowId: hotspot?.actions.useFlowId ?? "",
+    useItemFlows:
+      hotspot?.actions.useItemFlows.map((entry) => ({
+        itemId: entry.itemId,
+        flowId: entry.flowId
+      })) ?? [],
     width: hotspot ? String(hotspot.bounds.width) : "",
     x: hotspot ? String(hotspot.bounds.x) : "",
     y: hotspot ? String(hotspot.bounds.y) : ""
+  };
+}
+
+export function createPickupDraft(pickup: ScenePickup | null): PickupDraft {
+  return {
+    height: pickup ? String(pickup.bounds.height) : "",
+    itemId: pickup?.itemId ?? "",
+    labelKey: pickup?.labelKey ?? "",
+    pickupFlowId: pickup?.pickupFlowId ?? "",
+    width: pickup ? String(pickup.bounds.width) : "",
+    x: pickup ? String(pickup.bounds.x) : "",
+    y: pickup ? String(pickup.bounds.y) : ""
+  };
+}
+
+export function createItemDraft(item: ItemDocument | null): ItemDraft {
+  return {
+    labelKey: item?.labelKey ?? "",
+    name: item?.name ?? ""
   };
 }
 
@@ -195,6 +251,17 @@ export function createFlowDraft(flow: FlowDocument | null): FlowDraft | null {
     }),
     startNodeId: flow.startNodeId
   };
+}
+
+export function buildHotspotUseItemFlows(
+  entries: Array<{ itemId: string; flowId: string }>
+): HotspotUseItemFlow[] {
+  return entries
+    .map((entry) => ({
+      itemId: entry.itemId.trim(),
+      flowId: entry.flowId.trim()
+    }))
+    .filter((entry) => entry.itemId.length > 0 && entry.flowId.length > 0);
 }
 
 export function parsePositiveNumber(value: string): number | null {
@@ -295,12 +362,16 @@ export function initializeEditorSession(project: EditorProjectData): EditorSessi
   return {
     activeFlowId: null,
     activeHotspotId: project.activeHotspotId,
+    activeItemId: project.activeItemId,
     activeLocale: null,
+    activePickupId: project.activePickupId,
     activeSceneId: project.activeSceneId,
     flowDrafts: {},
     hotspotDrafts: {},
+    itemDrafts: {},
     localeDrafts: {},
     localeEntryDrafts: {},
+    pickupDrafts: {},
     sceneDrafts: {}
   };
 }
@@ -377,6 +448,25 @@ function findFlow(project: EditorProjectData, flowId: string | null): FlowDocume
   return project.flows.find((flow) => flow.id === flowId) ?? null;
 }
 
+function findItem(project: EditorProjectData, itemId: string | null): ItemDocument | null {
+  if (!itemId) return null;
+  return project.items.find((item) => item.id === itemId) ?? null;
+}
+
+function pickupKey(sceneId: string, pickupId: string): string {
+  return `${sceneId}::pickup::${pickupId}`;
+}
+
+function findPickup(
+  project: EditorProjectData,
+  sceneId: string | null,
+  pickupId: string | null
+): ScenePickup | null {
+  const scene = findScene(project, sceneId);
+  if (!scene || !pickupId) return null;
+  return scene.pickups.find((pickup) => pickup.id === pickupId) ?? null;
+}
+
 function hotspotKey(sceneId: string, hotspotId: string): string {
   return `${sceneId}::${hotspotId}`;
 }
@@ -391,7 +481,9 @@ function localeEntriesEqual(left: Record<string, string>, right: Record<string, 
 export function getDirtyState(project: EditorProjectData, session: EditorSessionState): DirtyState {
   const flowIds = new Set<string>();
   const hotspotKeys = new Set<string>();
+  const itemIds = new Set<string>();
   const localeIds = new Set<string>();
+  const pickupKeys = new Set<string>();
   const sceneIds = new Set<string>();
 
   for (const [sceneId, draft] of Object.entries(session.sceneDrafts)) {
@@ -417,6 +509,22 @@ export function getDirtyState(project: EditorProjectData, session: EditorSession
     }
   }
 
+  for (const [itemId, draft] of Object.entries(session.itemDrafts)) {
+    const item = findItem(project, itemId);
+    if (item && JSON.stringify(draft) !== JSON.stringify(createItemDraft(item))) {
+      itemIds.add(itemId);
+    }
+  }
+
+  for (const [key, draft] of Object.entries(session.pickupDrafts)) {
+    const [sceneId, , pickupId] = key.split("::");
+    if (!sceneId || !pickupId) continue;
+    const pickup = findPickup(project, sceneId, pickupId);
+    if (pickup && JSON.stringify(draft) !== JSON.stringify(createPickupDraft(pickup))) {
+      pickupKeys.add(key);
+    }
+  }
+
   for (const [localeId, entryDraft] of Object.entries(session.localeEntryDrafts)) {
     if (entryDraft.key.trim() || entryDraft.value.trim()) {
       localeIds.add(localeId);
@@ -431,10 +539,12 @@ export function getDirtyState(project: EditorProjectData, session: EditorSession
   }
 
   return {
-    count: flowIds.size + hotspotKeys.size + localeIds.size + sceneIds.size,
+    count: flowIds.size + hotspotKeys.size + itemIds.size + localeIds.size + pickupKeys.size + sceneIds.size,
     flowIds,
     hotspotKeys,
+    itemIds,
     localeIds,
+    pickupKeys,
     sceneIds
   };
 }
@@ -450,12 +560,16 @@ export function buildRecoverySnapshot(
   const recoverySession: EditorSessionState = {
     activeFlowId: session.activeFlowId,
     activeHotspotId: session.activeHotspotId,
+    activeItemId: session.activeItemId,
     activeLocale: session.activeLocale,
+    activePickupId: session.activePickupId,
     activeSceneId: session.activeSceneId,
     flowDrafts: {},
     hotspotDrafts: {},
+    itemDrafts: {},
     localeDrafts: {},
     localeEntryDrafts: {},
+    pickupDrafts: {},
     sceneDrafts: {}
   };
 
@@ -471,6 +585,18 @@ export function buildRecoverySnapshot(
       ...initializeEditorSession(project),
       hotspotDrafts: { [key]: session.hotspotDrafts[key]! }
     }).hotspotDrafts[key]!;
+  }
+
+  for (const itemId of dirty.itemIds) {
+    recoverySession.itemDrafts[itemId] = {
+      ...session.itemDrafts[itemId]!
+    };
+  }
+
+  for (const key of dirty.pickupKeys) {
+    recoverySession.pickupDrafts[key] = {
+      ...session.pickupDrafts[key]!
+    };
   }
 
   for (const localeId of dirty.localeIds) {
@@ -509,32 +635,42 @@ export function restoreSessionFromRecovery(
     ...base,
     activeFlowId: recovery.session.activeFlowId ?? base.activeFlowId,
     activeHotspotId: recovery.session.activeHotspotId ?? base.activeHotspotId,
+    activeItemId: recovery.session.activeItemId ?? base.activeItemId,
     activeLocale: recovery.session.activeLocale ?? base.activeLocale,
+    activePickupId: recovery.session.activePickupId ?? base.activePickupId,
     activeSceneId: recovery.session.activeSceneId ?? base.activeSceneId,
     flowDrafts: { ...recovery.session.flowDrafts },
     hotspotDrafts: { ...recovery.session.hotspotDrafts },
+    itemDrafts: { ...recovery.session.itemDrafts },
     localeDrafts: { ...recovery.session.localeDrafts },
     localeEntryDrafts: { ...recovery.session.localeEntryDrafts },
+    pickupDrafts: { ...recovery.session.pickupDrafts },
     sceneDrafts: { ...recovery.session.sceneDrafts }
   };
 }
 
 export function discardSavedDraft(
   session: EditorSessionState,
-  kind: "flow" | "hotspot" | "locale" | "scene",
+  kind: "flow" | "hotspot" | "item" | "locale" | "pickup" | "scene",
   id: string
 ): EditorSessionState {
   const next = cloneSessionState(session);
   if (kind === "flow") delete next.flowDrafts[id];
   if (kind === "hotspot") delete next.hotspotDrafts[id];
+  if (kind === "item") delete next.itemDrafts[id];
   if (kind === "locale") {
     delete next.localeDrafts[id];
     delete next.localeEntryDrafts[id];
   }
+  if (kind === "pickup") delete next.pickupDrafts[id];
   if (kind === "scene") delete next.sceneDrafts[id];
   return next;
 }
 
 export function createHotspotKey(sceneId: string, hotspotId: string): string {
   return hotspotKey(sceneId, hotspotId);
+}
+
+export function createPickupKey(sceneId: string, pickupId: string): string {
+  return pickupKey(sceneId, pickupId);
 }

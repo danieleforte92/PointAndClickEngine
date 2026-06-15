@@ -8,6 +8,12 @@ export const HotspotCursorSchema = Type.Union([
   Type.Literal("use"),
   Type.Literal("enter")
 ]);
+export const VerbSchema = Type.Union([
+  Type.Literal("walk"),
+  Type.Literal("look"),
+  Type.Literal("use"),
+  Type.Literal("talk")
+]);
 
 export const Vector2Schema = Type.Object(
   {
@@ -67,6 +73,15 @@ export const ProjectManifestSchema = Type.Object(
         { additionalProperties: false }
       )
     ),
+    items: Type.Array(
+      Type.Object(
+        {
+          id: Id,
+          path: Type.String({ minLength: 1 })
+        },
+        { additionalProperties: false }
+      )
+    ),
     locales: Type.Array(
       Type.Object(
         {
@@ -92,13 +107,42 @@ export const SceneShapeSchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const HotspotUseItemFlowSchema = Type.Object(
+  {
+    itemId: Id,
+    flowId: Id
+  },
+  { additionalProperties: false }
+);
+
+export const HotspotActionsSchema = Type.Object(
+  {
+    lookFlowId: Type.Optional(Id),
+    talkFlowId: Type.Optional(Id),
+    useFlowId: Type.Optional(Id),
+    useItemFlows: Type.Array(HotspotUseItemFlowSchema, { default: [] })
+  },
+  { additionalProperties: false }
+);
+
 export const HotspotSchema = Type.Object(
   {
     id: Id,
     labelKey: Type.String({ minLength: 1 }),
     bounds: RectSchema,
-    actionFlowId: Id,
+    actions: HotspotActionsSchema,
     cursor: Type.Optional(HotspotCursorSchema)
+  },
+  { additionalProperties: false }
+);
+
+export const ScenePickupSchema = Type.Object(
+  {
+    id: Id,
+    itemId: Id,
+    labelKey: Type.String({ minLength: 1 }),
+    bounds: RectSchema,
+    pickupFlowId: Type.Optional(Id)
   },
   { additionalProperties: false }
 );
@@ -119,6 +163,7 @@ export const Layered2DSceneSchema = Type.Object(
     background: HexColor,
     playerStart: Vector2Schema,
     walkArea: Polygon2Schema,
+    pickups: Type.Array(ScenePickupSchema),
     shapes: Type.Array(SceneShapeSchema),
     hotspots: Type.Array(HotspotSchema)
   },
@@ -203,23 +248,39 @@ export const LocaleDocumentSchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const ItemDocumentSchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    id: Id,
+    name: Type.String({ minLength: 1 }),
+    labelKey: Type.String({ minLength: 1 })
+  },
+  { additionalProperties: false }
+);
+
 export type Vector2 = Static<typeof Vector2Schema>;
 export type Rect = Static<typeof RectSchema>;
 export type Polygon2 = Static<typeof Polygon2Schema>;
+export type Verb = Static<typeof VerbSchema>;
 export type ProjectManifest = Static<typeof ProjectManifestSchema>;
 export type SceneShape = Static<typeof SceneShapeSchema>;
 export type CursorValue = Static<typeof HotspotCursorSchema>;
+export type HotspotUseItemFlow = Static<typeof HotspotUseItemFlowSchema>;
+export type HotspotActions = Static<typeof HotspotActionsSchema>;
 export type Hotspot = Static<typeof HotspotSchema>;
+export type ScenePickup = Static<typeof ScenePickupSchema>;
 export type Layered2DScene = Static<typeof Layered2DSceneSchema>;
 export type Hybrid3DScene = Static<typeof Hybrid3DSceneSchema>;
 export type SceneDocument = Static<typeof SceneDocumentSchema>;
 export type FlowNode = Static<typeof FlowNodeSchema>;
 export type FlowDocument = Static<typeof FlowDocumentSchema>;
 export type LocaleDocument = Static<typeof LocaleDocumentSchema>;
+export type ItemDocument = Static<typeof ItemDocumentSchema>;
 
 export interface ProjectBundle {
   manifest: ProjectManifest;
   scenes: Record<string, SceneDocument>;
   flows: Record<string, FlowDocument>;
   locales: Record<string, LocaleDocument>;
+  items: Record<string, ItemDocument>;
 }

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "talk-tavern-door",
+  "name": "Talk to the tavern door",
+  "startNodeId": "mara-one",
+  "nodes": [
+    {
+      "id": "mara-one",
+      "type": "line",
+      "speakerId": "mara",
+      "textKey": "dialogue.tavern.talk.01",
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}
