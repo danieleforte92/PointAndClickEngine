@@ -14,6 +14,7 @@ import type {
 } from "@pointclick/contracts";
 import type { EditorRecoverySnapshot } from "./editor-session";
 import type { EditorPreviewRequest } from "./preload";
+import { createValidationReport } from "./validation-report";
 import {
   applyProjectCommand,
   loadProjectFromDirectory,
@@ -309,6 +310,15 @@ async function applyEditorCommand(command: EditorProjectCommand) {
   return summarizeProject(loaded.directory, loaded.bundle);
 }
 
+async function runEditorValidation() {
+  const loaded = await loadProjectFromDirectory(currentProjectPath());
+  loadedProjectDirectory = loaded.directory;
+  return createValidationReport(
+    loaded.directory,
+    validateProjectBundle(loaded.bundle)
+  );
+}
+
 async function promptForProjectDirectory(browserWindow: BrowserWindow) {
   const result = await dialog.showOpenDialog(browserWindow, {
     defaultPath: currentProjectPath(),
@@ -343,6 +353,9 @@ app.whenReady().then(() => {
   });
   ipcMain.handle("project:command", async (_event, command: EditorProjectCommand) => {
     return applyEditorCommand(command);
+  });
+  ipcMain.handle("project:validate", async () => {
+    return runEditorValidation();
   });
   ipcMain.handle("recovery:load", async (_event, projectDirectory: string) => {
     return loadRecoverySnapshot(projectDirectory);

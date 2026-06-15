@@ -156,6 +156,11 @@ button {
   background: #d9a561;
 }
 
+.capability-badge.error {
+  color: #341915;
+  background: #d96f61;
+}
+
 .capability-badge.muted {
   color: #b2c2c9;
   background: #30414c;
@@ -597,6 +602,10 @@ button {
   padding: 18px;
 }
 
+.build-workspace {
+  align-content: start;
+}
+
 .overview-card,
 .workspace-placeholder {
   padding: 16px;
@@ -643,6 +652,10 @@ button {
   margin-top: 12px;
 }
 
+.build-actions {
+  margin-top: 14px;
+}
+
 .capability-card,
 .diagnostic-item {
   display: flex;
@@ -667,6 +680,12 @@ button {
 
 .diagnostic-item.warning strong {
   color: #f0d49c;
+}
+
+.diagnostic-meta {
+  color: #607985;
+  font-family: "Courier New", monospace;
+  font-size: 0.62rem;
 }
 
 .workspace-placeholder {

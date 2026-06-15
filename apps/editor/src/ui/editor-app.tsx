@@ -49,6 +49,8 @@ import {
 } from "../editor-session";
 import { buildDraftProjectBundle } from "../preview-session";
 import type { EditorProjectSnapshot } from "../preload";
+import type { EditorValidationReport, EditorValidationRunState } from "../validation-report";
+import { createValidationReport } from "../validation-report";
 
 const emptyHistory = createHistoryState(
   initializeEditorSession({
@@ -154,12 +156,43 @@ function healthSummary(
   };
 }
 
+function formatValidationTimestamp(timestamp: string | null): string {
+  if (!timestamp) return "Not run yet";
+  const value = new Date(timestamp);
+  if (Number.isNaN(value.getTime())) return timestamp;
+  return value.toLocaleString("it-IT", {
+    dateStyle: "short",
+    timeStyle: "short"
+  });
+}
+
+function validationTone(report: EditorValidationReport | null): "good" | "warn" | "error" | "muted" {
+  if (!report) return "muted";
+  if (report.summary.errorCount > 0) return "error";
+  if (report.summary.warningCount > 0) return "warn";
+  return "good";
+}
+
+function validationSummaryLabel(report: EditorValidationReport | null): string {
+  if (!report) return "No validation run yet";
+  if (report.summary.errorCount > 0) {
+    return `${report.summary.errorCount} error(s), ${report.summary.warningCount} warning(s)`;
+  }
+  if (report.summary.warningCount > 0) {
+    return `${report.summary.warningCount} warning(s), review recommended`;
+  }
+  return "Validation passed";
+}
+
 export function EditorApp() {
   const [workspace, setWorkspace] = useState<Workspace>("overview");
   const [status, setStatus] = useState("Loading project...");
   const [project, setProject] = useState<EditorProjectSnapshot | null>(null);
   const [history, setHistory] = useState<EditorHistoryState>(emptyHistory);
   const [pendingRecovery, setPendingRecovery] = useState<EditorRecoverySnapshot | null>(null);
+  const [validationRunState, setValidationRunState] = useState<EditorValidationRunState>("idle");
+  const [validationReport, setValidationReport] = useState<EditorValidationReport | null>(null);
+  const [validationStatus, setValidationStatus] = useState("Validation uses saved project files.");
 
   const session = history.present;
   const scenes = project ? sceneItems(project.scenes) : [];
@@ -240,6 +273,17 @@ export function EditorApp() {
       }
     : undefined;
   const projectHealth = project ? healthSummary(project.diagnostics, dirtyState.count) : null;
+  const currentValidationReport =
+    validationReport ??
+    (project ? createValidationReport(project.directory, project.diagnostics, "") : null);
+  const previewReadinessLabel =
+    currentValidationReport?.summary.errorCount
+      ? "Preview blocked for saved project content"
+      : currentValidationReport?.summary.warningCount
+        ? "Preview available, but saved project needs review"
+        : dirtyState.count > 0
+          ? "Preview can include unsaved drafts"
+          : "Preview aligned with saved project";
 
   const replaceSession = (recipe: (current: EditorHistoryState) => EditorHistoryState) => {
     setHistory((current) => recipe(current));
@@ -277,6 +321,9 @@ export function EditorApp() {
       setProject(snapshot);
       setHistory(baseHistory);
       setPendingRecovery(recovery);
+      setValidationRunState("idle");
+      setValidationReport(null);
+      setValidationStatus("Validation uses saved project files.");
     });
 
     if (recovery) {
@@ -384,6 +431,27 @@ export function EditorApp() {
       return;
     }
     await hydrateProject(snapshot);
+  };
+
+  const runValidation = async () => {
+    if (!project) return;
+    setValidationRunState("running");
+    setValidationStatus("Validating saved project files...");
+    try {
+      const report = await window.pointClick.runValidation();
+      setValidationReport(report);
+      setValidationRunState("completed");
+      setValidationStatus(
+        report.summary.errorCount > 0
+          ? "Validation completed with blocking errors."
+          : report.summary.warningCount > 0
+            ? "Validation completed with warnings."
+            : "Validation completed successfully."
+      );
+    } catch (error) {
+      setValidationRunState("failed-to-run");
+      setValidationStatus(error instanceof Error ? error.message : "Validation could not be completed");
+    }
   };
 
   const selectScene = (sceneId: string) => {
@@ -1221,7 +1289,64 @@ export function EditorApp() {
                 </div>
               </section>
             </div>
-          ) : workspace === "assets" || workspace === "build" ? (
+          ) : workspace === "build" ? (
+            <div className="workspace-overview build-workspace">
+              <section className="overview-card">
+                <span className="overview-label">Project validation</span>
+                <strong>{validationSummaryLabel(currentValidationReport)}</strong>
+                <p>{validationStatus}</p>
+                <div className="build-actions">
+                  <button
+                    className="play-action"
+                    disabled={!project || validationRunState === "running"}
+                    type="button"
+                    onClick={runValidation}
+                  >
+                    {validationRunState === "running" ? "Validating..." : "Validate Project"}
+                  </button>
+                </div>
+              </section>
+              <section className="overview-card">
+                <span className="overview-label">Last validation</span>
+                <strong>{formatValidationTimestamp(validationReport?.ranAt ?? null)}</strong>
+                <p>Saved target: {project?.directory ?? "No project loaded"}</p>
+              </section>
+              <section className="overview-card">
+                <span className="overview-label">Preview readiness</span>
+                <strong>{previewReadinessLabel}</strong>
+                <p>
+                  {dirtyState.count > 0
+                    ? `${dirtyState.count} draft change(s) exist outside saved-file validation.`
+                    : "Saved validation and preview target currently match."}
+                </p>
+              </section>
+              <section className="overview-card">
+                <span className="overview-label">Diagnostics</span>
+                <div className="diagnostic-list">
+                  {currentValidationReport?.diagnostics.length ? (
+                    currentValidationReport.diagnostics.map((diagnostic, index) => (
+                      <div className={`diagnostic-item ${diagnostic.severity}`} key={`${diagnostic.code}-${index}`}>
+                        <div>
+                          <strong>{diagnostic.code}</strong>
+                          <p>{diagnostic.message}</p>
+                          {diagnostic.path ? <p className="diagnostic-meta">{diagnostic.path}</p> : null}
+                        </div>
+                        <span
+                          className={`capability-badge ${
+                            diagnostic.severity === "error" ? "warn" : "muted"
+                          }`}
+                        >
+                          {diagnostic.severity}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <p>No diagnostics found for the saved project.</p>
+                  )}
+                </div>
+              </section>
+            </div>
+          ) : workspace === "assets" ? (
             <div className="workspace-placeholder">
               <span className={`capability-badge ${capabilityStatusTone(workspaceCapability.status)}`}>
                 {capabilityBadgeLabel(workspaceCapability.status)}
@@ -1333,8 +1458,10 @@ export function EditorApp() {
             <small>
               {workspace === "overview"
                 ? "Status"
-                : workspace === "assets" || workspace === "build"
+                : workspace === "assets"
                   ? capabilityBadgeLabel(workspaceCapability.status)
+                  : workspace === "build"
+                    ? "Validation"
                   : selectedFlow
                 ? "Flow"
                 : selectedLocale
@@ -1376,13 +1503,25 @@ export function EditorApp() {
                   </p>
                 </div>
               </>
-            ) : workspace === "assets" || workspace === "build" ? (
+            ) : workspace === "assets" ? (
               <div className="workspace-placeholder compact">
                 <span className={`capability-badge ${capabilityStatusTone(workspaceCapability.status)}`}>
                   {capabilityBadgeLabel(workspaceCapability.status)}
                 </span>
                 <strong>{workspaceCapability.summary}</strong>
                 <p>{workspaceCapability.detail}</p>
+              </div>
+            ) : workspace === "build" ? (
+              <div className="workspace-placeholder compact">
+                <span className={`capability-badge ${validationTone(currentValidationReport)}`}>
+                  {validationRunState === "running" ? "Running" : "Validation"}
+                </span>
+                <strong>{validationSummaryLabel(currentValidationReport)}</strong>
+                <p>{validationStatus}</p>
+                <p className="inspector-copy">
+                  Last run: {formatValidationTimestamp(validationReport?.ranAt ?? null)}
+                </p>
+                <p className="inspector-copy">Preview note: {previewReadinessLabel}</p>
               </div>
             ) : selectedFlow && currentFlowDraft ? (
               <>

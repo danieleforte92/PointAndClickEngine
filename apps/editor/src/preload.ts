@@ -12,6 +12,7 @@ import type {
 } from "@pointclick/contracts";
 import type { EditorRecoverySnapshot } from "./editor-session";
 import type { EditorProjectCommand, ProjectDiagnostic } from "@pointclick/project-io";
+import type { EditorValidationReport } from "./validation-report";
 
 export interface EditorPreviewRequest {
   bundle: ProjectBundle;
@@ -52,6 +53,7 @@ export interface PointClickEditorApi {
   openPreview(request?: EditorPreviewRequest): Promise<void>;
   openInBrowser(request?: EditorPreviewRequest): Promise<void>;
   pickProject(): Promise<EditorProjectSnapshot | null>;
+  runValidation(): Promise<EditorValidationReport>;
   saveRecovery(snapshot: EditorRecoverySnapshot): Promise<void>;
 }
 
@@ -63,6 +65,7 @@ const api: PointClickEditorApi = {
   openPreview: (request) => ipcRenderer.invoke("preview:open", request),
   openInBrowser: (request) => ipcRenderer.invoke("preview:browser", request),
   pickProject: () => ipcRenderer.invoke("project:pick"),
+  runValidation: () => ipcRenderer.invoke("project:validate"),
   saveRecovery: (snapshot) => ipcRenderer.invoke("recovery:save", snapshot)
 };
 
