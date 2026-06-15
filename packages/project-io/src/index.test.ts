@@ -1,8 +1,13 @@
-import { cp, mkdtemp, readFile } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { applyProjectCommand, loadProjectFromDirectory, validateProjectBundle } from "./index";
+import {
+  applyProjectCommand,
+  loadProjectFromDirectory,
+  validateProjectBundle,
+  validateProjectFiles
+} from "./index";
 
 describe("loadProjectFromDirectory", () => {
   it("loads the sample project bundle from disk", async () => {
@@ -429,5 +434,68 @@ describe("loadProjectFromDirectory", () => {
 
     expect(diagnostics.some((item) => item.code === "scene.pickup-item-missing")).toBe(true);
     expect(diagnostics.some((item) => item.code === "scene.hotspot-look-missing-flow")).toBe(true);
+  });
+
+  it("registers imported assets in the project manifest and asset documents", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+    await mkdir(path.join(projectRoot, "assets", "imported"), { recursive: true });
+    await writeFile(path.join(projectRoot, "assets", "imported", "dock-sky.png"), "fake image", "utf8");
+
+    const updated = await applyProjectCommand(projectRoot, {
+      type: "asset/import",
+      assets: [
+        {
+          documentPath: "assets/dock-sky.asset.json",
+          filePath: "assets/imported/dock-sky.png",
+          id: "dock-sky",
+          kind: "image",
+          source: "imported"
+        }
+      ]
+    });
+
+    expect(updated.bundle.assets["dock-sky"]).toMatchObject({
+      kind: "image",
+      path: "assets/imported/dock-sky.png",
+      source: "imported"
+    });
+
+    const manifest = JSON.parse(
+      await readFile(path.join(projectRoot, "adventure.project.json"), "utf8")
+    ) as { assets?: Array<{ id: string; path: string }> };
+    expect(manifest.assets).toContainEqual({
+      id: "dock-sky",
+      path: "assets/dock-sky.asset.json"
+    });
+  });
+
+  it("reports missing registered asset files", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+
+    await applyProjectCommand(projectRoot, {
+      type: "asset/import",
+      assets: [
+        {
+          documentPath: "assets/missing-sky.asset.json",
+          filePath: "assets/imported/missing-sky.png",
+          id: "missing-sky",
+          kind: "image",
+          source: "imported"
+        }
+      ]
+    });
+
+    const loaded = await loadProjectFromDirectory(projectRoot);
+    const diagnostics = await validateProjectFiles(loaded);
+
+    expect(diagnostics.some((item) => item.code === "asset.file-missing")).toBe(true);
   });
 });

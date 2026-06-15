@@ -41,5 +41,6 @@ export const sampleBundle: ProjectBundle = {
   },
   items: {
     [itemJson.id]: itemJson
-  }
+  },
+  assets: {}
 };

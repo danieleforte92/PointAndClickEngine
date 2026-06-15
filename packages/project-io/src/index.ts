@@ -1,7 +1,8 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   assertDocument,
+  type AssetDocument,
   type CursorValue,
   type FlowDocument,
   type FlowNode,
@@ -60,6 +61,14 @@ export interface ItemPatch {
   name: string;
 }
 
+export interface ImportedAssetPatch {
+  documentPath: string;
+  filePath: string;
+  id: string;
+  kind: "image";
+  source: "imported";
+}
+
 export interface LocaleUpsertPatch {
   key: string;
   value: string;
@@ -109,19 +118,26 @@ export type ItemUpdateCommand = {
   patch: ItemPatch;
 };
 
+export type AssetImportCommand = {
+  type: "asset/import";
+  assets: ImportedAssetPatch[];
+};
+
 export type EditorProjectCommand =
   | HotspotUpdateCommand
   | SceneUpdateCommand
   | PickupUpdateCommand
   | LocaleUpsertCommand
   | FlowUpdateCommand
-  | ItemUpdateCommand;
+  | ItemUpdateCommand
+  | AssetImportCommand;
 
 async function readJson(filePath: string): Promise<unknown> {
   return JSON.parse(await readFile(filePath, "utf8")) as unknown;
 }
 
 async function writeJson(filePath: string, value: unknown): Promise<void> {
+  await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
@@ -156,6 +172,10 @@ function validateReferencedFlow(
       })
     );
   }
+}
+
+function isHexColor(value: string): boolean {
+  return /^#[0-9a-fA-F]{6}$/.test(value);
 }
 
 export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[] {
@@ -226,8 +246,24 @@ export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[
     }
   }
 
+  const assetsByPath = new Map<string, AssetDocument>();
+  for (const asset of Object.values(bundle.assets)) {
+    assetsByPath.set(asset.path, asset);
+  }
+
   for (const scene of Object.values(bundle.scenes)) {
     if (scene.type !== "layered-2d") continue;
+
+    if (!isHexColor(scene.background) && !assetsByPath.has(scene.background)) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "scene.background-asset-missing",
+          `Scene "${scene.id}" background asset "${scene.background}" is not registered.`,
+          { documentId: scene.id, path: `scenes/${scene.id}/background` }
+        )
+      );
+    }
 
     for (const hotspot of scene.hotspots) {
       if (defaultLocale && !(hotspot.labelKey in defaultLocale.strings)) {
@@ -374,6 +410,16 @@ export async function loadProjectFromDirectory(projectDirectory: string): Promis
     items[value.id] = value;
   }
 
+  const assets: Record<string, AssetDocument> = {};
+  for (const reference of manifestValue.assets ?? []) {
+    const value = await readJson(path.resolve(directory, reference.path));
+    assertDocument<AssetDocument>("asset", value);
+    if (value.id !== reference.id) {
+      throw new Error(`Asset reference "${reference.id}" points to document "${value.id}"`);
+    }
+    assets[value.id] = value;
+  }
+
   return {
     directory,
     bundle: {
@@ -381,7 +427,8 @@ export async function loadProjectFromDirectory(projectDirectory: string): Promis
       scenes,
       flows,
       locales,
-      items
+      items,
+      assets
     }
   };
 }
@@ -416,6 +463,10 @@ function itemPathFor(project: LoadedProject, itemId: string): string {
     throw new Error(`Item "${itemId}" is not referenced by the project manifest`);
   }
   return path.resolve(project.directory, reference.path);
+}
+
+function assetDocumentPathFor(projectDirectory: string, relativePath: string): string {
+  return path.resolve(projectDirectory, relativePath);
 }
 
 function patchHotspot(scene: Layered2DScene, hotspotId: string, patch: HotspotPatch): Layered2DScene {
@@ -538,6 +589,32 @@ function validateFlowReferences(flow: FlowDocument): void {
   }
 }
 
+export async function validateProjectFiles(project: LoadedProject): Promise<ProjectDiagnostic[]> {
+  const diagnostics: ProjectDiagnostic[] = [];
+
+  for (const asset of Object.values(project.bundle.assets)) {
+    const assetFilePath = path.resolve(project.directory, asset.path);
+    try {
+      await stat(assetFilePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "asset.file-missing",
+            `Asset "${asset.id}" file "${asset.path}" is missing.`,
+            { documentId: asset.id, path: `assets/${asset.id}/path` }
+          )
+        );
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  return diagnostics;
+}
+
 export async function applyProjectCommand(
   projectDirectory: string,
   command: EditorProjectCommand
@@ -621,6 +698,41 @@ export async function applyProjectCommand(
     const nextItem = patchItem(item, command.patch);
     assertDocument<ItemDocument>("item", nextItem);
     await writeJson(itemPathFor(project, command.itemId), nextItem);
+  }
+
+  if (command.type === "asset/import") {
+    const nextManifest = {
+      ...project.bundle.manifest,
+      assets: [...(project.bundle.manifest.assets ?? [])]
+    };
+
+    for (const asset of command.assets) {
+      const assetDocument: AssetDocument = {
+        schemaVersion: 1,
+        id: asset.id,
+        kind: asset.kind,
+        path: asset.filePath,
+        source: asset.source
+      };
+      assertDocument<AssetDocument>("asset", assetDocument);
+
+      const existingReferenceIndex = nextManifest.assets.findIndex((entry) => entry.id === asset.id);
+      const nextReference = {
+        id: asset.id,
+        path: asset.documentPath
+      };
+
+      if (existingReferenceIndex >= 0) {
+        nextManifest.assets[existingReferenceIndex] = nextReference;
+      } else {
+        nextManifest.assets.push(nextReference);
+      }
+
+      await writeJson(assetDocumentPathFor(project.directory, asset.documentPath), assetDocument);
+    }
+
+    assertDocument<ProjectManifest>("project", nextManifest);
+    await writeJson(path.join(project.directory, "adventure.project.json"), nextManifest);
   }
 
   return loadProjectFromDirectory(projectDirectory);

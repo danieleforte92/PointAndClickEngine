@@ -1,4 +1,5 @@
 import type {
+  AssetDocument,
   CursorValue,
   FlowDocument,
   Hotspot,
@@ -110,6 +111,51 @@ function pickupFromSnapshot(
   return scene.pickups.find((pickup) => pickup.id === pickupId) ?? null;
 }
 
+function assetFromSnapshot(snapshot: EditorProjectSnapshot | null, assetId: string | null) {
+  if (!snapshot || !assetId) return null;
+  return snapshot.assets.find((asset) => asset.id === assetId) ?? null;
+}
+
+function isHexColor(value: string): boolean {
+  return hexColorPattern.test(value);
+}
+
+function sceneBackgroundStyle(background: string, assetBase = "") {
+  if (isHexColor(background)) {
+    return { background };
+  }
+  const normalizedBase = assetBase.replace(/\\/g, "/").replace(/\/?$/, "/");
+  const assetUrl = assetBase
+    ? normalizedBase.startsWith("http")
+      ? `${normalizedBase}${background}`
+      : `file:///${normalizedBase}${background}`
+    : background;
+  return {
+    background: "#24384a",
+    backgroundImage: `url("${assetUrl}")`,
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    backgroundSize: "cover"
+  };
+}
+
+function assetUsage(asset: AssetDocument, snapshot: EditorProjectSnapshot | null) {
+  if (!snapshot) return [];
+  return sceneItems(snapshot.scenes)
+    .filter((scene) => scene.background === asset.path)
+    .map((scene) => ({ sceneId: scene.id, sceneName: scene.name }));
+}
+
+function assetHealth(asset: AssetDocument, snapshot: EditorProjectSnapshot | null) {
+  if (!snapshot) return "available";
+  return snapshot.diagnostics.some(
+    (diagnostic) =>
+      diagnostic.code === "asset.file-missing" && diagnostic.documentId === asset.id
+  )
+    ? "missing"
+    : "available";
+}
+
 function parseWalkAreaDraft(
   walkAreaPoints: Array<{ x: string; y: string }>
 ): { points: Array<{ x: number; y: number }> } | null {
@@ -190,6 +236,7 @@ export function EditorApp() {
   const [project, setProject] = useState<EditorProjectSnapshot | null>(null);
   const [history, setHistory] = useState<EditorHistoryState>(emptyHistory);
   const [pendingRecovery, setPendingRecovery] = useState<EditorRecoverySnapshot | null>(null);
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [validationRunState, setValidationRunState] = useState<EditorValidationRunState>("idle");
   const [validationReport, setValidationReport] = useState<EditorValidationReport | null>(null);
   const [validationStatus, setValidationStatus] = useState("Validation uses saved project files.");
@@ -205,6 +252,8 @@ export function EditorApp() {
   const selectedItem = itemFromSnapshot(project, session.activeItemId) ?? project?.selectedItem ?? null;
   const selectedPickup =
     pickupFromSnapshot(project, session.activeSceneId, session.activePickupId) ?? null;
+  const selectedAsset =
+    assetFromSnapshot(project, selectedAssetId) ?? project?.selectedAsset ?? project?.assets[0] ?? null;
 
   const currentSceneDraft = selectedScene
     ? session.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene)
@@ -284,6 +333,8 @@ export function EditorApp() {
         : dirtyState.count > 0
           ? "Preview can include unsaved drafts"
           : "Preview aligned with saved project";
+  const selectedAssetUsage = selectedAsset ? assetUsage(selectedAsset, project) : [];
+  const selectedAssetHealth = selectedAsset ? assetHealth(selectedAsset, project) : "available";
 
   const replaceSession = (recipe: (current: EditorHistoryState) => EditorHistoryState) => {
     setHistory((current) => recipe(current));
@@ -321,6 +372,7 @@ export function EditorApp() {
       setProject(snapshot);
       setHistory(baseHistory);
       setPendingRecovery(recovery);
+      setSelectedAssetId(snapshot.selectedAsset?.id ?? snapshot.assets[0]?.id ?? null);
       setValidationRunState("idle");
       setValidationReport(null);
       setValidationStatus("Validation uses saved project files.");
@@ -431,6 +483,44 @@ export function EditorApp() {
       return;
     }
     await hydrateProject(snapshot);
+  };
+
+  const importAssets = async () => {
+    setStatus("Importing assets...");
+    try {
+      const snapshot = await window.pointClick.importAssets();
+      if (!snapshot) {
+        setStatus(project ? `Loaded ${project.manifest.title}` : "Asset import cancelled");
+        return;
+      }
+      setProject(snapshot);
+      setSelectedAssetId(snapshot.selectedAsset?.id ?? snapshot.assets.at(-1)?.id ?? null);
+      setWorkspace("assets");
+      setStatus(`Imported asset library now contains ${snapshot.assetCount} asset(s)`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Assets could not be imported");
+    }
+  };
+
+  const assignAssetBackground = async () => {
+    if (!selectedScene || !selectedAsset) return;
+    setStatus(`Assigning ${selectedAsset.id} to ${selectedScene.id}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "scene/update",
+        patch: {
+          background: selectedAsset.path,
+          name: selectedScene.name,
+          playerStart: selectedScene.playerStart,
+          walkArea: selectedScene.walkArea
+        },
+        sceneId: selectedScene.id
+      });
+      setProject(snapshot);
+      setStatus(`Assigned ${selectedAsset.id} as the background for ${selectedScene.id}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Asset background could not be assigned");
+    }
   };
 
   const runValidation = async () => {
@@ -804,8 +894,12 @@ export function EditorApp() {
       setStatus("Scene name is required");
       return;
     }
-    if (!hexColorPattern.test(background)) {
-      setStatus("Background must be a valid #RRGGBB color");
+    if (!background) {
+      setStatus("Background is required");
+      return;
+    }
+    if (background.startsWith("#") && !hexColorPattern.test(background)) {
+      setStatus("Background color must be a valid #RRGGBB value");
       return;
     }
     if (playerStartX === null || playerStartY === null) {
@@ -1191,6 +1285,21 @@ export function EditorApp() {
                 {dirtyState.itemIds.has(item.id) ? <span className="dirty-mark">*</span> : null}
               </button>
             ))}
+            <div className="tree-group open">Assets ({project?.assetCount ?? 0})</div>
+            {project?.assets.map((asset) => (
+              <button
+                className={`tree-item ${selectedAsset?.id === asset.id && workspace === "assets" ? "selected" : ""}`}
+                key={asset.id}
+                type="button"
+                onClick={() => {
+                  setSelectedAssetId(asset.id);
+                  setWorkspace("assets");
+                }}
+              >
+                <span className="scene-dot muted" /> {asset.id}
+                {assetHealth(asset, project) === "missing" ? <span className="dirty-mark">!</span> : null}
+              </button>
+            ))}
             <div className="tree-group open">Locales ({project?.localeCount ?? 0})</div>
             {project?.locales.map((locale) => (
               <button
@@ -1347,17 +1456,74 @@ export function EditorApp() {
               </section>
             </div>
           ) : workspace === "assets" ? (
-            <div className="workspace-placeholder">
-              <span className={`capability-badge ${capabilityStatusTone(workspaceCapability.status)}`}>
-                {capabilityBadgeLabel(workspaceCapability.status)}
-              </span>
-              <strong>{workspaceCapability.label}</strong>
-              <p>{workspaceCapability.detail}</p>
+            <div className="workspace-overview build-workspace">
+              <section className="overview-card">
+                <span className="overview-label">Project library</span>
+                <strong>{project?.assetCount ?? 0} registered asset(s)</strong>
+                <p>{selectedAsset ? `${selectedAsset.id} selected` : "Import images into the project library."}</p>
+                <div className="build-actions">
+                  <button className="play-action" disabled={!project} type="button" onClick={importAssets}>
+                    Import Assets
+                  </button>
+                </div>
+              </section>
+              <section className="overview-card">
+                <span className="overview-label">Selected asset</span>
+                <strong>{selectedAsset?.id ?? "No asset selected"}</strong>
+                <p>
+                  {selectedAsset
+                    ? `${selectedAsset.kind} - ${selectedAsset.path}`
+                    : "Choose an asset from the project tree to inspect it."}
+                </p>
+              </section>
+              <section className="overview-card">
+                <span className="overview-label">Usage</span>
+                <strong>{selectedAssetUsage.length} scene reference(s)</strong>
+                <div className="diagnostic-list">
+                  {selectedAssetUsage.length ? (
+                    selectedAssetUsage.map((usage) => (
+                      <div className="diagnostic-item" key={usage.sceneId}>
+                        <div>
+                          <strong>{usage.sceneId}</strong>
+                          <p>{usage.sceneName}</p>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p>No scene background is using this asset yet.</p>
+                  )}
+                </div>
+              </section>
+              <section className="overview-card">
+                <span className="overview-label">Health</span>
+                <strong>{selectedAsset ? selectedAssetHealth : "n/a"}</strong>
+                <p>
+                  {selectedAssetHealth === "missing"
+                    ? "The asset is registered, but its file is missing on disk."
+                    : "The asset file is available to the project."}
+                </p>
+                {selectedAsset ? (
+                  <div className="build-actions">
+                    <button
+                      className="secondary-action"
+                      disabled={!selectedScene || selectedAsset.kind !== "image" || selectedAssetHealth === "missing"}
+                      type="button"
+                      onClick={assignAssetBackground}
+                    >
+                      Set As Scene Background
+                    </button>
+                  </div>
+                ) : null}
+              </section>
             </div>
           ) : (
             <div
               className="scene-viewport"
-              style={{ background: selectedScene?.background ?? "#24384a" }}
+              style={
+                selectedScene
+                  ? sceneBackgroundStyle(selectedScene.background, project?.directory ?? "")
+                  : { background: "#24384a" }
+              }
             >
               {selectedScene ? (
               <>
@@ -1459,7 +1625,7 @@ export function EditorApp() {
               {workspace === "overview"
                 ? "Status"
                 : workspace === "assets"
-                  ? capabilityBadgeLabel(workspaceCapability.status)
+                  ? "Library"
                   : workspace === "build"
                     ? "Validation"
                   : selectedFlow
@@ -1505,11 +1671,18 @@ export function EditorApp() {
               </>
             ) : workspace === "assets" ? (
               <div className="workspace-placeholder compact">
-                <span className={`capability-badge ${capabilityStatusTone(workspaceCapability.status)}`}>
-                  {capabilityBadgeLabel(workspaceCapability.status)}
+                <span className={`capability-badge ${selectedAssetHealth === "missing" ? "error" : "good"}`}>
+                  {selectedAsset ? selectedAsset.kind : "Library"}
                 </span>
-                <strong>{workspaceCapability.summary}</strong>
-                <p>{workspaceCapability.detail}</p>
+                <strong>{selectedAsset?.id ?? workspaceCapability.summary}</strong>
+                <p>{selectedAsset?.path ?? workspaceCapability.detail}</p>
+                {selectedAsset ? (
+                  <>
+                    <p className="inspector-copy">Source: {selectedAsset.source}</p>
+                    <p className="inspector-copy">Usage: {selectedAssetUsage.length} scene reference(s)</p>
+                    <p className="inspector-copy">Health: {selectedAssetHealth}</p>
+                  </>
+                ) : null}
               </div>
             ) : workspace === "build" ? (
               <div className="workspace-placeholder compact">
@@ -1997,6 +2170,10 @@ export function EditorApp() {
                     onChange={(event) => updateSceneDraft("background", event.target.value)}
                   />
                 </label>
+                <p className="inspector-copy">
+                  Use `#RRGGBB` for color backgrounds or a registered asset path such as
+                  `assets/imported/example.png`.
+                </p>
                 <div className="field-group">
                   <span>Player start</span>
                   <div className="four-fields">

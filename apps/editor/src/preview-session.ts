@@ -1,4 +1,5 @@
 import type {
+  AssetDocument,
   FlowDocument,
   Hotspot,
   ItemDocument,
@@ -31,6 +32,10 @@ function toLocaleMap(locales: LocaleDocument[]): Record<string, LocaleDocument> 
 
 function toItemMap(items: ItemDocument[]): Record<string, ItemDocument> {
   return Object.fromEntries(items.map((item) => [item.id, item]));
+}
+
+function toAssetMap(assets: AssetDocument[]): Record<string, AssetDocument> {
+  return Object.fromEntries(assets.map((asset) => [asset.id, asset]));
 }
 
 function applySceneDrafts(
@@ -247,12 +252,14 @@ export function buildDraftProjectBundle(
   const flowMap = applyFlowDrafts(toFlowMap(snapshot.flows), session);
   const localeMap = applyLocaleDrafts(toLocaleMap(snapshot.locales), session);
   const itemMap = applyItemDrafts(toItemMap(snapshot.items), session);
+  const assetMap = toAssetMap(snapshot.assets);
 
   return {
     manifest: snapshot.manifest,
     scenes: sceneMap,
     flows: flowMap,
     locales: localeMap,
-    items: itemMap
+    items: itemMap,
+    assets: assetMap
   };
 }

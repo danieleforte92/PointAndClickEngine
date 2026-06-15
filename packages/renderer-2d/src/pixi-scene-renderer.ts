@@ -7,8 +7,16 @@ export interface SceneInteractionHandlers {
   onPickup(pickupId: string): void;
 }
 
+export interface SceneRenderOptions {
+  assetBaseUrl?: string;
+}
+
 function colorNumber(color: string): number {
   return Number.parseInt(color.slice(1), 16);
+}
+
+function isHexColor(value: string): boolean {
+  return /^#[0-9a-fA-F]{6}$/.test(value);
 }
 
 export class PixiSceneRenderer {
@@ -20,14 +28,28 @@ export class PixiSceneRenderer {
 
   constructor(
     private readonly scene: Layered2DScene,
-    private readonly handlers: SceneInteractionHandlers
+    private readonly handlers: SceneInteractionHandlers,
+    private readonly options: SceneRenderOptions = {}
   ) {}
 
   async mount(host: HTMLElement): Promise<void> {
+    if (isHexColor(this.scene.background)) {
+      host.style.background = this.scene.background;
+      host.style.backgroundImage = "";
+    } else {
+      const assetUrl = new URL(this.scene.background, this.options.assetBaseUrl ?? window.location.href).toString();
+      host.style.background = "#111820";
+      host.style.backgroundImage = `url("${assetUrl}")`;
+      host.style.backgroundPosition = "center";
+      host.style.backgroundRepeat = "no-repeat";
+      host.style.backgroundSize = "cover";
+    }
+
     await this.app.init({
       width: this.scene.size.width,
       height: this.scene.size.height,
-      backgroundColor: colorNumber(this.scene.background),
+      backgroundColor: isHexColor(this.scene.background) ? colorNumber(this.scene.background) : 0x111820,
+      backgroundAlpha: isHexColor(this.scene.background) ? 1 : 0,
       antialias: true,
       autoDensity: true,
       resolution: Math.min(window.devicePixelRatio, 2)
@@ -38,7 +60,7 @@ export class PixiSceneRenderer {
 
     const walkSurface = new Graphics()
       .rect(0, 0, this.scene.size.width, this.scene.size.height)
-      .fill({ color: colorNumber(this.scene.background), alpha: 0.001 });
+      .fill({ color: 0xffffff, alpha: 0.001 });
     walkSurface.eventMode = "static";
     walkSurface.cursor = "crosshair";
     walkSurface.on("pointertap", (event) => {

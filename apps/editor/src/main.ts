@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import path from "node:path";
 import type {
+  AssetDocument,
   FlowDocument,
   Hotspot,
   ItemDocument,
@@ -19,7 +20,8 @@ import {
   applyProjectCommand,
   loadProjectFromDirectory,
   type EditorProjectCommand,
-  validateProjectBundle
+  validateProjectBundle,
+  validateProjectFiles
 } from "@pointclick/project-io";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 
@@ -28,13 +30,17 @@ let playerServer: Server | null = null;
 let previewBundleServer: Server | null = null;
 let playerUrl = process.env.POINTCLICK_PLAYER_URL ?? "http://127.0.0.1:5173";
 let loadedProjectDirectory = path.resolve(__dirname, "../../../sample-game/project");
-const previewSessions = new Map<string, ProjectBundle>();
+const previewSessions = new Map<string, { bundle: ProjectBundle; projectDirectory: string }>();
 
 const mimeTypes: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
+  ".gif": "image/gif",
   ".html": "text/html; charset=utf-8",
+  ".jpg": "image/jpeg",
   ".js": "text/javascript; charset=utf-8",
+  ".jpeg": "image/jpeg",
   ".json": "application/json; charset=utf-8",
+  ".bmp": "image/bmp",
   ".png": "image/png",
   ".svg": "image/svg+xml",
   ".webp": "image/webp"
@@ -75,7 +81,7 @@ async function startBundledPlayerServer(): Promise<string> {
 
 async function ensurePreviewBundleServer(): Promise<string> {
   if (!previewBundleServer) {
-    previewBundleServer = createServer((request, response) => {
+    previewBundleServer = createServer(async (request, response) => {
       response.setHeader("Access-Control-Allow-Origin", "*");
       response.setHeader("Cache-Control", "no-store");
 
@@ -88,16 +94,55 @@ async function ensurePreviewBundleServer(): Promise<string> {
         return;
       }
 
-      const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
-      const token = pathname.split("/").at(-1);
-      if (!token || !previewSessions.has(token)) {
+      const pathname = decodeURIComponent(new URL(request.url ?? "/", "http://localhost").pathname);
+      const segments = pathname.split("/").filter(Boolean);
+      const token = segments[1];
+      const previewSession = token ? previewSessions.get(token) : null;
+      if (!token || !previewSession) {
         response.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
         response.end(JSON.stringify({ error: "Preview bundle not found" }));
         return;
       }
 
-      response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-      response.end(JSON.stringify(previewSessions.get(token)));
+      if (segments[0] === "preview") {
+        response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        response.end(JSON.stringify(previewSession.bundle));
+        return;
+      }
+
+      if (segments[0] === "asset") {
+        const relativeAssetPath = segments.slice(2).join("/");
+        const candidate = path.resolve(previewSession.projectDirectory, relativeAssetPath);
+        if (
+          !relativeAssetPath ||
+          !candidate.startsWith(previewSession.projectDirectory)
+        ) {
+          response.writeHead(404);
+          response.end("Not found");
+          return;
+        }
+
+        try {
+          const fileStat = await stat(candidate);
+          if (!fileStat.isFile()) {
+            response.writeHead(404);
+            response.end("Not found");
+            return;
+          }
+          response.writeHead(200, {
+            "Content-Type": mimeTypes[path.extname(candidate)] ?? "application/octet-stream"
+          });
+          createReadStream(candidate).pipe(response);
+          return;
+        } catch {
+          response.writeHead(404);
+          response.end("Not found");
+          return;
+        }
+      }
+
+      response.writeHead(404);
+      response.end("Not found");
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -113,9 +158,9 @@ async function ensurePreviewBundleServer(): Promise<string> {
   return `http://127.0.0.1:${address.port}`;
 }
 
-function registerPreviewBundle(bundle: ProjectBundle): string {
+function registerPreviewBundle(bundle: ProjectBundle, projectDirectory: string): string {
   const token = randomUUID();
-  previewSessions.set(token, bundle);
+  previewSessions.set(token, { bundle, projectDirectory });
 
   if (previewSessions.size > 8) {
     const oldestToken = previewSessions.keys().next().value;
@@ -172,8 +217,9 @@ async function buildPreviewUrl(request?: EditorPreviewRequest): Promise<string> 
     }
 
     const serverUrl = await ensurePreviewBundleServer();
-    const token = registerPreviewBundle(request.bundle);
+    const token = registerPreviewBundle(request.bundle, currentProjectPath());
     url.searchParams.set("bundleUrl", `${serverUrl}/preview/${token}`);
+    url.searchParams.set("assetBaseUrl", `${serverUrl}/asset/${token}/`);
   }
 
   return url.toString();
@@ -253,8 +299,46 @@ async function clearRecoverySnapshot(projectDirectory: string): Promise<void> {
   await rm(recoveryFilePath(projectDirectory), { force: true });
 }
 
-function summarizeProject(projectDirectory: string, bundle: ProjectBundle) {
-  const diagnostics = validateProjectBundle(bundle);
+function assetKindFromExtension(filePath: string): "image" {
+  const extension = path.extname(filePath).toLowerCase();
+  if ([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg"].includes(extension)) {
+    return "image";
+  }
+  return "image";
+}
+
+function slugifyAssetId(value: string): string {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "asset";
+}
+
+async function uniquePath(basePath: string): Promise<string> {
+  const extension = path.extname(basePath);
+  const stem = basePath.slice(0, basePath.length - extension.length);
+  let candidate = basePath;
+  let index = 1;
+  while (true) {
+    try {
+      await stat(candidate);
+      candidate = `${stem}-${index}${extension}`;
+      index += 1;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return candidate;
+      }
+      throw error;
+    }
+  }
+}
+
+async function summarizeProject(projectDirectory: string, bundle: ProjectBundle) {
+  const diagnostics = [
+    ...validateProjectBundle(bundle),
+    ...(await validateProjectFiles({ directory: projectDirectory, bundle }))
+  ];
   const initialScene = bundle.scenes[bundle.manifest.initialSceneId];
   const activeScene =
     initialScene && initialScene.type === "layered-2d"
@@ -270,14 +354,18 @@ function summarizeProject(projectDirectory: string, bundle: ProjectBundle) {
   const activeFlow: FlowDocument | null = Object.values(bundle.flows)[0] ?? null;
   const activePickup: ScenePickup | null = activeScene?.pickups[0] ?? null;
   const activeItem: ItemDocument | null = Object.values(bundle.items)[0] ?? null;
+  const activeAsset: AssetDocument | null = Object.values(bundle.assets)[0] ?? null;
 
   return {
+    activeAssetId: activeAsset?.id ?? null,
     activeFlowId: activeFlow?.id ?? null,
     activeHotspotId: activeHotspot?.id ?? null,
     activeItemId: activeItem?.id ?? null,
     activeLocale: activeLocale?.locale ?? null,
     activePickupId: activePickup?.id ?? null,
     activeSceneId: activeScene?.id ?? bundle.manifest.initialSceneId,
+    assetCount: Object.keys(bundle.assets).length,
+    assets: Object.values(bundle.assets),
     directory: projectDirectory,
     diagnostics,
     flowCount: Object.keys(bundle.flows).length,
@@ -289,6 +377,7 @@ function summarizeProject(projectDirectory: string, bundle: ProjectBundle) {
     manifest: bundle.manifest,
     sceneCount: Object.keys(bundle.scenes).length,
     scenes: Object.values(bundle.scenes),
+    selectedAsset: activeAsset,
     selectedFlow: activeFlow,
     selectedHotspot: activeHotspot,
     selectedItem: activeItem,
@@ -315,8 +404,61 @@ async function runEditorValidation() {
   loadedProjectDirectory = loaded.directory;
   return createValidationReport(
     loaded.directory,
-    validateProjectBundle(loaded.bundle)
+    [
+      ...validateProjectBundle(loaded.bundle),
+      ...(await validateProjectFiles(loaded))
+    ]
   );
+}
+
+async function importProjectAssets(browserWindow: BrowserWindow) {
+  const result = await dialog.showOpenDialog(browserWindow, {
+    defaultPath: currentProjectPath(),
+    filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg"] }],
+    properties: ["openFile", "multiSelections"]
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  const projectDirectory = currentProjectPath();
+  const importedAssetsDirectory = path.join(projectDirectory, "assets", "imported");
+  await mkdir(importedAssetsDirectory, { recursive: true });
+
+  const existing = await loadProjectFromDirectory(projectDirectory);
+  const existingAssetIds = new Set(Object.keys(existing.bundle.assets));
+  const assets = [];
+
+  for (const sourcePath of result.filePaths) {
+    const sourceName = path.basename(sourcePath);
+    const targetPath = await uniquePath(path.join(importedAssetsDirectory, sourceName));
+    const relativeFilePath = path.relative(projectDirectory, targetPath).replace(/\\/g, "/");
+    const baseId = slugifyAssetId(path.basename(targetPath, path.extname(targetPath)));
+    let assetId = baseId;
+    let counter = 1;
+    while (existingAssetIds.has(assetId)) {
+      assetId = `${baseId}-${counter}`;
+      counter += 1;
+    }
+    existingAssetIds.add(assetId);
+
+    await copyFile(sourcePath, targetPath);
+
+    assets.push({
+      documentPath: `assets/${assetId}.asset.json`,
+      filePath: relativeFilePath,
+      id: assetId,
+      kind: assetKindFromExtension(targetPath),
+      source: "imported" as const
+    });
+  }
+
+  const loaded = await applyProjectCommand(projectDirectory, {
+    type: "asset/import",
+    assets
+  });
+  loadedProjectDirectory = loaded.directory;
+  return summarizeProject(loaded.directory, loaded.bundle);
 }
 
 async function promptForProjectDirectory(browserWindow: BrowserWindow) {
@@ -350,6 +492,13 @@ app.whenReady().then(() => {
       throw new Error("Unable to resolve editor window");
     }
     return promptForProjectDirectory(browserWindow);
+  });
+  ipcMain.handle("project:import-assets", async (event) => {
+    const browserWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!browserWindow) {
+      throw new Error("Unable to resolve editor window");
+    }
+    return importProjectAssets(browserWindow);
   });
   ipcMain.handle("project:command", async (_event, command: EditorProjectCommand) => {
     return applyEditorCommand(command);

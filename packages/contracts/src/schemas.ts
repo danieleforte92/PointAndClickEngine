@@ -2,6 +2,7 @@ import { type Static, Type } from "@sinclair/typebox";
 
 const Id = Type.String({ minLength: 1, pattern: "^[a-z0-9][a-z0-9-]*$" });
 const HexColor = Type.String({ pattern: "^#[0-9a-fA-F]{6}$" });
+const ProjectPath = Type.String({ minLength: 1, pattern: "^(?!/)(?![A-Za-z]:)(?!.*\\.\\.).+$" });
 export const HotspotCursorSchema = Type.Union([
   Type.Literal("look"),
   Type.Literal("talk"),
@@ -82,6 +83,17 @@ export const ProjectManifestSchema = Type.Object(
         { additionalProperties: false }
       )
     ),
+    assets: Type.Optional(
+      Type.Array(
+        Type.Object(
+          {
+            id: Id,
+            path: Type.String({ minLength: 1 })
+          },
+          { additionalProperties: false }
+        )
+      )
+    ),
     locales: Type.Array(
       Type.Object(
         {
@@ -160,7 +172,7 @@ export const Layered2DSceneSchema = Type.Object(
       },
       { additionalProperties: false }
     ),
-    background: HexColor,
+    background: Type.String({ minLength: 1 }),
     playerStart: Vector2Schema,
     walkArea: Polygon2Schema,
     pickups: Type.Array(ScenePickupSchema),
@@ -258,6 +270,20 @@ export const ItemDocumentSchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const AssetKindSchema = Type.Union([Type.Literal("image")]);
+export const AssetSourceSchema = Type.Union([Type.Literal("imported")]);
+
+export const AssetDocumentSchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    id: Id,
+    kind: AssetKindSchema,
+    path: ProjectPath,
+    source: AssetSourceSchema
+  },
+  { additionalProperties: false }
+);
+
 export type Vector2 = Static<typeof Vector2Schema>;
 export type Rect = Static<typeof RectSchema>;
 export type Polygon2 = Static<typeof Polygon2Schema>;
@@ -276,6 +302,9 @@ export type FlowNode = Static<typeof FlowNodeSchema>;
 export type FlowDocument = Static<typeof FlowDocumentSchema>;
 export type LocaleDocument = Static<typeof LocaleDocumentSchema>;
 export type ItemDocument = Static<typeof ItemDocumentSchema>;
+export type AssetDocument = Static<typeof AssetDocumentSchema>;
+export type AssetKind = Static<typeof AssetKindSchema>;
+export type AssetSource = Static<typeof AssetSourceSchema>;
 
 export interface ProjectBundle {
   manifest: ProjectManifest;
@@ -283,4 +312,5 @@ export interface ProjectBundle {
   flows: Record<string, FlowDocument>;
   locales: Record<string, LocaleDocument>;
   items: Record<string, ItemDocument>;
+  assets: Record<string, AssetDocument>;
 }

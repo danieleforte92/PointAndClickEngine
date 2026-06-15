@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  AssetDocument,
   FlowDocument,
   Hotspot,
   ItemDocument,
@@ -20,12 +21,15 @@ export interface EditorPreviewRequest {
 }
 
 export interface EditorProjectSnapshot {
+  activeAssetId: string | null;
   activeFlowId: string | null;
   activeHotspotId: string | null;
   activeItemId: string | null;
   activeLocale: string | null;
   activePickupId: string | null;
   activeSceneId: string;
+  assetCount: number;
+  assets: AssetDocument[];
   directory: string;
   flowCount: number;
   flows: FlowDocument[];
@@ -37,6 +41,7 @@ export interface EditorProjectSnapshot {
   manifest: ProjectManifest;
   sceneCount: number;
   scenes: SceneDocument[];
+  selectedAsset: AssetDocument | null;
   selectedFlow: FlowDocument | null;
   selectedHotspot: Hotspot | null;
   selectedItem: ItemDocument | null;
@@ -48,6 +53,7 @@ export interface EditorProjectSnapshot {
 export interface PointClickEditorApi {
   applyCommand(command: EditorProjectCommand): Promise<EditorProjectSnapshot>;
   clearRecovery(projectDirectory: string): Promise<void>;
+  importAssets(): Promise<EditorProjectSnapshot | null>;
   loadProject(projectDirectory?: string): Promise<EditorProjectSnapshot>;
   loadRecovery(projectDirectory: string): Promise<EditorRecoverySnapshot | null>;
   openPreview(request?: EditorPreviewRequest): Promise<void>;
@@ -60,6 +66,7 @@ export interface PointClickEditorApi {
 const api: PointClickEditorApi = {
   applyCommand: (command) => ipcRenderer.invoke("project:command", command),
   clearRecovery: (projectDirectory) => ipcRenderer.invoke("recovery:clear", projectDirectory),
+  importAssets: () => ipcRenderer.invoke("project:import-assets"),
   loadProject: (projectDirectory) => ipcRenderer.invoke("project:load", projectDirectory),
   loadRecovery: (projectDirectory) => ipcRenderer.invoke("recovery:load", projectDirectory),
   openPreview: (request) => ipcRenderer.invoke("preview:open", request),

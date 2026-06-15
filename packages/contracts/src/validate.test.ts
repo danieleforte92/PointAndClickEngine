@@ -13,6 +13,7 @@ describe("project contracts", () => {
       scenes: [{ id: "dock", path: "scenes/dock.scene.json" }],
       flows: [],
       items: [{ id: "rusty-hook", path: "items/rusty-hook.item.json" }],
+      assets: [{ id: "dock-sky", path: "assets/dock-sky.asset.json" }],
       locales: [{ locale: "en", path: "locales/en.json" }]
     });
 
@@ -51,6 +52,18 @@ describe("project contracts", () => {
       id: "rusty-hook",
       name: "Rusty Hook",
       labelKey: "item.rusty-hook"
+    });
+
+    expect(result).toEqual({ valid: true, errors: [] });
+  });
+
+  it("accepts asset definitions", () => {
+    const result = validateDocument("asset", {
+      schemaVersion: 1,
+      id: "dock-sky",
+      kind: "image",
+      path: "assets/imported/dock-sky.png",
+      source: "imported"
     });
 
     expect(result).toEqual({ valid: true, errors: [] });

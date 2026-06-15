@@ -39,6 +39,7 @@ export function PlayerApp() {
   const frameRef = useRef<RuntimeFrame | null>(null);
   const [bundle, setBundle] = useState<ProjectBundle | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const assetBaseUrl = new URLSearchParams(window.location.search).get("assetBaseUrl") ?? undefined;
   const engine = useMemo(() => (bundle ? new AdventureEngine(bundle) : null), [bundle]);
   const [frame, setFrame] = useState<RuntimeFrame | null>(null);
   const scene = engine?.currentScene as Layered2DScene | undefined;
@@ -109,7 +110,7 @@ export function PlayerApp() {
         renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
         setFrame(nextFrame);
       }
-    });
+    }, assetBaseUrl ? { assetBaseUrl } : {});
     rendererRef.current = renderer;
 
     void renderer.mount(host).then(() => {
@@ -125,7 +126,7 @@ export function PlayerApp() {
       renderer.destroy();
       rendererRef.current = null;
     };
-  }, [engine, rendererReady, scene]);
+  }, [assetBaseUrl, engine, rendererReady, scene]);
 
   useEffect(() => {
     if (!frame) return;

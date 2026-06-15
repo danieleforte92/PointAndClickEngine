@@ -2,6 +2,7 @@ import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
 import addFormats from "ajv-formats";
 import type { TSchema } from "@sinclair/typebox";
 import {
+  AssetDocumentSchema,
   FlowDocumentSchema,
   ItemDocumentSchema,
   Layered2DSceneSchema,
@@ -19,7 +20,8 @@ const validators = {
   layered2dScene: ajv.compile(Layered2DSceneSchema),
   flow: ajv.compile(FlowDocumentSchema),
   locale: ajv.compile(LocaleDocumentSchema),
-  item: ajv.compile(ItemDocumentSchema)
+  item: ajv.compile(ItemDocumentSchema),
+  asset: ajv.compile(AssetDocumentSchema)
 } satisfies Record<string, ValidateFunction>;
 
 export type DocumentKind = keyof typeof validators;

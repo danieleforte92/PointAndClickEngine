@@ -20,6 +20,7 @@ const manifest: ProjectManifest = {
   scenes: [{ id: "moonlit-dock", path: "scenes/moonlit-dock.scene.json" }],
   flows: [{ id: "look-door", path: "flows/look-door.flow.json" }],
   items: [{ id: "rusty-hook", path: "items/rusty-hook.item.json" }],
+  assets: [],
   locales: [{ locale: "en", path: "locales/en.json" }]
 };
 
@@ -96,12 +97,15 @@ const item: ItemDocument = {
 };
 
 const snapshot: EditorProjectSnapshot = {
+  activeAssetId: null,
   activeFlowId: flow.id,
   activeHotspotId: "tavern-door",
   activeItemId: item.id,
   activeLocale: locale.locale,
   activePickupId: "dock-hook",
   activeSceneId: scene.id,
+  assetCount: 0,
+  assets: [],
   diagnostics: [],
   directory: "D:/Work/PointAndClickEngine/apps/sample-game/project",
   flowCount: 1,
@@ -111,6 +115,7 @@ const snapshot: EditorProjectSnapshot = {
   localeCount: 1,
   locales: [locale],
   manifest,
+  selectedAsset: null,
   sceneCount: 1,
   scenes: [scene],
   selectedFlow: flow,
