@@ -26,6 +26,8 @@ Show the smallest complete loop that proves the product direction:
 - Keep the stage, verb bar, inventory strip, and footer visible in frame.
 - Let the dialogue card stay on screen for a beat before advancing it.
 - End with the selected scene and event trace still readable.
+- Switch the player to `Capture` mode before taking a still or recording a
+  clean final pass.
 
 ## Optional Screenshot Capture
 
@@ -39,6 +41,9 @@ pnpm test:e2e
 The Playwright run currently completes the browser test successfully and may
 still time out during shutdown. If the test output shows `ok 1` and the image
 file was updated, the screenshot capture itself succeeded.
+
+That capture path now switches the player into its built-in `Capture` mode
+before saving the image, so the checked-in screenshot stays presentation-ready.
 
 ## Talking Points
 

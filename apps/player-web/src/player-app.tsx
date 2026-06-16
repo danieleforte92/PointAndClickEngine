@@ -18,6 +18,23 @@ type StorySignal = {
   done: boolean;
 };
 
+type PlayerSurfaceMode = "guide" | "capture";
+
+function readSurfaceMode(): PlayerSurfaceMode {
+  return new URLSearchParams(window.location.search).get("mode") === "capture" ? "capture" : "guide";
+}
+
+function writeSurfaceMode(mode: PlayerSurfaceMode) {
+  const url = new URL(window.location.href);
+  if (mode === "capture") {
+    url.searchParams.set("mode", "capture");
+  } else {
+    url.searchParams.delete("mode");
+  }
+
+  window.history.replaceState({}, "", url);
+}
+
 function applySceneOverride(bundle: ProjectBundle): ProjectBundle {
   const sceneId = new URLSearchParams(window.location.search).get("scene");
   if (!sceneId || !bundle.scenes[sceneId]) {
@@ -177,6 +194,7 @@ export function PlayerApp() {
   const frameRef = useRef<RuntimeFrame | null>(null);
   const [bundle, setBundle] = useState<ProjectBundle | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [surfaceMode, setSurfaceMode] = useState<PlayerSurfaceMode>(() => readSurfaceMode());
   const assetBaseUrl = new URLSearchParams(window.location.search).get("assetBaseUrl") ?? undefined;
   const engine = useMemo(() => (bundle ? new AdventureEngine(bundle) : null), [bundle]);
   const [frame, setFrame] = useState<RuntimeFrame | null>(null);
@@ -202,6 +220,7 @@ export function PlayerApp() {
       )
     : "None";
   const latestEventLabel = recentEvents[0] ?? "ready";
+  const captureMode = surfaceMode === "capture";
 
   useEffect(() => {
     let cancelled = false;
@@ -340,71 +359,114 @@ export function PlayerApp() {
     setFrame(nextFrame);
   };
 
+  const changeSurfaceMode = (mode: PlayerSurfaceMode) => {
+    setSurfaceMode(mode);
+    writeSurfaceMode(mode);
+  };
+
   return (
-    <main className="player-shell">
+    <main className={captureMode ? "player-shell capture-mode" : "player-shell"}>
       <header className="game-header">
         <div>
           <p className="eyebrow">Foundation playable</p>
           <h1>{bundle.manifest.title}</h1>
         </div>
-        <div className="status">
-          <span>Scene</span>
-          <strong>{scene.name}</strong>
+        <div className="status-panel">
+          <div className="status">
+            <span>Scene</span>
+            <strong>{scene.name}</strong>
+          </div>
+          <div className="surface-mode-toggle" aria-label="Player surface mode" role="group">
+            <button
+              aria-pressed={surfaceMode === "guide"}
+              className={surfaceMode === "guide" ? "active" : ""}
+              type="button"
+              onClick={() => changeSurfaceMode("guide")}
+            >
+              Guide
+            </button>
+            <button
+              aria-pressed={surfaceMode === "capture"}
+              className={surfaceMode === "capture" ? "active" : ""}
+              type="button"
+              onClick={() => changeSurfaceMode("capture")}
+            >
+              Capture
+            </button>
+          </div>
         </div>
       </header>
 
-      <section className="demo-brief" aria-label="Sample demo checklist">
-        <div className="demo-brief-copy">
-          <p className="eyebrow">Demo-first sample</p>
-          <h2>Record the full point-and-click loop in one take.</h2>
-          <p className="demo-summary">
-            This sample is small on purpose: scene, hotspot, inventory, item use, flow, and
-            state update are all visible in under 30 seconds.
-          </p>
-        </div>
-        <div className="demo-progress">
-          <span>Loop progress</span>
-          <strong>
-            {completedDemoSteps}/{demoSteps.length}
-          </strong>
-        </div>
-      </section>
-
-      <section className="demo-checklist" aria-label="Current sample loop">
-        {demoSteps.map((step, index) => (
-          <article className={step.done ? "demo-step done" : "demo-step"} key={step.id}>
-            <span className="demo-step-index">0{index + 1}</span>
-            <div>
-              <h3>{step.label}</h3>
-              <p>{step.description}</p>
-            </div>
-            <strong>{step.done ? "Done" : "Next"}</strong>
-          </article>
-        ))}
-      </section>
-
-      <section className="demo-state-strip" aria-label="Current story state">
-        <div className="story-signals">
-          {storySignals.map((signal) => (
-            <article className={signal.done ? "story-signal done" : "story-signal"} key={signal.id}>
-              <span>{signal.done ? "Ready" : "Pending"}</span>
-              <strong>{signal.label}</strong>
-              <p>{signal.detail}</p>
-            </article>
-          ))}
-        </div>
-        <aside className="event-feed" aria-label="Recent runtime events">
-          <div className="event-feed-heading">
-            <span className="eyebrow">Recent runtime events</span>
-            <strong>{engine.events.length}</strong>
+      {captureMode ? (
+        <section className="capture-strip" aria-label="Capture mode summary">
+          <div className="capture-strip-copy">
+            <span className="eyebrow">Capture mode</span>
+            <strong>
+              Loop progress {completedDemoSteps}/{demoSteps.length}
+            </strong>
+            <p>{demoHint}</p>
           </div>
-          <ol>
-            {recentEvents.map((eventLabel, index) => (
-              <li key={`${eventLabel}-${index}`}>{eventLabel}</li>
+          <div className="capture-strip-meta">
+            <span>Latest event</span>
+            <strong>{latestEventLabel}</strong>
+          </div>
+        </section>
+      ) : (
+        <>
+          <section className="demo-brief" aria-label="Sample demo checklist">
+            <div className="demo-brief-copy">
+              <p className="eyebrow">Demo-first sample</p>
+              <h2>Record the full point-and-click loop in one take.</h2>
+              <p className="demo-summary">
+                This sample is small on purpose: scene, hotspot, inventory, item use, flow, and
+                state update are all visible in under 30 seconds.
+              </p>
+            </div>
+            <div className="demo-progress">
+              <span>Loop progress</span>
+              <strong>
+                {completedDemoSteps}/{demoSteps.length}
+              </strong>
+            </div>
+          </section>
+
+          <section className="demo-checklist" aria-label="Current sample loop">
+            {demoSteps.map((step, index) => (
+              <article className={step.done ? "demo-step done" : "demo-step"} key={step.id}>
+                <span className="demo-step-index">0{index + 1}</span>
+                <div>
+                  <h3>{step.label}</h3>
+                  <p>{step.description}</p>
+                </div>
+                <strong>{step.done ? "Done" : "Next"}</strong>
+              </article>
             ))}
-          </ol>
-        </aside>
-      </section>
+          </section>
+
+          <section className="demo-state-strip" aria-label="Current story state">
+            <div className="story-signals">
+              {storySignals.map((signal) => (
+                <article className={signal.done ? "story-signal done" : "story-signal"} key={signal.id}>
+                  <span>{signal.done ? "Ready" : "Pending"}</span>
+                  <strong>{signal.label}</strong>
+                  <p>{signal.detail}</p>
+                </article>
+              ))}
+            </div>
+            <aside className="event-feed" aria-label="Recent runtime events">
+              <div className="event-feed-heading">
+                <span className="eyebrow">Recent runtime events</span>
+                <strong>{engine.events.length}</strong>
+              </div>
+              <ol>
+                {recentEvents.map((eventLabel, index) => (
+                  <li key={`${eventLabel}-${index}`}>{eventLabel}</li>
+                ))}
+              </ol>
+            </aside>
+          </section>
+        </>
+      )}
 
       <section className="stage-frame" aria-label="Game scene">
         <div className="stage-grain" />

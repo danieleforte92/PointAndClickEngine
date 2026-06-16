@@ -5,6 +5,8 @@ test("plays the light-verb inventory loop end to end", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: "The Isle of Echoes" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Record the full point-and-click loop in one take." })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Guide" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Capture" })).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator(".demo-progress strong")).toContainText("0/3");
   await expect(page.getByRole("region", { name: "Current story state" })).toContainText("Door inspected");
   await expect(page.getByRole("complementary", { name: "Recent runtime events" })).toContainText("game started");
@@ -66,6 +68,14 @@ test("plays the light-verb inventory loop end to end", async ({ page }) => {
   await clickCanvas(580, 610);
   await expect(page.locator(".event-readout").nth(1)).not.toContainText("510, 590");
   await expect(page.locator(".event-readout").first()).toContainText("character moved: 580, 610");
+
+  await page.getByRole("button", { name: "Capture" }).click();
+  await expect(page.getByRole("button", { name: "Capture" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Guide" })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByRole("region", { name: "Capture mode summary" })).toContainText("Loop progress 3/3");
+  await expect(page.getByRole("region", { name: "Sample demo checklist" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Current sample loop" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Current story state" })).toHaveCount(0);
 
   const capturePath = process.env.CAPTURE_SAMPLE_SCREENSHOT_PATH;
   if (capturePath) {
