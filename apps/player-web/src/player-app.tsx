@@ -93,6 +93,18 @@ function localize(bundle: ProjectBundle, labelKey: string, fallback: string): st
   return bundle.locales[bundle.manifest.defaultLocale]?.strings[labelKey] ?? fallback;
 }
 
+function humanizeIdentifier(value: string): string {
+  return value
+    .split(/[-_.]/g)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function speakerLabel(bundle: ProjectBundle, speakerId: string): string {
+  return localize(bundle, `speaker.${speakerId}`, humanizeIdentifier(speakerId));
+}
+
 function buildStorySignals(frame: RuntimeFrame, engine: AdventureEngine): StorySignal[] {
   const inspectedDoor = engine.events.some(
     (event) =>
@@ -462,7 +474,7 @@ export function PlayerApp() {
 
       {frame.dialogue ? (
         <button className="dialogue-card" type="button" onClick={advanceDialogue}>
-          <span className="speaker">{frame.dialogue.speakerId}</span>
+          <span className="speaker">{speakerLabel(bundle, frame.dialogue.speakerId)}</span>
           <span className="line">{frame.dialogue.text}</span>
           <span className="continue">Continue</span>
         </button>
