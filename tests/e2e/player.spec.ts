@@ -6,6 +6,8 @@ test("plays the light-verb inventory loop end to end", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "The Isle of Echoes" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Record the full point-and-click loop in one take." })).toBeVisible();
   await expect(page.locator(".demo-progress strong")).toContainText("0/3");
+  await expect(page.getByRole("region", { name: "Current story state" })).toContainText("Door inspected");
+  await expect(page.getByRole("complementary", { name: "Recent runtime events" })).toContainText("game started");
   await expect(page.locator(".event-readout").nth(2)).toContainText("1");
 
   const canvas = page.locator(".stage-host canvas");
@@ -28,6 +30,10 @@ test("plays the light-verb inventory loop end to end", async ({ page }) => {
   const dialogue = page.locator(".dialogue-card");
   await expect(dialogue).toContainText("The tavern door is warm");
   await expect(page.locator(".demo-progress strong")).toContainText("1/3");
+  await expect(page.locator(".story-signal").filter({ hasText: "Door inspected" })).toContainText("Ready");
+  await expect(page.getByRole("complementary", { name: "Recent runtime events" })).toContainText(
+    "hotspot look: The Lantern & Gull"
+  );
   await dialogue.click();
   await expect(dialogue).toHaveCount(0);
 
@@ -37,11 +43,19 @@ test("plays the light-verb inventory loop end to end", async ({ page }) => {
   await dialogue.click();
   await expect(page.getByRole("button", { name: "Rusty Hook" })).toBeVisible();
   await expect(page.locator(".demo-progress strong")).toContainText("2/3");
+  await expect(page.locator(".story-signal").filter({ hasText: "Hook collected" })).toContainText("Ready");
+  await expect(page.getByRole("complementary", { name: "Recent runtime events" })).toContainText(
+    "pickup collected: Rusty Hook"
+  );
   await page.getByRole("button", { name: "Rusty Hook" }).click();
 
   await clickCanvas(910, 440);
   await expect(dialogue).toContainText("The hook catches the latch.");
   await expect(page.locator(".demo-progress strong")).toContainText("3/3");
+  await expect(page.locator(".story-signal").filter({ hasText: "Latch opened" })).toContainText("Ready");
+  await expect(page.getByRole("complementary", { name: "Recent runtime events" })).toContainText(
+    "flag set: tavern.hook-used = true"
+  );
   await dialogue.click();
   await expect(dialogue).toHaveCount(0);
 

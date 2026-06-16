@@ -11,6 +11,13 @@ type DemoStep = {
   done: boolean;
 };
 
+type StorySignal = {
+  id: "door-inspected" | "hook-collected" | "latch-opened";
+  label: string;
+  detail: string;
+  done: boolean;
+};
+
 function applySceneOverride(bundle: ProjectBundle): ProjectBundle {
   const sceneId = new URLSearchParams(window.location.search).get("scene");
   if (!sceneId || !bundle.scenes[sceneId]) {
@@ -82,6 +89,76 @@ function nextDemoHint(steps: DemoStep[]): string {
   return nextStep.description;
 }
 
+function localize(bundle: ProjectBundle, labelKey: string, fallback: string): string {
+  return bundle.locales[bundle.manifest.defaultLocale]?.strings[labelKey] ?? fallback;
+}
+
+function buildStorySignals(frame: RuntimeFrame, engine: AdventureEngine): StorySignal[] {
+  const inspectedDoor = engine.events.some(
+    (event) =>
+      event.type === "hotspot/interacted" &&
+      event.hotspotId === "tavern-entrance" &&
+      event.verb === "look"
+  );
+  const collectedHook =
+    frame.state.collectedPickups.includes("dock-hook") || frame.state.inventory.includes("rusty-hook");
+  const openedLatch = frame.state.flags["tavern.hook-used"] === true;
+
+  return [
+    {
+      id: "door-inspected",
+      label: "Door inspected",
+      detail: "The first look interaction has fired.",
+      done: inspectedDoor
+    },
+    {
+      id: "hook-collected",
+      label: "Hook collected",
+      detail: "The sample inventory now contains the rusty hook.",
+      done: collectedHook
+    },
+    {
+      id: "latch-opened",
+      label: "Latch opened",
+      detail: "The item-use flow updated world state.",
+      done: openedLatch
+    }
+  ];
+}
+
+function formatEvent(event: AdventureEngine["events"][number], bundle: ProjectBundle, scene: Layered2DScene): string {
+  switch (event.type) {
+    case "game/started":
+      return "game started";
+    case "verb/selected":
+      return `verb selected: ${event.verb}`;
+    case "inventory/item-selected": {
+      const item = bundle.items[event.itemId];
+      return `inventory selected: ${localize(bundle, item?.labelKey ?? "", item?.name ?? event.itemId)}`;
+    }
+    case "inventory/selection-cleared":
+      return "inventory selection cleared";
+    case "pickup/collected": {
+      const item = bundle.items[event.itemId];
+      return `pickup collected: ${localize(bundle, item?.labelKey ?? "", item?.name ?? event.itemId)}`;
+    }
+    case "character/moved":
+      return `character moved: ${Math.round(event.x)}, ${Math.round(event.y)}`;
+    case "hotspot/interacted": {
+      const hotspot = scene.hotspots.find((entry) => entry.id === event.hotspotId);
+      return `hotspot ${event.verb}: ${localize(bundle, hotspot?.labelKey ?? "", hotspot?.id ?? event.hotspotId)}`;
+    }
+    case "flag/set":
+      return `flag set: ${event.key} = ${String(event.value)}`;
+    case "flow/started":
+      return `flow started: ${event.flowId}`;
+    case "flow/ended":
+      return `flow ended: ${event.flowId}`;
+    default:
+      return "runtime event";
+  }
+}
+
 export function PlayerApp() {
   const hostRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<PixiSceneRenderer | null>(null);
@@ -100,6 +177,11 @@ export function PlayerApp() {
   const demoSteps = frame && engine ? buildDemoSteps(frame, engine) : [];
   const completedDemoSteps = demoSteps.filter((step) => step.done).length;
   const demoHint = demoSteps.length > 0 ? nextDemoHint(demoSteps) : "Preparing the current demo loop...";
+  const storySignals = frame && engine ? buildStorySignals(frame, engine) : [];
+  const recentEvents =
+    bundle && engine && scene
+      ? engine.events.slice(-4).reverse().map((event) => formatEvent(event, bundle, scene))
+      : [];
 
   useEffect(() => {
     let cancelled = false;
@@ -279,6 +361,29 @@ export function PlayerApp() {
             <strong>{step.done ? "Done" : "Next"}</strong>
           </article>
         ))}
+      </section>
+
+      <section className="demo-state-strip" aria-label="Current story state">
+        <div className="story-signals">
+          {storySignals.map((signal) => (
+            <article className={signal.done ? "story-signal done" : "story-signal"} key={signal.id}>
+              <span>{signal.done ? "Ready" : "Pending"}</span>
+              <strong>{signal.label}</strong>
+              <p>{signal.detail}</p>
+            </article>
+          ))}
+        </div>
+        <aside className="event-feed" aria-label="Recent runtime events">
+          <div className="event-feed-heading">
+            <span className="eyebrow">Recent runtime events</span>
+            <strong>{engine.events.length}</strong>
+          </div>
+          <ol>
+            {recentEvents.map((eventLabel, index) => (
+              <li key={`${eventLabel}-${index}`}>{eventLabel}</li>
+            ))}
+          </ol>
+        </aside>
       </section>
 
       <section className="stage-frame" aria-label="Game scene">
