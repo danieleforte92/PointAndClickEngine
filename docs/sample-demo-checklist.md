@@ -12,9 +12,9 @@ Show the smallest complete loop that proves the product direction:
 ## Recording Pass
 
 1. Start the player and wait for the dock scene to appear.
-2. Click `look`, then click the amber tavern door to trigger the first dialogue.
-3. Advance the dialogue.
-4. Click `use`, then click the rusty hook on the dock to collect it.
+2. Press `2` or click `look`, then click the amber tavern door to trigger the first dialogue.
+3. Advance the dialogue with `Space`, `Enter`, or a click.
+4. Press `3` or click `use`, then click the rusty hook on the dock to collect it.
 5. Advance the pickup dialogue.
 6. Click `Rusty Hook` in the inventory strip.
 7. Click the tavern entrance again to trigger the item-use flow.
@@ -28,6 +28,8 @@ Show the smallest complete loop that proves the product direction:
 - End with the selected scene and event trace still readable.
 - Switch the player to `Capture` mode before taking a still or recording a
   clean final pass.
+- Use `1-4` to swap verbs quickly and `C` to toggle `Capture` mode without
+  mousing over the header.
 
 ## Optional Screenshot Capture
 

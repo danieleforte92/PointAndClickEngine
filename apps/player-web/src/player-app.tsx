@@ -122,6 +122,16 @@ function speakerLabel(bundle: ProjectBundle, speakerId: string): string {
   return localize(bundle, `speaker.${speakerId}`, humanizeIdentifier(speakerId));
 }
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    target.isContentEditable
+  );
+}
+
 function buildStorySignals(frame: RuntimeFrame, engine: AdventureEngine): StorySignal[] {
   const inspectedDoor = engine.events.some(
     (event) =>
@@ -364,6 +374,48 @@ export function PlayerApp() {
     writeSurfaceMode(mode);
   };
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || isEditableTarget(event.target) || !engine) return;
+
+      if (event.key === " " || event.key === "Enter") {
+        if (!frameRef.current?.dialogue) return;
+        event.preventDefault();
+        const nextFrame = engine.advanceDialogue();
+        frameRef.current = nextFrame;
+        rendererRef.current?.renderPlayer(nextFrame.state.player);
+        rendererRef.current?.renderCollectedPickups(nextFrame.state.collectedPickups);
+        setFrame(nextFrame);
+        return;
+      }
+
+      if (event.key.toLowerCase() === "c") {
+        event.preventDefault();
+        const nextMode = surfaceMode === "capture" ? "guide" : "capture";
+        setSurfaceMode(nextMode);
+        writeSurfaceMode(nextMode);
+        return;
+      }
+
+      const verbByKey = {
+        "1": "walk",
+        "2": "look",
+        "3": "use",
+        "4": "talk"
+      } as const;
+      const verb = verbByKey[event.key as keyof typeof verbByKey];
+      if (!verb) return;
+
+      event.preventDefault();
+      const nextFrame = engine.selectVerb(verb);
+      frameRef.current = nextFrame;
+      setFrame(nextFrame);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [engine, surfaceMode]);
+
   return (
     <main className={captureMode ? "player-shell capture-mode" : "player-shell"}>
       <header className="game-header">
@@ -386,6 +438,7 @@ export function PlayerApp() {
               Guide
             </button>
             <button
+              aria-keyshortcuts="c"
               aria-pressed={surfaceMode === "capture"}
               className={surfaceMode === "capture" ? "active" : ""}
               type="button"
@@ -477,6 +530,9 @@ export function PlayerApp() {
       <section className="verb-bar" aria-label="Interaction verbs">
         {(["walk", "look", "use", "talk"] as const).map((verb) => (
           <button
+            aria-keyshortcuts={
+              verb === "walk" ? "1" : verb === "look" ? "2" : verb === "use" ? "3" : "4"
+            }
             className={frame.state.activeVerb === verb ? "active" : ""}
             key={verb}
             type="button"

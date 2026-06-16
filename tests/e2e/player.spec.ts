@@ -26,7 +26,8 @@ test("plays the light-verb inventory loop end to end", async ({ page }) => {
     });
   };
 
-  await page.getByRole("button", { name: "look" }).click();
+  await page.keyboard.press("2");
+  await expect(page.getByRole("button", { name: "look" })).toHaveClass(/active/);
   await clickCanvas(910, 440);
 
   const dialogue = page.locator(".dialogue-card");
@@ -37,14 +38,15 @@ test("plays the light-verb inventory loop end to end", async ({ page }) => {
   await expect(page.getByRole("complementary", { name: "Recent runtime events" })).toContainText(
     "hotspot look: The Lantern & Gull"
   );
-  await dialogue.click();
+  await page.keyboard.press("Space");
   await expect(dialogue).toHaveCount(0);
 
-  await page.getByRole("button", { name: "use" }).click();
+  await page.keyboard.press("3");
+  await expect(page.getByRole("button", { name: "use" })).toHaveClass(/active/);
   await clickCanvas(335, 590);
   await expect(dialogue).toContainText("A rusty hook.");
   await expect(dialogue.locator(".speaker")).toContainText("Mara");
-  await dialogue.click();
+  await page.keyboard.press("Space");
   await expect(page.getByRole("button", { name: "Rusty Hook" })).toBeVisible();
   await expect(page.locator(".demo-progress strong")).toContainText("2/3");
   await expect(page.locator(".story-signal").filter({ hasText: "Hook collected" })).toContainText("Ready");
@@ -61,15 +63,16 @@ test("plays the light-verb inventory loop end to end", async ({ page }) => {
   await expect(page.getByRole("complementary", { name: "Recent runtime events" })).toContainText(
     "flag set: tavern.hook-used = true"
   );
-  await dialogue.click();
+  await page.keyboard.press("Space");
   await expect(dialogue).toHaveCount(0);
 
-  await page.getByRole("button", { name: "walk" }).click();
+  await page.keyboard.press("1");
+  await expect(page.getByRole("button", { name: "walk" })).toHaveClass(/active/);
   await clickCanvas(580, 610);
   await expect(page.locator(".event-readout").nth(1)).not.toContainText("510, 590");
   await expect(page.locator(".event-readout").first()).toContainText("character moved: 580, 610");
 
-  await page.getByRole("button", { name: "Capture" }).click();
+  await page.keyboard.press("c");
   await expect(page.getByRole("button", { name: "Capture" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "Guide" })).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByRole("region", { name: "Capture mode summary" })).toContainText("Loop progress 3/3");
