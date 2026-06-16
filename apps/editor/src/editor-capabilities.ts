@@ -25,8 +25,8 @@ export const workspaceCapabilities: EditorCapability[] = [
     label: "Scene",
     status: "beta",
     workspace: "scene",
-    summary: "Edit existing scenes, hotspots, pickups, and items.",
-    detail: "Scene editing is usable for existing documents, but viewport tools are still inspector-driven."
+    summary: "Edit scenes, hotspots, pickups, player start, and walk areas.",
+    detail: "Scene authoring supports direct viewport editing for the current layered 2D milestone."
   },
   {
     id: "narrative",
@@ -62,24 +62,40 @@ export const toolCapabilities: EditorCapability[] = [
     label: "Select",
     status: "available",
     workspace: "scene",
-    summary: "Select existing scene entities in the viewport.",
-    detail: "Selection is currently the only direct viewport interaction fully supported."
+    summary: "Inspect scene entities without moving them.",
+    detail: "Use Select to review the scene, click entities, and keep the viewport in inspection mode."
   },
   {
     id: "tool-hotspot",
     label: "Hotspot",
-    status: "in-development",
+    status: "beta",
     workspace: "scene",
     summary: "Create or reshape hotspots directly in the viewport.",
-    detail: "Hotspots can be edited in the inspector, but there is no direct-manipulation tool yet."
+    detail: "Hotspots can already be selected, dragged, and resized directly in the viewport."
+  },
+  {
+    id: "tool-pickup",
+    label: "Pickup",
+    status: "beta",
+    workspace: "scene",
+    summary: "Reposition and resize pickups in the viewport.",
+    detail: "Pickups can be selected, dragged, and resized directly in the scene preview."
+  },
+  {
+    id: "tool-player-start",
+    label: "Player Start",
+    status: "beta",
+    workspace: "scene",
+    summary: "Move the player start marker visually.",
+    detail: "The player start anchor can be dragged in the viewport for the current scene."
   },
   {
     id: "tool-walk-area",
     label: "Walk area",
-    status: "in-development",
+    status: "beta",
     workspace: "scene",
     summary: "Edit polygon walk areas visually.",
-    detail: "Walk areas are editable numerically in the inspector; viewport editing is not implemented yet."
+    detail: "Walk points can be moved directly and new points can be inserted from the viewport."
   },
   {
     id: "tool-occluder",

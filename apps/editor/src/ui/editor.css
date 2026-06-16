@@ -449,6 +449,36 @@ button {
   box-shadow: 0 26px 70px rgba(0, 0, 0, 0.35);
 }
 
+.viewport-instruction {
+  position: absolute;
+  z-index: 1000;
+  left: 14px;
+  top: 14px;
+  display: grid;
+  gap: 3px;
+  max-width: min(420px, calc(100% - 28px));
+  padding: 9px 11px;
+  color: #dce7e9;
+  border: 1px solid rgba(182, 218, 228, 0.18);
+  border-radius: 3px 10px 3px 10px;
+  background: rgba(7, 16, 25, 0.74);
+  backdrop-filter: blur(12px);
+}
+
+.viewport-instruction strong {
+  color: #ddb06f;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.viewport-instruction span {
+  color: #c4d5da;
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
 .scene-shape,
 .walk-region,
 .character,

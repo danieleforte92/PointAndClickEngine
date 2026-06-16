@@ -441,6 +441,55 @@ type ViewportInteraction =
       startPosition: ScenePointDraftValue;
     };
 
+type SceneTool = "select" | "hotspot" | "pickup" | "player-start" | "walk-area";
+
+function sceneToolFromCapability(capabilityId: string): SceneTool | null {
+  switch (capabilityId) {
+    case "tool-select":
+      return "select";
+    case "tool-hotspot":
+      return "hotspot";
+    case "tool-pickup":
+      return "pickup";
+    case "tool-player-start":
+      return "player-start";
+    case "tool-walk-area":
+      return "walk-area";
+    default:
+      return null;
+  }
+}
+
+function sceneToolLabel(tool: SceneTool): string {
+  switch (tool) {
+    case "select":
+      return "Select";
+    case "hotspot":
+      return "Hotspot";
+    case "pickup":
+      return "Pickup";
+    case "player-start":
+      return "Player Start";
+    case "walk-area":
+      return "Walk Area";
+  }
+}
+
+function sceneToolHint(tool: SceneTool): string {
+  switch (tool) {
+    case "select":
+      return "Click hotspots and pickups to inspect them without moving the scene.";
+    case "hotspot":
+      return "Drag the selected hotspot to move it, or use the lower-right handle to resize it.";
+    case "pickup":
+      return "Drag the selected pickup to move it, or use the lower-right handle to resize it.";
+    case "player-start":
+      return "Drag the character marker to choose the player start position.";
+    case "walk-area":
+      return "Drag walk points to reshape the polygon, or click an edge to insert a new point.";
+  }
+}
+
 export function EditorApp() {
   const [workspace, setWorkspace] = useState<Workspace>("overview");
   const [status, setStatus] = useState("Loading project...");
@@ -453,6 +502,7 @@ export function EditorApp() {
   const [validationReport, setValidationReport] = useState<EditorValidationReport | null>(null);
   const [validationStatus, setValidationStatus] = useState("Validation uses saved project files.");
   const [viewportInteraction, setViewportInteraction] = useState<ViewportInteraction | null>(null);
+  const [activeSceneTool, setActiveSceneTool] = useState<SceneTool>("select");
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
   const session = history.present;
@@ -633,6 +683,8 @@ export function EditorApp() {
   const selectedAssetUsage = selectedAsset ? assetUsage(selectedAsset, project) : [];
   const selectedAssetHealth = selectedAsset ? assetHealth(selectedAsset, project) : "available";
   const canEditViewportScene = workspace === "scene" && !!selectedScene;
+  const selectedSceneToolLabel = sceneToolLabel(activeSceneTool);
+  const selectedSceneToolHint = sceneToolHint(activeSceneTool);
   const defaultLocaleDocument = useMemo(
     () =>
       project?.locales.find((locale) => locale.locale === project.manifest.defaultLocale) ?? null,
@@ -935,7 +987,13 @@ export function EditorApp() {
     hotspot: Hotspot,
     event: ReactPointerEvent
   ) => {
-    if (!selectedScene || !canEditViewportScene || selectedHotspot?.id !== hotspot.id) return;
+    if (
+      !selectedScene ||
+      !canEditViewportScene ||
+      activeSceneTool !== "hotspot" ||
+      selectedHotspot?.id !== hotspot.id
+    )
+      return;
 
     const startPoint = scenePointFromClient(event.clientX, event.clientY);
     if (!startPoint) return;
@@ -961,7 +1019,13 @@ export function EditorApp() {
     pickup: ScenePickup,
     event: ReactPointerEvent
   ) => {
-    if (!selectedScene || !canEditViewportScene || selectedPickup?.id !== pickup.id) return;
+    if (
+      !selectedScene ||
+      !canEditViewportScene ||
+      activeSceneTool !== "pickup" ||
+      selectedPickup?.id !== pickup.id
+    )
+      return;
 
     const startPoint = scenePointFromClient(event.clientX, event.clientY);
     if (!startPoint) return;
@@ -983,7 +1047,7 @@ export function EditorApp() {
   };
 
   const startPlayerStartInteraction = (event: ReactPointerEvent) => {
-    if (!selectedScene || !previewPlayerStart || !canEditViewportScene) return;
+    if (!selectedScene || !previewPlayerStart || !canEditViewportScene || activeSceneTool !== "player-start") return;
 
     const startPoint = scenePointFromClient(event.clientX, event.clientY);
     if (!startPoint) return;
@@ -1003,7 +1067,7 @@ export function EditorApp() {
     point: ScenePointDraftValue,
     event: ReactPointerEvent
   ) => {
-    if (!selectedScene || !canEditViewportScene) return;
+    if (!selectedScene || !canEditViewportScene || activeSceneTool !== "walk-area") return;
 
     if (event.shiftKey) {
       event.preventDefault();
@@ -1027,7 +1091,7 @@ export function EditorApp() {
   };
 
   const insertWalkAreaPointFromEvent = (afterIndex: number, event: ReactPointerEvent) => {
-    if (!selectedScene || !canEditViewportScene) return;
+    if (!selectedScene || !canEditViewportScene || activeSceneTool !== "walk-area") return;
 
     const point = scenePointFromClient(event.clientX, event.clientY);
     if (!point) return;
@@ -2545,11 +2609,19 @@ export function EditorApp() {
             <div className="toolset">
               {toolCapabilities.map((tool) => (
                 <button
-                  className={tool.id === "tool-select" && workspace === "scene" ? "active" : ""}
-                  disabled={tool.status !== "available"}
+                  className={
+                    sceneToolFromCapability(tool.id) === activeSceneTool && workspace === "scene" ? "active" : ""
+                  }
+                  disabled={tool.status === "planned" || !selectedScene || workspace !== "scene"}
                   key={tool.id}
                   title={`${capabilityBadgeLabel(tool.status)}: ${tool.detail}`}
                   type="button"
+                  onClick={() => {
+                    const nextTool = sceneToolFromCapability(tool.id);
+                    if (nextTool) {
+                      setActiveSceneTool(nextTool);
+                    }
+                  }}
                 >
                   {tool.label}
                 </button>
@@ -2559,7 +2631,7 @@ export function EditorApp() {
               {workspace === "overview"
                 ? "Editor overview and capability status"
                 : workspace === "scene" && selectedScene
-                  ? `Layered 2D - ${sceneLabel} - ${selectedScene.hotspots.length} hotspot(s) - ${selectedScene.pickups.length} pickup(s)`
+                  ? `Layered 2D - ${sceneLabel} - ${selectedScene.hotspots.length} hotspot(s) - ${selectedScene.pickups.length} pickup(s) - Tool: ${selectedSceneToolLabel}`
                   : workspace === "narrative"
                     ? "Structured flow and locale editing"
                     : workspaceCapability.summary}
@@ -2580,6 +2652,15 @@ export function EditorApp() {
                   {selectedScene
                     ? `Preview starts from ${selectedScene.id} in the currently opened project.`
                     : "Open a project to prepare a preview bundle."}
+                </p>
+              </section>
+              <section className="overview-card">
+                <span className="overview-label">Viewport authoring</span>
+                <strong>{selectedScene ? "Direct manipulation is live" : "Open a scene to author visually"}</strong>
+                <p>
+                  {selectedScene
+                    ? "Hotspots, pickups, player start, and walk points can be edited directly from the scene viewport."
+                    : "Scene tools appear once a layered 2D scene is selected."}
                 </p>
               </section>
               <section className="overview-card">
@@ -2766,6 +2847,12 @@ export function EditorApp() {
                   : { background: "#24384a" }
               }
             >
+              {selectedScene && workspace === "scene" ? (
+                <div className="viewport-instruction">
+                  <strong>{selectedSceneToolLabel}</strong>
+                  <span>{selectedSceneToolHint}</span>
+                </div>
+              ) : null}
               {selectedScene ? (
               <>
                 {selectedScene.shapes.map((shape) => (
@@ -2828,13 +2915,17 @@ export function EditorApp() {
                 <div
                   className="character"
                   onPointerDown={startPlayerStartInteraction}
-                  style={{
-                    left: `${((previewPlayerStart ?? selectedScene.playerStart).x / selectedScene.size.width) * 100}%`,
-                    top: `${((previewPlayerStart ?? selectedScene.playerStart).y / selectedScene.size.height) * 100}%`
-                  }}
-                  title="Drag to move player start"
-                >
-                  <span />
+                    style={{
+                      left: `${((previewPlayerStart ?? selectedScene.playerStart).x / selectedScene.size.width) * 100}%`,
+                      top: `${((previewPlayerStart ?? selectedScene.playerStart).y / selectedScene.size.height) * 100}%`
+                    }}
+                    title={
+                      activeSceneTool === "player-start"
+                        ? "Drag to move player start"
+                        : "Switch to Player Start to move the marker"
+                    }
+                  >
+                    <span />
                 </div>
                 {previewHotspots.map((hotspot) => (
                   <button
@@ -2849,7 +2940,11 @@ export function EditorApp() {
                       top: `${(hotspot.bounds.y / selectedScene.size.height) * 100}%`,
                       width: `${(hotspot.bounds.width / selectedScene.size.width) * 100}%`
                     }}
-                    title="Click to inspect, drag to move"
+                    title={
+                      activeSceneTool === "hotspot"
+                        ? "Click to inspect, drag to move"
+                        : "Switch to Hotspot to move or resize"
+                    }
                   >
                     <span className="viewport-label">{hotspot.id}</span>
                     {selectedHotspot?.id === hotspot.id ? (
@@ -2874,7 +2969,11 @@ export function EditorApp() {
                       top: `${(pickup.bounds.y / selectedScene.size.height) * 100}%`,
                       width: `${(pickup.bounds.width / selectedScene.size.width) * 100}%`
                     }}
-                    title="Click to inspect, drag to move"
+                    title={
+                      activeSceneTool === "pickup"
+                        ? "Click to inspect, drag to move"
+                        : "Switch to Pickup to move or resize"
+                    }
                   >
                     <span className="viewport-label">{pickup.id}</span>
                     {selectedPickup?.id === pickup.id ? (
