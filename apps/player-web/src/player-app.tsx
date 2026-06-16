@@ -4,6 +4,13 @@ import { AdventureEngine, type RuntimeFrame } from "@pointclick/runtime";
 import { sampleBundle } from "@pointclick/sample-game";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+type DemoStep = {
+  id: "inspect-door" | "collect-hook" | "use-hook";
+  label: string;
+  description: string;
+  done: boolean;
+};
+
 function applySceneOverride(bundle: ProjectBundle): ProjectBundle {
   const sceneId = new URLSearchParams(window.location.search).get("scene");
   if (!sceneId || !bundle.scenes[sceneId]) {
@@ -33,6 +40,48 @@ async function loadPreviewBundle(): Promise<ProjectBundle> {
   return applySceneOverride((await response.json()) as ProjectBundle);
 }
 
+function buildDemoSteps(frame: RuntimeFrame, engine: AdventureEngine): DemoStep[] {
+  const inspectedDoor = engine.events.some(
+    (event) =>
+      event.type === "hotspot/interacted" &&
+      event.hotspotId === "tavern-entrance" &&
+      event.verb === "look"
+  );
+  const collectedHook =
+    frame.state.collectedPickups.includes("dock-hook") || frame.state.inventory.includes("rusty-hook");
+  const usedHook = frame.state.flags["tavern.hook-used"] === true;
+
+  return [
+    {
+      id: "inspect-door",
+      label: "Inspect the tavern door",
+      description: "Switch to Look, then click the amber tavern entrance.",
+      done: inspectedDoor
+    },
+    {
+      id: "collect-hook",
+      label: "Collect the rusty hook",
+      description: "Switch to Use, click the dock hook, then select it in the inventory bar.",
+      done: collectedHook
+    },
+    {
+      id: "use-hook",
+      label: "Use the hook on the door",
+      description: "With Rusty Hook selected, click the tavern entrance again to trigger the state change.",
+      done: usedHook
+    }
+  ];
+}
+
+function nextDemoHint(steps: DemoStep[]): string {
+  const nextStep = steps.find((step) => !step.done);
+  if (!nextStep) {
+    return "Demo loop complete. Capture the final dialogue and footer state for the finish.";
+  }
+
+  return nextStep.description;
+}
+
 export function PlayerApp() {
   const hostRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<PixiSceneRenderer | null>(null);
@@ -48,6 +97,9 @@ export function PlayerApp() {
     frame?.state.inventory
       .map((itemId) => bundle?.items[itemId])
       .filter((item) => item !== undefined) ?? [];
+  const demoSteps = frame && engine ? buildDemoSteps(frame, engine) : [];
+  const completedDemoSteps = demoSteps.filter((step) => step.done).length;
+  const demoHint = demoSteps.length > 0 ? nextDemoHint(demoSteps) : "Preparing the current demo loop...";
 
   useEffect(() => {
     let cancelled = false;
@@ -199,10 +251,40 @@ export function PlayerApp() {
         </div>
       </header>
 
+      <section className="demo-brief" aria-label="Sample demo checklist">
+        <div className="demo-brief-copy">
+          <p className="eyebrow">Demo-first sample</p>
+          <h2>Record the full point-and-click loop in one take.</h2>
+          <p className="demo-summary">
+            This sample is small on purpose: scene, hotspot, inventory, item use, flow, and
+            state update are all visible in under 30 seconds.
+          </p>
+        </div>
+        <div className="demo-progress">
+          <span>Loop progress</span>
+          <strong>
+            {completedDemoSteps}/{demoSteps.length}
+          </strong>
+        </div>
+      </section>
+
+      <section className="demo-checklist" aria-label="Current sample loop">
+        {demoSteps.map((step, index) => (
+          <article className={step.done ? "demo-step done" : "demo-step"} key={step.id}>
+            <span className="demo-step-index">0{index + 1}</span>
+            <div>
+              <h3>{step.label}</h3>
+              <p>{step.description}</p>
+            </div>
+            <strong>{step.done ? "Done" : "Next"}</strong>
+          </article>
+        ))}
+      </section>
+
       <section className="stage-frame" aria-label="Game scene">
         <div className="stage-grain" />
         <div ref={hostRef} className="stage-host" />
-        <div className="hint">Click the dock to walk. Try the amber tavern door.</div>
+        <div className="hint">{demoHint}</div>
       </section>
 
       <section className="verb-bar" aria-label="Interaction verbs">
