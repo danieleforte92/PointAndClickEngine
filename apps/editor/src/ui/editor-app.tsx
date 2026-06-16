@@ -970,6 +970,32 @@ export function EditorApp() {
       "The item label key exists in the default locale."
     );
   }, [currentItemDraft.labelKey, defaultLocaleId, defaultLocaleStrings]);
+  const hotspotLabelMissing =
+    currentHotspotDraft.labelKey.trim().length === 0 ||
+    (!!defaultLocaleStrings && !(currentHotspotDraft.labelKey.trim() in defaultLocaleStrings));
+  const hotspotLookFlowMissing =
+    !!currentHotspotDraft.lookFlowId.trim() && !availableFlowIdsSet.has(currentHotspotDraft.lookFlowId.trim());
+  const hotspotTalkFlowMissing =
+    !!currentHotspotDraft.talkFlowId.trim() && !availableFlowIdsSet.has(currentHotspotDraft.talkFlowId.trim());
+  const hotspotUseFlowMissing =
+    !!currentHotspotDraft.useFlowId.trim() && !availableFlowIdsSet.has(currentHotspotDraft.useFlowId.trim());
+  const hotspotOverrideIssues = currentHotspotDraft.useItemFlows.map((entry) => {
+    const itemId = entry.itemId.trim();
+    const flowId = entry.flowId.trim();
+    return {
+      missingFlow: !!flowId && !availableFlowIdsSet.has(flowId),
+      missingItem: !!itemId && !availableItemIdsSet.has(itemId),
+      incomplete: (!itemId && !!flowId) || (!!itemId && !flowId)
+    };
+  });
+  const pickupItemMissing =
+    currentPickupDraft.itemId.trim().length === 0 ||
+    !availableItemIdsSet.has(currentPickupDraft.itemId.trim());
+  const pickupLabelMissing =
+    currentPickupDraft.labelKey.trim().length === 0 ||
+    (!!defaultLocaleStrings && !(currentPickupDraft.labelKey.trim() in defaultLocaleStrings));
+  const pickupFlowMissing =
+    !!currentPickupDraft.pickupFlowId.trim() && !availableFlowIdsSet.has(currentPickupDraft.pickupFlowId.trim());
 
   const replaceSession = (recipe: (current: EditorHistoryState) => EditorHistoryState) => {
     setHistory((current) => recipe(current));
@@ -3497,9 +3523,17 @@ export function EditorApp() {
                 <label>
                   Display label
                   <input
+                    className={hotspotLabelMissing ? "field-input-invalid" : ""}
                     value={currentHotspotDraft.labelKey}
                     onChange={(event) => updateHotspotDraft("labelKey", event.target.value)}
                   />
+                  {hotspotLabelMissing ? (
+                    <small className="field-hint error">
+                      {currentHotspotDraft.labelKey.trim().length === 0
+                        ? "Display label is required."
+                        : `Label key is missing in ${defaultLocaleId}.`}
+                    </small>
+                  ) : null}
                 </label>
                 <div className="field-group">
                   <span>Bounds</span>
@@ -3542,6 +3576,7 @@ export function EditorApp() {
                 <label>
                   Look flow
                   <select
+                    className={hotspotLookFlowMissing ? "field-input-invalid" : ""}
                     value={currentHotspotDraft.lookFlowId}
                     onChange={(event) => updateHotspotDraft("lookFlowId", event.target.value)}
                   >
@@ -3552,10 +3587,14 @@ export function EditorApp() {
                       </option>
                     ))}
                   </select>
+                  {hotspotLookFlowMissing ? (
+                    <small className="field-hint error">Selected look flow no longer exists.</small>
+                  ) : null}
                 </label>
                 <label>
                   Talk flow
                   <select
+                    className={hotspotTalkFlowMissing ? "field-input-invalid" : ""}
                     value={currentHotspotDraft.talkFlowId}
                     onChange={(event) => updateHotspotDraft("talkFlowId", event.target.value)}
                   >
@@ -3566,10 +3605,14 @@ export function EditorApp() {
                       </option>
                     ))}
                   </select>
+                  {hotspotTalkFlowMissing ? (
+                    <small className="field-hint error">Selected talk flow no longer exists.</small>
+                  ) : null}
                 </label>
                 <label>
                   Use flow
                   <select
+                    className={hotspotUseFlowMissing ? "field-input-invalid" : ""}
                     value={currentHotspotDraft.useFlowId}
                     onChange={(event) => updateHotspotDraft("useFlowId", event.target.value)}
                   >
@@ -3580,14 +3623,31 @@ export function EditorApp() {
                       </option>
                     ))}
                   </select>
+                  {hotspotUseFlowMissing ? (
+                    <small className="field-hint error">Selected use flow no longer exists.</small>
+                  ) : null}
                 </label>
                 <div className="field-group">
                   <span>Use item overrides</span>
                   <div className="use-item-flows">
                     {currentHotspotDraft.useItemFlows.map((entry, index) => (
-                      <div className="use-item-flow-card" key={`use-item-flow-${index}`}>
+                      <div
+                        className={`use-item-flow-card ${
+                          hotspotOverrideIssues[index]?.missingFlow ||
+                          hotspotOverrideIssues[index]?.missingItem ||
+                          hotspotOverrideIssues[index]?.incomplete
+                            ? "invalid"
+                            : ""
+                        }`}
+                        key={`use-item-flow-${index}`}
+                      >
                         <div className="four-fields">
                           <select
+                            className={
+                              hotspotOverrideIssues[index]?.missingItem || hotspotOverrideIssues[index]?.incomplete
+                                ? "field-input-invalid"
+                                : ""
+                            }
                             aria-label={`Use item ${index + 1}`}
                             value={entry.itemId}
                             onChange={(event) => {
@@ -3604,6 +3664,11 @@ export function EditorApp() {
                             ))}
                           </select>
                           <select
+                            className={
+                              hotspotOverrideIssues[index]?.missingFlow || hotspotOverrideIssues[index]?.incomplete
+                                ? "field-input-invalid"
+                                : ""
+                            }
                             aria-label={`Use flow ${index + 1}`}
                             value={entry.flowId}
                             onChange={(event) => {
@@ -3620,6 +3685,13 @@ export function EditorApp() {
                             ))}
                           </select>
                         </div>
+                        {hotspotOverrideIssues[index]?.incomplete ? (
+                          <small className="field-hint error">Each override needs both an item and a flow.</small>
+                        ) : hotspotOverrideIssues[index]?.missingItem ? (
+                          <small className="field-hint error">Selected override item no longer exists.</small>
+                        ) : hotspotOverrideIssues[index]?.missingFlow ? (
+                          <small className="field-hint error">Selected override flow no longer exists.</small>
+                        ) : null}
                       </div>
                     ))}
                   </div>
@@ -3668,6 +3740,7 @@ export function EditorApp() {
                 <label>
                   Item id
                   <select
+                    className={pickupItemMissing ? "field-input-invalid" : ""}
                     value={currentPickupDraft.itemId}
                     onChange={(event) => updatePickupDraft("itemId", event.target.value)}
                   >
@@ -3678,17 +3751,33 @@ export function EditorApp() {
                       </option>
                     ))}
                   </select>
+                  {pickupItemMissing ? (
+                    <small className="field-hint error">
+                      {currentPickupDraft.itemId.trim().length === 0
+                        ? "Pickup item is required."
+                        : "Selected pickup item no longer exists."}
+                    </small>
+                  ) : null}
                 </label>
                 <label>
                   Display label
                   <input
+                    className={pickupLabelMissing ? "field-input-invalid" : ""}
                     value={currentPickupDraft.labelKey}
                     onChange={(event) => updatePickupDraft("labelKey", event.target.value)}
                   />
+                  {pickupLabelMissing ? (
+                    <small className="field-hint error">
+                      {currentPickupDraft.labelKey.trim().length === 0
+                        ? "Pickup label key is required."
+                        : `Label key is missing in ${defaultLocaleId}.`}
+                    </small>
+                  ) : null}
                 </label>
                 <label>
                   Pickup flow
                   <select
+                    className={pickupFlowMissing ? "field-input-invalid" : ""}
                     value={currentPickupDraft.pickupFlowId}
                     onChange={(event) => updatePickupDraft("pickupFlowId", event.target.value)}
                   >
@@ -3699,6 +3788,9 @@ export function EditorApp() {
                       </option>
                     ))}
                   </select>
+                  {pickupFlowMissing ? (
+                    <small className="field-hint error">Selected pickup flow no longer exists.</small>
+                  ) : null}
                 </label>
                 <div className="field-group">
                   <span>Bounds</span>
