@@ -62,7 +62,7 @@ test("plays the light-verb inventory loop end to end", async ({ page }) => {
   await page.getByRole("button", { name: "walk" }).click();
   await clickCanvas(580, 610);
   await expect(page.locator(".event-readout").nth(1)).not.toContainText("510, 590");
-  await expect(page.locator(".event-readout").first()).toContainText("character/moved");
+  await expect(page.locator(".event-readout").first()).toContainText("character moved: 580, 610");
 
   const capturePath = process.env.CAPTURE_SAMPLE_SCREENSHOT_PATH;
   if (capturePath) {

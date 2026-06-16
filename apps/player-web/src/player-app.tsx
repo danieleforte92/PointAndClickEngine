@@ -182,6 +182,14 @@ export function PlayerApp() {
     bundle && engine && scene
       ? engine.events.slice(-4).reverse().map((event) => formatEvent(event, bundle, scene))
       : [];
+  const selectedItemLabel = bundle && frame?.state.selectedItemId
+    ? localize(
+        bundle,
+        bundle.items[frame.state.selectedItemId]?.labelKey ?? "",
+        bundle.items[frame.state.selectedItemId]?.name ?? frame.state.selectedItemId
+      )
+    : "None";
+  const latestEventLabel = recentEvents[0] ?? "ready";
 
   useEffect(() => {
     let cancelled = false;
@@ -428,7 +436,7 @@ export function PlayerApp() {
       <footer className="game-footer">
         <div className="event-readout">
           <span>Event trace</span>
-          <strong>{engine.events.at(-1)?.type ?? "ready"}</strong>
+          <strong>{latestEventLabel}</strong>
         </div>
         <div className="event-readout">
           <span>Position</span>
@@ -446,7 +454,7 @@ export function PlayerApp() {
         </div>
         <div className="event-readout">
           <span>Selected item</span>
-          <strong>{frame.state.selectedItemId ?? "none"}</strong>
+          <strong>{selectedItemLabel}</strong>
         </div>
       </footer>
 
