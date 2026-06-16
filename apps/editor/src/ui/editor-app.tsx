@@ -591,6 +591,12 @@ function sceneToolHint(tool: SceneTool): string {
   }
 }
 
+function focusEditorField(element: HTMLInputElement | HTMLSelectElement | null) {
+  if (!element) return;
+  element.focus();
+  element.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
 export function EditorApp() {
   const [workspace, setWorkspace] = useState<Workspace>("overview");
   const [status, setStatus] = useState("Loading project...");
@@ -605,6 +611,15 @@ export function EditorApp() {
   const [viewportInteraction, setViewportInteraction] = useState<ViewportInteraction | null>(null);
   const [activeSceneTool, setActiveSceneTool] = useState<SceneTool>("select");
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const hotspotLabelInputRef = useRef<HTMLInputElement | null>(null);
+  const hotspotLookFlowRef = useRef<HTMLSelectElement | null>(null);
+  const hotspotTalkFlowRef = useRef<HTMLSelectElement | null>(null);
+  const hotspotUseFlowRef = useRef<HTMLSelectElement | null>(null);
+  const hotspotOverrideItemRefs = useRef<Array<HTMLSelectElement | null>>([]);
+  const hotspotOverrideFlowRefs = useRef<Array<HTMLSelectElement | null>>([]);
+  const pickupItemRef = useRef<HTMLSelectElement | null>(null);
+  const pickupLabelRef = useRef<HTMLInputElement | null>(null);
+  const pickupFlowRef = useRef<HTMLSelectElement | null>(null);
 
   const session = history.present;
   const scenes = project ? sceneItems(project.scenes) : [];
@@ -996,6 +1011,75 @@ export function EditorApp() {
     (!!defaultLocaleStrings && !(currentPickupDraft.labelKey.trim() in defaultLocaleStrings));
   const pickupFlowMissing =
     !!currentPickupDraft.pickupFlowId.trim() && !availableFlowIdsSet.has(currentPickupDraft.pickupFlowId.trim());
+  const firstHotspotOverrideIssueIndex = hotspotOverrideIssues.findIndex(
+    (issue) => issue.incomplete || issue.missingItem || issue.missingFlow
+  );
+  const firstHotspotOverrideIssue =
+    firstHotspotOverrideIssueIndex >= 0 ? hotspotOverrideIssues[firstHotspotOverrideIssueIndex] : null;
+  const firstHotspotIssueTarget = hotspotLabelMissing
+    ? { kind: "label" as const }
+    : hotspotLookFlowMissing
+      ? { kind: "look-flow" as const }
+      : hotspotTalkFlowMissing
+        ? { kind: "talk-flow" as const }
+        : hotspotUseFlowMissing
+          ? { kind: "use-flow" as const }
+          : firstHotspotOverrideIssue
+            ? {
+                kind: firstHotspotOverrideIssue.missingItem || firstHotspotOverrideIssue.incomplete
+                  ? ("override-item" as const)
+                  : ("override-flow" as const),
+                index: firstHotspotOverrideIssueIndex
+              }
+            : null;
+  const firstPickupIssueTarget = pickupItemMissing
+    ? { kind: "item" as const }
+    : pickupLabelMissing
+      ? { kind: "label" as const }
+      : pickupFlowMissing
+        ? { kind: "flow" as const }
+        : null;
+
+  const focusFirstHotspotIssue = () => {
+    if (!firstHotspotIssueTarget) return;
+
+    switch (firstHotspotIssueTarget.kind) {
+      case "label":
+        focusEditorField(hotspotLabelInputRef.current);
+        return;
+      case "look-flow":
+        focusEditorField(hotspotLookFlowRef.current);
+        return;
+      case "talk-flow":
+        focusEditorField(hotspotTalkFlowRef.current);
+        return;
+      case "use-flow":
+        focusEditorField(hotspotUseFlowRef.current);
+        return;
+      case "override-item":
+        focusEditorField(hotspotOverrideItemRefs.current[firstHotspotIssueTarget.index] ?? null);
+        return;
+      case "override-flow":
+        focusEditorField(hotspotOverrideFlowRefs.current[firstHotspotIssueTarget.index] ?? null);
+        return;
+    }
+  };
+
+  const focusFirstPickupIssue = () => {
+    if (!firstPickupIssueTarget) return;
+
+    switch (firstPickupIssueTarget.kind) {
+      case "item":
+        focusEditorField(pickupItemRef.current);
+        return;
+      case "label":
+        focusEditorField(pickupLabelRef.current);
+        return;
+      case "flow":
+        focusEditorField(pickupFlowRef.current);
+        return;
+    }
+  };
 
   const replaceSession = (recipe: (current: EditorHistoryState) => EditorHistoryState) => {
     setHistory((current) => recipe(current));
@@ -3524,6 +3608,7 @@ export function EditorApp() {
                   Display label
                   <input
                     className={hotspotLabelMissing ? "field-input-invalid" : ""}
+                    ref={hotspotLabelInputRef}
                     value={currentHotspotDraft.labelKey}
                     onChange={(event) => updateHotspotDraft("labelKey", event.target.value)}
                   />
@@ -3577,6 +3662,7 @@ export function EditorApp() {
                   Look flow
                   <select
                     className={hotspotLookFlowMissing ? "field-input-invalid" : ""}
+                    ref={hotspotLookFlowRef}
                     value={currentHotspotDraft.lookFlowId}
                     onChange={(event) => updateHotspotDraft("lookFlowId", event.target.value)}
                   >
@@ -3595,6 +3681,7 @@ export function EditorApp() {
                   Talk flow
                   <select
                     className={hotspotTalkFlowMissing ? "field-input-invalid" : ""}
+                    ref={hotspotTalkFlowRef}
                     value={currentHotspotDraft.talkFlowId}
                     onChange={(event) => updateHotspotDraft("talkFlowId", event.target.value)}
                   >
@@ -3613,6 +3700,7 @@ export function EditorApp() {
                   Use flow
                   <select
                     className={hotspotUseFlowMissing ? "field-input-invalid" : ""}
+                    ref={hotspotUseFlowRef}
                     value={currentHotspotDraft.useFlowId}
                     onChange={(event) => updateHotspotDraft("useFlowId", event.target.value)}
                   >
@@ -3648,6 +3736,9 @@ export function EditorApp() {
                                 ? "field-input-invalid"
                                 : ""
                             }
+                            ref={(element) => {
+                              hotspotOverrideItemRefs.current[index] = element;
+                            }}
                             aria-label={`Use item ${index + 1}`}
                             value={entry.itemId}
                             onChange={(event) => {
@@ -3669,6 +3760,9 @@ export function EditorApp() {
                                 ? "field-input-invalid"
                                 : ""
                             }
+                            ref={(element) => {
+                              hotspotOverrideFlowRefs.current[index] = element;
+                            }}
                             aria-label={`Use flow ${index + 1}`}
                             value={entry.flowId}
                             onChange={(event) => {
@@ -3714,6 +3808,13 @@ export function EditorApp() {
                   </div>
                   <strong>{hotspotGuardrail.summary}</strong>
                   <p className="inspector-copy">{hotspotGuardrail.detail}</p>
+                  {firstHotspotIssueTarget ? (
+                    <div className="inspector-actions-inline">
+                      <button type="button" onClick={focusFirstHotspotIssue}>
+                        Jump to first issue
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flow-link">
                   <span>Verb-aware hotspot</span>
@@ -3741,6 +3842,7 @@ export function EditorApp() {
                   Item id
                   <select
                     className={pickupItemMissing ? "field-input-invalid" : ""}
+                    ref={pickupItemRef}
                     value={currentPickupDraft.itemId}
                     onChange={(event) => updatePickupDraft("itemId", event.target.value)}
                   >
@@ -3763,6 +3865,7 @@ export function EditorApp() {
                   Display label
                   <input
                     className={pickupLabelMissing ? "field-input-invalid" : ""}
+                    ref={pickupLabelRef}
                     value={currentPickupDraft.labelKey}
                     onChange={(event) => updatePickupDraft("labelKey", event.target.value)}
                   />
@@ -3778,6 +3881,7 @@ export function EditorApp() {
                   Pickup flow
                   <select
                     className={pickupFlowMissing ? "field-input-invalid" : ""}
+                    ref={pickupFlowRef}
                     value={currentPickupDraft.pickupFlowId}
                     onChange={(event) => updatePickupDraft("pickupFlowId", event.target.value)}
                   >
@@ -3824,6 +3928,13 @@ export function EditorApp() {
                   </div>
                   <strong>{pickupGuardrail.summary}</strong>
                   <p className="inspector-copy">{pickupGuardrail.detail}</p>
+                  {firstPickupIssueTarget ? (
+                    <div className="inspector-actions-inline">
+                      <button type="button" onClick={focusFirstPickupIssue}>
+                        Jump to first issue
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flow-link">
                   <span>Scene pickup</span>

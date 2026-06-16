@@ -857,6 +857,9 @@ button {
 }
 
 .inspector-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   padding: 15px 13px;
 }
 
@@ -908,6 +911,14 @@ button {
 
 .field-hint.error {
   color: #f0a59c;
+}
+
+.inspector-actions-inline {
+  margin-top: 10px;
+}
+
+.inspector-actions-inline button {
+  margin-top: 0;
 }
 
 .four-fields {
