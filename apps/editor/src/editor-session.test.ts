@@ -2,13 +2,19 @@ import { describe, expect, it } from "vitest";
 import type { FlowDocument, ItemDocument, LocaleDocument, SceneDocument } from "@pointclick/contracts";
 import {
   buildRecoverySnapshot,
+  clampSceneRect,
+  clampScenePoint,
   commitHistory,
   createFlowDraft,
   createHistoryState,
   createSceneDraft,
   getDirtyState,
   initializeEditorSession,
+  insertDraftPointAfter,
+  moveScenePoint,
+  moveSceneRect,
   redoHistory,
+  resizeSceneRectFromBottomRight,
   restoreSessionFromRecovery,
   sceneItems,
   undoHistory
@@ -177,5 +183,90 @@ describe("editor-session recovery", () => {
     const restored = restoreSessionFromRecovery(project, recovery);
     expect(restored.activeFlowId).toBe("inspect-tavern-door");
     expect(restored.flowDrafts["inspect-tavern-door"]?.name).toBe("Inspect the tavern door again");
+  });
+});
+
+describe("editor-session geometry helpers", () => {
+  it("clamps scene points inside the viewport", () => {
+    expect(clampScenePoint({ x: -14, y: 810 }, { width: 1280, height: 720 })).toEqual({
+      x: 0,
+      y: 720
+    });
+  });
+
+  it("moves a scene point while keeping it in bounds", () => {
+    expect(
+      moveScenePoint(
+        { x: 510, y: 590 },
+        { x: 900, y: -700 },
+        { width: 1280, height: 720 }
+      )
+    ).toEqual({
+      x: 1280,
+      y: 0
+    });
+  });
+
+  it("moves a scene rect while preserving its size", () => {
+    expect(
+      moveSceneRect(
+        { x: 850, y: 335, width: 125, height: 215 },
+        { x: 900, y: 300 },
+        { width: 1280, height: 720 }
+      )
+    ).toEqual({
+      x: 1155,
+      y: 505,
+      width: 125,
+      height: 215
+    });
+  });
+
+  it("resizes a scene rect from the bottom-right handle", () => {
+    expect(
+      resizeSceneRectFromBottomRight(
+        { x: 850, y: 335, width: 125, height: 215 },
+        { x: 600, y: 400 },
+        { width: 1280, height: 720 }
+      )
+    ).toEqual({
+      x: 850,
+      y: 335,
+      width: 430,
+      height: 385
+    });
+  });
+
+  it("clamps rect size and origin into the scene frame", () => {
+    expect(
+      clampSceneRect(
+        { x: -20, y: -10, width: 1600, height: 900 },
+        { width: 1280, height: 720 }
+      )
+    ).toEqual({
+      x: 0,
+      y: 0,
+      width: 1280,
+      height: 720
+    });
+  });
+
+  it("inserts a walk-area point after the selected edge", () => {
+    expect(
+      insertDraftPointAfter(
+        [
+          { x: "10", y: "20" },
+          { x: "30", y: "40" },
+          { x: "50", y: "60" }
+        ],
+        1,
+        { x: "35", y: "45" }
+      )
+    ).toEqual([
+      { x: "10", y: "20" },
+      { x: "30", y: "40" },
+      { x: "35", y: "45" },
+      { x: "50", y: "60" }
+    ]);
   });
 });

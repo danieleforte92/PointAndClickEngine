@@ -140,6 +140,16 @@ export interface DirtyState {
   sceneIds: Set<string>;
 }
 
+export interface ScenePointDraftValue {
+  x: number;
+  y: number;
+}
+
+export interface SceneRectDraftValue extends ScenePointDraftValue {
+  height: number;
+  width: number;
+}
+
 export const cursorOptions: CursorValue[] = ["look", "talk", "use", "enter"];
 export const hexColorPattern = /^#[0-9a-fA-F]{6}$/;
 
@@ -274,6 +284,86 @@ export function parseNumber(value: string): number | null {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return null;
   return parsed;
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
+export function clampScenePoint(
+  point: ScenePointDraftValue,
+  size: { height: number; width: number }
+): ScenePointDraftValue {
+  return {
+    x: Math.round(clamp(point.x, 0, size.width)),
+    y: Math.round(clamp(point.y, 0, size.height))
+  };
+}
+
+export function moveScenePoint(
+  point: ScenePointDraftValue,
+  delta: ScenePointDraftValue,
+  size: { height: number; width: number }
+): ScenePointDraftValue {
+  return clampScenePoint(
+    {
+      x: point.x + delta.x,
+      y: point.y + delta.y
+    },
+    size
+  );
+}
+
+export function clampSceneRect(
+  rect: SceneRectDraftValue,
+  size: { height: number; width: number }
+): SceneRectDraftValue {
+  const width = Math.round(clamp(rect.width, 1, size.width));
+  const height = Math.round(clamp(rect.height, 1, size.height));
+  const x = Math.round(clamp(rect.x, 0, size.width - width));
+  const y = Math.round(clamp(rect.y, 0, size.height - height));
+
+  return {
+    height,
+    width,
+    x,
+    y
+  };
+}
+
+export function moveSceneRect(
+  rect: SceneRectDraftValue,
+  delta: ScenePointDraftValue,
+  size: { height: number; width: number }
+): SceneRectDraftValue {
+  return clampSceneRect(
+    {
+      ...rect,
+      x: rect.x + delta.x,
+      y: rect.y + delta.y
+    },
+    size
+  );
+}
+
+export function resizeSceneRectFromBottomRight(
+  rect: SceneRectDraftValue,
+  delta: ScenePointDraftValue,
+  size: { height: number; width: number }
+): SceneRectDraftValue {
+  return {
+    x: Math.round(clamp(rect.x, 0, size.width - 1)),
+    y: Math.round(clamp(rect.y, 0, size.height - 1)),
+    width: Math.round(clamp(rect.width + delta.x, 1, size.width - rect.x)),
+    height: Math.round(clamp(rect.height + delta.y, 1, size.height - rect.y))
+  };
+}
+
+export function insertDraftPointAfter<T>(points: T[], afterIndex: number, point: T): T[] {
+  const nextPoints = [...points];
+  const insertIndex = clamp(afterIndex + 1, 0, nextPoints.length);
+  nextPoints.splice(insertIndex, 0, point);
+  return nextPoints;
 }
 
 export function nextNodeTarget(nodes: FlowDraftNode[]): string {

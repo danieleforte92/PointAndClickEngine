@@ -39,18 +39,20 @@ export const workspaceCapabilities: EditorCapability[] = [
   {
     id: "assets",
     label: "Asset Studio",
-    status: "planned",
+    status: "beta",
     workspace: "assets",
-    summary: "Asset generation, provenance, and versioning.",
-    detail: "This workspace is visible to communicate the roadmap, but no asset pipeline is wired yet."
+    summary: "Project asset import, health, usage, and scene background assignment.",
+    detail:
+      "The asset library is wired for import and scene usage today; provenance, versioning, and AI generation remain future milestones."
   },
   {
     id: "build",
     label: "Build",
-    status: "in-development",
+    status: "beta",
     workspace: "build",
-    summary: "Packaging, validation, and export workflows.",
-    detail: "Build commands exist in the CLI, but the dedicated editor workspace is not implemented yet."
+    summary: "Saved-project validation and preview readiness checks.",
+    detail:
+      "The build workspace can validate saved project content today; packaging and export workflows still live in later milestones."
   }
 ];
 

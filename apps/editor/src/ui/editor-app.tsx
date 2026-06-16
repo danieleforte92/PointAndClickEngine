@@ -4,11 +4,20 @@ import type {
   FlowDocument,
   Hotspot,
   ItemDocument,
+  Layered2DScene,
   LocaleDocument,
+  Rect,
   SceneDocument,
   ScenePickup
 } from "@pointclick/contracts";
-import { startTransition, useEffect, useMemo, useState } from "react";
+import {
+  startTransition,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent
+} from "react";
 import {
   capabilityBadgeLabel,
   capabilityStatusTone,
@@ -19,6 +28,8 @@ import {
   buildHotspotUseItemFlows,
   buildFlowNodes,
   buildRecoverySnapshot,
+  clampScenePoint,
+  cloneSessionState,
   commitHistory,
   createFlowDraft,
   createHistoryState,
@@ -34,17 +45,25 @@ import {
   getDirtyState,
   hexColorPattern,
   initializeEditorSession,
+  insertDraftPointAfter,
+  moveScenePoint,
+  moveSceneRect,
   parseNumber,
   parsePositiveNumber,
   polygonArea,
   redoHistory,
+  resizeSceneRectFromBottomRight,
   restoreSessionFromRecovery,
   sceneItems,
   type DraftNodeType,
   type EditorHistoryState,
   type EditorRecoverySnapshot,
+  type EditorSessionState,
   type FlowDraft,
   type FlowDraftNode,
+  type ScenePointDraftValue,
+  type SceneRectDraftValue,
+  sessionEquals,
   undoHistory,
   type Workspace
 } from "../editor-session";
@@ -219,6 +238,150 @@ function validationTone(report: EditorValidationReport | null): "good" | "warn" 
   return "good";
 }
 
+function nextFlowId(snapshot: EditorProjectSnapshot): string {
+  const existing = new Set(snapshot.flows.map((flow) => flow.id));
+  let counter = 0;
+  let candidate = "new-flow";
+  while (existing.has(candidate)) {
+    counter += 1;
+    candidate = `new-flow-${counter}`;
+  }
+  return candidate;
+}
+
+function createDefaultFlowDocument(flowId: string): FlowDocument {
+  return {
+    id: flowId,
+    name: "New Flow",
+    nodes: [
+      {
+        id: "line-1",
+        next: "end-1",
+        speakerId: "speaker",
+        textKey: `dialogue.${flowId}.01`,
+        type: "line"
+      },
+      {
+        id: "end-1",
+        type: "end"
+      }
+    ],
+    schemaVersion: 1,
+    startNodeId: "line-1"
+  };
+}
+
+function nextItemId(snapshot: EditorProjectSnapshot): string {
+  const existing = new Set(snapshot.items.map((item) => item.id));
+  let counter = 0;
+  let candidate = "new-item";
+  while (existing.has(candidate)) {
+    counter += 1;
+    candidate = `new-item-${counter}`;
+  }
+  return candidate;
+}
+
+function nextSceneId(snapshot: EditorProjectSnapshot): string {
+  const existing = new Set(snapshot.scenes.map((scene) => scene.id));
+  let counter = 0;
+  let candidate = "new-scene";
+  while (existing.has(candidate)) {
+    counter += 1;
+    candidate = `new-scene-${counter}`;
+  }
+  return candidate;
+}
+
+function createDefaultSceneDocument(snapshot: EditorProjectSnapshot, sceneId: string): Layered2DScene {
+  const width = snapshot.manifest.viewport.width;
+  const height = snapshot.manifest.viewport.height;
+  const insetX = Math.max(40, Math.floor(width * 0.08));
+  const insetTop = Math.max(80, Math.floor(height * 0.55));
+  const insetBottom = Math.max(40, Math.floor(height * 0.06));
+
+  return {
+    background: "#24384a",
+    hotspots: [],
+    id: sceneId,
+    name: "New Scene",
+    playerStart: {
+      x: Math.floor(width / 2),
+      y: Math.floor(height * 0.8)
+    },
+    pickups: [],
+    schemaVersion: 1,
+    shapes: [],
+    size: { width, height },
+    type: "layered-2d",
+    walkArea: {
+      points: [
+        { x: insetX, y: insetTop },
+        { x: width - insetX, y: insetTop },
+        { x: width - insetX, y: height - insetBottom },
+        { x: insetX, y: height - insetBottom }
+      ]
+    }
+  };
+}
+
+function nextHotspotId(scene: Layered2DScene): string {
+  const existing = new Set(scene.hotspots.map((hotspot) => hotspot.id));
+  let counter = 0;
+  let candidate = "new-hotspot";
+  while (existing.has(candidate)) {
+    counter += 1;
+    candidate = `new-hotspot-${counter}`;
+  }
+  return candidate;
+}
+
+function nextPickupId(scene: Layered2DScene): string {
+  const existing = new Set(scene.pickups.map((pickup) => pickup.id));
+  let counter = 0;
+  let candidate = "new-pickup";
+  while (existing.has(candidate)) {
+    counter += 1;
+    candidate = `new-pickup-${counter}`;
+  }
+  return candidate;
+}
+
+function createDefaultHotspot(scene: Layered2DScene, hotspotId: string): Hotspot {
+  const width = Math.max(80, Math.floor(scene.size.width * 0.12));
+  const height = Math.max(80, Math.floor(scene.size.height * 0.14));
+  return {
+    actions: {
+      useItemFlows: []
+    },
+    bounds: {
+      x: Math.floor(scene.size.width / 2 - width / 2),
+      y: Math.floor(scene.size.height * 0.45 - height / 2),
+      width,
+      height
+    },
+    cursor: "look",
+    id: hotspotId,
+    labelKey: `hotspot.${hotspotId}`
+  };
+}
+
+function createDefaultPickup(scene: Layered2DScene, pickupId: string, itemId: string): ScenePickup {
+  const width = Math.max(48, Math.floor(scene.size.width * 0.06));
+  const height = Math.max(40, Math.floor(scene.size.height * 0.06));
+  return {
+    bounds: {
+      x: Math.floor(scene.size.width / 2 - width / 2),
+      y: Math.floor(scene.size.height * 0.78 - height / 2),
+      width,
+      height
+    },
+    id: pickupId,
+    itemId,
+    labelKey: `pickup.${pickupId}`
+  };
+}
+
 function validationSummaryLabel(report: EditorValidationReport | null): string {
   if (!report) return "No validation run yet";
   if (report.summary.errorCount > 0) {
@@ -230,6 +393,54 @@ function validationSummaryLabel(report: EditorValidationReport | null): string {
   return "Validation passed";
 }
 
+function buildGuardrail(
+  blockingIssues: string[],
+  warningIssues: string[],
+  readySummary: string,
+  readyDetail: string
+) {
+  return {
+    badge: blockingIssues.length > 0 ? "blocking" : warningIssues.length > 0 ? "review" : "ready",
+    blockingIssues,
+    detail: [...blockingIssues, ...warningIssues][0] ?? readyDetail,
+    summary:
+      blockingIssues.length > 0
+        ? `${blockingIssues.length} blocking issue(s)`
+        : warningIssues.length > 0
+          ? `${warningIssues.length} warning(s)`
+          : readySummary,
+    tone:
+      blockingIssues.length > 0
+        ? ("error" as const)
+        : warningIssues.length > 0
+          ? ("warn" as const)
+          : ("good" as const),
+    warningIssues
+  };
+}
+
+type ViewportInteraction =
+  | {
+      baseSession: EditorSessionState;
+      kind: "hotspot" | "pickup";
+      mode: "move" | "resize";
+      startPoint: ScenePointDraftValue;
+      startRect: SceneRectDraftValue;
+    }
+  | {
+      baseSession: EditorSessionState;
+      kind: "player-start";
+      startPoint: ScenePointDraftValue;
+      startPosition: ScenePointDraftValue;
+    }
+  | {
+      baseSession: EditorSessionState;
+      kind: "walk-area-point";
+      pointIndex: number;
+      startPoint: ScenePointDraftValue;
+      startPosition: ScenePointDraftValue;
+    };
+
 export function EditorApp() {
   const [workspace, setWorkspace] = useState<Workspace>("overview");
   const [status, setStatus] = useState("Loading project...");
@@ -237,9 +448,12 @@ export function EditorApp() {
   const [history, setHistory] = useState<EditorHistoryState>(emptyHistory);
   const [pendingRecovery, setPendingRecovery] = useState<EditorRecoverySnapshot | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  const [assetPathDraft, setAssetPathDraft] = useState("");
   const [validationRunState, setValidationRunState] = useState<EditorValidationRunState>("idle");
   const [validationReport, setValidationReport] = useState<EditorValidationReport | null>(null);
   const [validationStatus, setValidationStatus] = useState("Validation uses saved project files.");
+  const [viewportInteraction, setViewportInteraction] = useState<ViewportInteraction | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
 
   const session = history.present;
   const scenes = project ? sceneItems(project.scenes) : [];
@@ -288,6 +502,14 @@ export function EditorApp() {
     () => (currentFlowDraft ? currentFlowDraft.nodes.map((node) => node.id) : []),
     [currentFlowDraft]
   );
+  const availableFlowIds = useMemo(
+    () => (project ? project.flows.map((flow) => flow.id) : []),
+    [project]
+  );
+  const availableItemIds = useMemo(
+    () => (project ? project.items.map((item) => item.id) : []),
+    [project]
+  );
   const dirtyState = useMemo(
     () =>
       project
@@ -314,6 +536,81 @@ export function EditorApp() {
   const previewWalkAreaPoints = previewWalkArea
     ? previewWalkArea.points.map((point) => `${point.x},${point.y}`).join(" ")
     : "";
+  const previewPlayerStart = useMemo(() => {
+    if (!selectedScene) return null;
+    const x = parseNumber(currentSceneDraft.playerStartX);
+    const y = parseNumber(currentSceneDraft.playerStartY);
+    if (x === null || y === null) {
+      return selectedScene.playerStart;
+    }
+    return clampScenePoint({ x, y }, selectedScene.size);
+  }, [currentSceneDraft.playerStartX, currentSceneDraft.playerStartY, selectedScene]);
+  const previewHotspots = useMemo(() => {
+    if (!selectedScene || !selectedHotspot) {
+      return selectedScene?.hotspots ?? [];
+    }
+
+    const x = parseNumber(currentHotspotDraft.x);
+    const y = parseNumber(currentHotspotDraft.y);
+    const width = parsePositiveNumber(currentHotspotDraft.width);
+    const height = parsePositiveNumber(currentHotspotDraft.height);
+    if (x === null || y === null || width === null || height === null) {
+      return selectedScene.hotspots;
+    }
+
+    const bounds = moveSceneRect(
+      { x, y, width, height },
+      { x: 0, y: 0 },
+      selectedScene.size
+    );
+
+    return selectedScene.hotspots.map((hotspot) =>
+      hotspot.id === selectedHotspot.id
+        ? (() => {
+            const cursor = currentHotspotDraft.cursor.trim();
+            return {
+              ...hotspot,
+              ...(cursor ? { cursor: cursor as CursorValue } : {}),
+              bounds,
+              labelKey: currentHotspotDraft.labelKey
+            };
+          })()
+        : hotspot
+    );
+  }, [currentHotspotDraft, selectedHotspot, selectedScene]);
+  const previewPickups = useMemo(() => {
+    if (!selectedScene || !selectedPickup) {
+      return selectedScene?.pickups ?? [];
+    }
+
+    const x = parseNumber(currentPickupDraft.x);
+    const y = parseNumber(currentPickupDraft.y);
+    const width = parsePositiveNumber(currentPickupDraft.width);
+    const height = parsePositiveNumber(currentPickupDraft.height);
+    if (x === null || y === null || width === null || height === null) {
+      return selectedScene.pickups;
+    }
+
+    const bounds = moveSceneRect(
+      { x, y, width, height },
+      { x: 0, y: 0 },
+      selectedScene.size
+    );
+
+    return selectedScene.pickups.map((pickup) =>
+      pickup.id === selectedPickup.id
+        ? {
+            ...pickup,
+            ...(currentPickupDraft.pickupFlowId
+              ? { pickupFlowId: currentPickupDraft.pickupFlowId }
+              : {}),
+            bounds,
+            itemId: currentPickupDraft.itemId,
+            labelKey: currentPickupDraft.labelKey
+          }
+        : pickup
+    );
+  }, [currentPickupDraft, selectedPickup, selectedScene]);
   const workspaceCapability = workspaceCapabilities.find((item) => item.workspace === workspace) ?? workspaceCapabilities[0]!;
   const previewRequest = project
     ? {
@@ -335,6 +632,159 @@ export function EditorApp() {
           : "Preview aligned with saved project";
   const selectedAssetUsage = selectedAsset ? assetUsage(selectedAsset, project) : [];
   const selectedAssetHealth = selectedAsset ? assetHealth(selectedAsset, project) : "available";
+  const canEditViewportScene = workspace === "scene" && !!selectedScene;
+  const defaultLocaleDocument = useMemo(
+    () =>
+      project?.locales.find((locale) => locale.locale === project.manifest.defaultLocale) ?? null,
+    [project]
+  );
+  const defaultLocaleId = defaultLocaleDocument?.locale ?? project?.manifest.defaultLocale ?? "default locale";
+  const defaultLocaleStrings = defaultLocaleDocument?.strings ?? null;
+  const availableFlowIdsSet = useMemo(() => new Set(availableFlowIds), [availableFlowIds]);
+  const availableItemIdsSet = useMemo(() => new Set(availableItemIds), [availableItemIds]);
+  const flowGuardrail = useMemo(() => {
+    if (!currentFlowDraft) {
+      return buildGuardrail([], [], "No flow selected", "Select a flow to inspect locale coverage.");
+    }
+
+    const warningIssues: string[] = [];
+    if (!defaultLocaleStrings) {
+      warningIssues.push(`Default locale "${defaultLocaleId}" is unavailable.`);
+    } else {
+      for (const node of currentFlowDraft.nodes) {
+        if (node.type !== "line") continue;
+        const textKey = node.textKey.trim();
+        if (textKey && !(textKey in defaultLocaleStrings)) {
+          warningIssues.push(`Node "${node.id}" text key "${textKey}" is missing in ${defaultLocaleId}.`);
+        }
+      }
+    }
+
+    return buildGuardrail(
+      [],
+      warningIssues,
+      "Locale coverage looks good",
+      `All line text keys exist in ${defaultLocaleId}.`
+    );
+  }, [currentFlowDraft, defaultLocaleId, defaultLocaleStrings]);
+  const hotspotGuardrail = useMemo(() => {
+    const blockingIssues: string[] = [];
+    const warningIssues: string[] = [];
+    const labelKey = currentHotspotDraft.labelKey.trim();
+
+    if (!labelKey) {
+      blockingIssues.push("Display label is required.");
+    } else if (!defaultLocaleStrings) {
+      warningIssues.push(`Default locale "${defaultLocaleId}" is unavailable.`);
+    } else if (!(labelKey in defaultLocaleStrings)) {
+      warningIssues.push(`Label key "${labelKey}" is missing in ${defaultLocaleId}.`);
+    }
+
+    for (const [verb, flowId] of [
+      ["Look", currentHotspotDraft.lookFlowId.trim()],
+      ["Talk", currentHotspotDraft.talkFlowId.trim()],
+      ["Use", currentHotspotDraft.useFlowId.trim()]
+    ] as const) {
+      if (flowId && !availableFlowIdsSet.has(flowId)) {
+        blockingIssues.push(`${verb} flow "${flowId}" no longer exists.`);
+      }
+    }
+
+    currentHotspotDraft.useItemFlows.forEach((entry, index) => {
+      const itemId = entry.itemId.trim();
+      const flowId = entry.flowId.trim();
+      if (!itemId && !flowId) {
+        return;
+      }
+      if (!itemId || !flowId) {
+        blockingIssues.push(`Override ${index + 1} must include both an item and a flow.`);
+        return;
+      }
+      if (!availableItemIdsSet.has(itemId)) {
+        blockingIssues.push(`Override ${index + 1} item "${itemId}" no longer exists.`);
+      }
+      if (!availableFlowIdsSet.has(flowId)) {
+        blockingIssues.push(`Override ${index + 1} flow "${flowId}" no longer exists.`);
+      }
+    });
+
+    return buildGuardrail(
+      blockingIssues,
+      warningIssues,
+      "Reference guardrails look good",
+      "Hotspot label and action references are ready to save."
+    );
+  }, [
+    availableFlowIdsSet,
+    availableItemIdsSet,
+    currentHotspotDraft.labelKey,
+    currentHotspotDraft.lookFlowId,
+    currentHotspotDraft.talkFlowId,
+    currentHotspotDraft.useFlowId,
+    currentHotspotDraft.useItemFlows,
+    defaultLocaleId,
+    defaultLocaleStrings
+  ]);
+  const pickupGuardrail = useMemo(() => {
+    const blockingIssues: string[] = [];
+    const warningIssues: string[] = [];
+    const itemId = currentPickupDraft.itemId.trim();
+    const labelKey = currentPickupDraft.labelKey.trim();
+    const pickupFlowId = currentPickupDraft.pickupFlowId.trim();
+
+    if (!itemId) {
+      blockingIssues.push("Pickup item is required.");
+    } else if (!availableItemIdsSet.has(itemId)) {
+      blockingIssues.push(`Pickup item "${itemId}" no longer exists.`);
+    }
+
+    if (pickupFlowId && !availableFlowIdsSet.has(pickupFlowId)) {
+      blockingIssues.push(`Pickup flow "${pickupFlowId}" no longer exists.`);
+    }
+
+    if (!labelKey) {
+      blockingIssues.push("Pickup label key is required.");
+    } else if (!defaultLocaleStrings) {
+      warningIssues.push(`Default locale "${defaultLocaleId}" is unavailable.`);
+    } else if (!(labelKey in defaultLocaleStrings)) {
+      warningIssues.push(`Label key "${labelKey}" is missing in ${defaultLocaleId}.`);
+    }
+
+    return buildGuardrail(
+      blockingIssues,
+      warningIssues,
+      "Pickup bindings look good",
+      "Pickup item, flow, and locale references are ready to save."
+    );
+  }, [
+    availableFlowIdsSet,
+    availableItemIdsSet,
+    currentPickupDraft.itemId,
+    currentPickupDraft.labelKey,
+    currentPickupDraft.pickupFlowId,
+    defaultLocaleId,
+    defaultLocaleStrings
+  ]);
+  const itemGuardrail = useMemo(() => {
+    const blockingIssues: string[] = [];
+    const warningIssues: string[] = [];
+    const labelKey = currentItemDraft.labelKey.trim();
+
+    if (!labelKey) {
+      blockingIssues.push("Item label key is required.");
+    } else if (!defaultLocaleStrings) {
+      warningIssues.push(`Default locale "${defaultLocaleId}" is unavailable.`);
+    } else if (!(labelKey in defaultLocaleStrings)) {
+      warningIssues.push(`Label key "${labelKey}" is missing in ${defaultLocaleId}.`);
+    }
+
+    return buildGuardrail(
+      blockingIssues,
+      warningIssues,
+      "Item locale coverage looks good",
+      "The item label key exists in the default locale."
+    );
+  }, [currentItemDraft.labelKey, defaultLocaleId, defaultLocaleStrings]);
 
   const replaceSession = (recipe: (current: EditorHistoryState) => EditorHistoryState) => {
     setHistory((current) => recipe(current));
@@ -353,6 +803,238 @@ export function EditorApp() {
     recipe: (current: EditorHistoryState["present"]) => EditorHistoryState["present"]
   ) => {
     setHistory((current) => commitHistory(current, recipe(current.present)));
+  };
+
+  const updatePresentWithoutHistory = (
+    recipe: (current: EditorHistoryState["present"]) => EditorHistoryState["present"]
+  ) => {
+    setHistory((current) => ({
+      ...current,
+      present: recipe(current.present)
+    }));
+  };
+
+  const scenePointFromClient = (clientX: number, clientY: number): ScenePointDraftValue | null => {
+    if (!selectedScene || !viewportRef.current) return null;
+
+    const rect = viewportRef.current.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+
+    return clampScenePoint(
+      {
+        x: ((clientX - rect.left) / rect.width) * selectedScene.size.width,
+        y: ((clientY - rect.top) / rect.height) * selectedScene.size.height
+      },
+      selectedScene.size
+    );
+  };
+
+  const setHotspotDraftBoundsFromRect = (bounds: Rect) => {
+    if (!selectedScene || !selectedHotspot) return;
+    const key = createHotspotKey(selectedScene.id, selectedHotspot.id);
+
+    updatePresentWithoutHistory((current) => ({
+      ...current,
+      hotspotDrafts: {
+        ...current.hotspotDrafts,
+        [key]: {
+          ...(current.hotspotDrafts[key] ?? createHotspotDraft(selectedHotspot)),
+          height: String(bounds.height),
+          width: String(bounds.width),
+          x: String(bounds.x),
+          y: String(bounds.y)
+        }
+      }
+    }));
+  };
+
+  const setPickupDraftBoundsFromRect = (bounds: Rect) => {
+    if (!selectedScene || !selectedPickup) return;
+    const key = createPickupKey(selectedScene.id, selectedPickup.id);
+
+    updatePresentWithoutHistory((current) => ({
+      ...current,
+      pickupDrafts: {
+        ...current.pickupDrafts,
+        [key]: {
+          ...(current.pickupDrafts[key] ?? createPickupDraft(selectedPickup)),
+          height: String(bounds.height),
+          width: String(bounds.width),
+          x: String(bounds.x),
+          y: String(bounds.y)
+        }
+      }
+    }));
+  };
+
+  const setSceneDraftPlayerStart = (point: ScenePointDraftValue) => {
+    if (!selectedScene) return;
+
+    updatePresentWithoutHistory((current) => ({
+      ...current,
+      sceneDrafts: {
+        ...current.sceneDrafts,
+        [selectedScene.id]: {
+          ...(current.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene)),
+          playerStartX: String(point.x),
+          playerStartY: String(point.y)
+        }
+      }
+    }));
+  };
+
+  const setWalkAreaPointDraft = (index: number, point: ScenePointDraftValue) => {
+    if (!selectedScene) return;
+
+    updatePresentWithoutHistory((current) => {
+      const sceneDraft = current.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene);
+      const walkAreaPoints = sceneDraft.walkAreaPoints.map((currentPoint, pointIndex) =>
+        pointIndex === index
+          ? { x: String(point.x), y: String(point.y) }
+          : currentPoint
+      );
+
+      return {
+        ...current,
+        sceneDrafts: {
+          ...current.sceneDrafts,
+          [selectedScene.id]: {
+            ...sceneDraft,
+            walkAreaPoints
+          }
+        }
+      };
+    });
+  };
+
+  const insertWalkAreaPointAfter = (afterIndex: number, point: ScenePointDraftValue) => {
+    if (!selectedScene) return;
+
+    updateDraftWithHistory((current) => {
+      const sceneDraft = current.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene);
+      const walkAreaPoints = insertDraftPointAfter(sceneDraft.walkAreaPoints, afterIndex, {
+        x: String(point.x),
+        y: String(point.y)
+      });
+
+      return {
+        ...current,
+        sceneDrafts: {
+          ...current.sceneDrafts,
+          [selectedScene.id]: {
+            ...sceneDraft,
+            walkAreaPoints
+          }
+        }
+      };
+    });
+  };
+
+  const startHotspotInteraction = (
+    mode: "move" | "resize",
+    hotspot: Hotspot,
+    event: ReactPointerEvent
+  ) => {
+    if (!selectedScene || !canEditViewportScene || selectedHotspot?.id !== hotspot.id) return;
+
+    const startPoint = scenePointFromClient(event.clientX, event.clientY);
+    if (!startPoint) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    setViewportInteraction({
+      baseSession: cloneSessionState(history.present),
+      kind: "hotspot",
+      mode,
+      startPoint,
+      startRect: {
+        height: hotspot.bounds.height,
+        width: hotspot.bounds.width,
+        x: hotspot.bounds.x,
+        y: hotspot.bounds.y
+      }
+    });
+  };
+
+  const startPickupInteraction = (
+    mode: "move" | "resize",
+    pickup: ScenePickup,
+    event: ReactPointerEvent
+  ) => {
+    if (!selectedScene || !canEditViewportScene || selectedPickup?.id !== pickup.id) return;
+
+    const startPoint = scenePointFromClient(event.clientX, event.clientY);
+    if (!startPoint) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    setViewportInteraction({
+      baseSession: cloneSessionState(history.present),
+      kind: "pickup",
+      mode,
+      startPoint,
+      startRect: {
+        height: pickup.bounds.height,
+        width: pickup.bounds.width,
+        x: pickup.bounds.x,
+        y: pickup.bounds.y
+      }
+    });
+  };
+
+  const startPlayerStartInteraction = (event: ReactPointerEvent) => {
+    if (!selectedScene || !previewPlayerStart || !canEditViewportScene) return;
+
+    const startPoint = scenePointFromClient(event.clientX, event.clientY);
+    if (!startPoint) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    setViewportInteraction({
+      baseSession: cloneSessionState(history.present),
+      kind: "player-start",
+      startPoint,
+      startPosition: previewPlayerStart
+    });
+  };
+
+  const startWalkAreaPointInteraction = (
+    pointIndex: number,
+    point: ScenePointDraftValue,
+    event: ReactPointerEvent
+  ) => {
+    if (!selectedScene || !canEditViewportScene) return;
+
+    if (event.shiftKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      removeWalkAreaPoint(pointIndex);
+      return;
+    }
+
+    const startPoint = scenePointFromClient(event.clientX, event.clientY);
+    if (!startPoint) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    setViewportInteraction({
+      baseSession: cloneSessionState(history.present),
+      kind: "walk-area-point",
+      pointIndex,
+      startPoint,
+      startPosition: point
+    });
+  };
+
+  const insertWalkAreaPointFromEvent = (afterIndex: number, event: ReactPointerEvent) => {
+    if (!selectedScene || !canEditViewportScene) return;
+
+    const point = scenePointFromClient(event.clientX, event.clientY);
+    if (!point) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    insertWalkAreaPointAfter(afterIndex, point);
   };
 
   const loadRecoveryForProject = async (projectDirectory: string) => {
@@ -448,6 +1130,82 @@ export function EditorApp() {
     };
   }, [history.present, pendingRecovery, project]);
 
+  useEffect(() => {
+    setAssetPathDraft(selectedAsset?.path ?? "");
+  }, [selectedAsset?.id, selectedAsset?.path]);
+
+  useEffect(() => {
+    if (!viewportInteraction || !selectedScene) return;
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const point = scenePointFromClient(event.clientX, event.clientY);
+      if (!point) return;
+
+      const delta = {
+        x: point.x - viewportInteraction.startPoint.x,
+        y: point.y - viewportInteraction.startPoint.y
+      };
+
+      if (viewportInteraction.kind === "player-start") {
+        setSceneDraftPlayerStart(
+          moveScenePoint(viewportInteraction.startPosition, delta, selectedScene.size)
+        );
+        return;
+      }
+
+      if (viewportInteraction.kind === "walk-area-point") {
+        setWalkAreaPointDraft(
+          viewportInteraction.pointIndex,
+          moveScenePoint(viewportInteraction.startPosition, delta, selectedScene.size)
+        );
+        return;
+      }
+
+      const nextRect =
+        viewportInteraction.mode === "move"
+          ? moveSceneRect(viewportInteraction.startRect, delta, selectedScene.size)
+          : resizeSceneRectFromBottomRight(
+              viewportInteraction.startRect,
+              delta,
+              selectedScene.size
+            );
+
+      if (viewportInteraction.kind === "hotspot") {
+        setHotspotDraftBoundsFromRect(nextRect);
+        return;
+      }
+
+      setPickupDraftBoundsFromRect(nextRect);
+    };
+
+    const finishInteraction = () => {
+      setHistory((current) => {
+        if (sessionEquals(viewportInteraction.baseSession, current.present)) {
+          return current;
+        }
+
+        return commitHistory(
+          {
+            ...current,
+            present: viewportInteraction.baseSession
+          },
+          current.present
+        );
+      });
+      setViewportInteraction(null);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", finishInteraction);
+    window.addEventListener("pointercancel", finishInteraction);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", finishInteraction);
+      window.removeEventListener("pointercancel", finishInteraction);
+    };
+  }, [selectedScene, viewportInteraction]);
+
   const restoreRecovery = () => {
     if (!project || !pendingRecovery) return;
     startTransition(() => {
@@ -523,6 +1281,53 @@ export function EditorApp() {
     }
   };
 
+  const applyAssetRelink = async () => {
+    if (!selectedAsset) return;
+
+    const nextPath = assetPathDraft.trim();
+    if (!nextPath) {
+      setStatus("Asset path cannot be empty");
+      return;
+    }
+    if (nextPath === selectedAsset.path) {
+      setStatus(`Asset ${selectedAsset.id} is already linked to that path`);
+      return;
+    }
+
+    setStatus(`Relinking ${selectedAsset.id}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "asset/relink",
+        assetId: selectedAsset.id,
+        patch: {
+          path: nextPath
+        }
+      });
+      setProject(snapshot);
+      setStatus(`Relinked ${selectedAsset.id} to ${nextPath}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Asset relink could not be completed");
+    }
+  };
+
+  const deleteSelectedAsset = async () => {
+    if (!selectedAsset) return;
+
+    setStatus(`Deleting ${selectedAsset.id}...`);
+    try {
+      const deletedAssetId = selectedAsset.id;
+      const snapshot = await window.pointClick.applyCommand({
+        type: "asset/delete",
+        assetId: deletedAssetId
+      });
+      setProject(snapshot);
+      setSelectedAssetId(snapshot.assets[0]?.id ?? null);
+      setStatus(`Deleted ${deletedAssetId}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Asset delete could not be completed");
+    }
+  };
+
   const runValidation = async () => {
     if (!project) return;
     setValidationRunState("running");
@@ -541,6 +1346,342 @@ export function EditorApp() {
     } catch (error) {
       setValidationRunState("failed-to-run");
       setValidationStatus(error instanceof Error ? error.message : "Validation could not be completed");
+    }
+  };
+
+  const createFlow = async () => {
+    if (!project) return;
+
+    const flowId = nextFlowId(project);
+    setStatus(`Creating ${flowId}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "flow/create",
+        flow: createDefaultFlowDocument(flowId)
+      });
+      setProject(snapshot);
+      setWorkspace("narrative");
+      updateSessionSelection((current) => ({
+        ...current,
+        activeFlowId: flowId,
+        activeHotspotId: null,
+        activeItemId: null,
+        activeLocale: null,
+        activePickupId: null
+      }));
+      setStatus(`Created ${flowId}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to create flow");
+    }
+  };
+
+  const deleteSelectedFlow = async () => {
+    if (!selectedFlow) return;
+
+    const deletedFlowId = selectedFlow.id;
+    setStatus(`Deleting ${deletedFlowId}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "flow/delete",
+        flowId: deletedFlowId
+      });
+      const nextActiveFlowId = snapshot.flows[0]?.id ?? null;
+      setProject(snapshot);
+      setHistory((current) => ({
+        ...current,
+        present: discardSavedDraft(
+          {
+            ...current.present,
+            activeFlowId: nextActiveFlowId,
+            activeHotspotId: null,
+            activeItemId: null,
+            activeLocale: null,
+            activePickupId: null
+          },
+          "flow",
+          deletedFlowId
+        )
+      }));
+      setWorkspace("narrative");
+      setStatus(nextActiveFlowId ? `Deleted ${deletedFlowId}; selected ${nextActiveFlowId}` : `Deleted ${deletedFlowId}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to delete flow");
+    }
+  };
+
+  const createItem = async () => {
+    if (!project) return;
+
+    const itemId = nextItemId(project);
+    setStatus(`Creating ${itemId}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "item/create",
+        item: {
+          id: itemId,
+          labelKey: `item.${itemId}`,
+          name: "New Item",
+          schemaVersion: 1
+        }
+      });
+      setProject(snapshot);
+      setWorkspace("scene");
+      updateSessionSelection((current) => ({
+        ...current,
+        activeFlowId: null,
+        activeHotspotId: null,
+        activeItemId: itemId,
+        activeLocale: null,
+        activePickupId: null
+      }));
+      setStatus(`Created ${itemId}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to create item");
+    }
+  };
+
+  const deleteSelectedItem = async () => {
+    if (!selectedItem) return;
+
+    const deletedItemId = selectedItem.id;
+    setStatus(`Deleting ${deletedItemId}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "item/delete",
+        itemId: deletedItemId
+      });
+      const nextActiveItemId = snapshot.items[0]?.id ?? null;
+      setProject(snapshot);
+      setWorkspace("scene");
+      setHistory((current) => ({
+        ...current,
+        present: discardSavedDraft(
+          {
+            ...current.present,
+            activeFlowId: null,
+            activeHotspotId: null,
+            activeItemId: nextActiveItemId,
+            activeLocale: null,
+            activePickupId: null
+          },
+          "item",
+          deletedItemId
+        )
+      }));
+      setStatus(nextActiveItemId ? `Deleted ${deletedItemId}; selected ${nextActiveItemId}` : `Deleted ${deletedItemId}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to delete item");
+    }
+  };
+
+  const createScene = async () => {
+    if (!project) return;
+
+    const sceneId = nextSceneId(project);
+    setStatus(`Creating ${sceneId}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "scene/create",
+        scene: createDefaultSceneDocument(project, sceneId)
+      });
+      setProject(snapshot);
+      setWorkspace("scene");
+      updateSessionSelection((current) => ({
+        ...current,
+        activeFlowId: null,
+        activeHotspotId: null,
+        activeItemId: null,
+        activeLocale: null,
+        activePickupId: null,
+        activeSceneId: sceneId
+      }));
+      setStatus(`Created ${sceneId}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to create scene");
+    }
+  };
+
+  const deleteSelectedScene = async () => {
+    if (!selectedScene || !project) return;
+
+    const deletedSceneId = selectedScene.id;
+    setStatus(`Deleting ${deletedSceneId}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "scene/delete",
+        sceneId: deletedSceneId
+      });
+      const nextActiveSceneId = sceneItems(snapshot.scenes)[0]?.id ?? snapshot.manifest.initialSceneId;
+      setProject(snapshot);
+      setWorkspace("scene");
+      setHistory((current) => {
+        const nextPresent = discardSavedDraft(
+          {
+            ...current.present,
+            activeFlowId: null,
+            activeHotspotId: null,
+            activeItemId: null,
+            activeLocale: null,
+            activePickupId: null,
+            activeSceneId: nextActiveSceneId
+          },
+          "scene",
+          deletedSceneId
+        );
+
+        for (const key of Object.keys(nextPresent.hotspotDrafts)) {
+          if (key.startsWith(`${deletedSceneId}::`)) {
+            delete nextPresent.hotspotDrafts[key];
+          }
+        }
+
+        for (const key of Object.keys(nextPresent.pickupDrafts)) {
+          if (key.startsWith(`${deletedSceneId}::`)) {
+            delete nextPresent.pickupDrafts[key];
+          }
+        }
+
+        return {
+          ...current,
+          present: nextPresent
+        };
+      });
+      setStatus(
+        nextActiveSceneId
+          ? `Deleted ${deletedSceneId}; selected ${nextActiveSceneId}`
+          : `Deleted ${deletedSceneId}`
+      );
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to delete scene");
+    }
+  };
+
+  const createHotspot = async () => {
+    if (!project || !selectedScene) return;
+
+    const hotspotId = nextHotspotId(selectedScene);
+    setStatus(`Creating ${hotspotId}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "hotspot/create",
+        hotspot: createDefaultHotspot(selectedScene, hotspotId),
+        sceneId: selectedScene.id
+      });
+      setProject(snapshot);
+      setWorkspace("scene");
+      updateSessionSelection((current) => ({
+        ...current,
+        activeFlowId: null,
+        activeHotspotId: hotspotId,
+        activeItemId: null,
+        activeLocale: null,
+        activePickupId: null
+      }));
+      setStatus(`Created ${hotspotId}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to create hotspot");
+    }
+  };
+
+  const deleteSelectedHotspot = async () => {
+    if (!selectedScene || !selectedHotspot) return;
+
+    const deletedHotspotId = selectedHotspot.id;
+    const draftKey = createHotspotKey(selectedScene.id, deletedHotspotId);
+    setStatus(`Deleting ${deletedHotspotId}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "hotspot/delete",
+        hotspotId: deletedHotspotId,
+        sceneId: selectedScene.id
+      });
+      setProject(snapshot);
+      setWorkspace("scene");
+      setHistory((current) => ({
+        ...current,
+        present: discardSavedDraft(
+          {
+            ...current.present,
+            activeFlowId: null,
+            activeHotspotId: null,
+            activeItemId: null,
+            activeLocale: null,
+            activePickupId: null
+          },
+          "hotspot",
+          draftKey
+        )
+      }));
+      setStatus(`Deleted ${deletedHotspotId}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to delete hotspot");
+    }
+  };
+
+  const createPickup = async () => {
+    if (!project || !selectedScene) return;
+    const defaultItemId = selectedItem?.id ?? project.items[0]?.id ?? null;
+    if (!defaultItemId) {
+      setStatus("Create an item before adding pickups");
+      return;
+    }
+
+    const pickupId = nextPickupId(selectedScene);
+    setStatus(`Creating ${pickupId}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "pickup/create",
+        pickup: createDefaultPickup(selectedScene, pickupId, defaultItemId),
+        sceneId: selectedScene.id
+      });
+      setProject(snapshot);
+      setWorkspace("scene");
+      updateSessionSelection((current) => ({
+        ...current,
+        activeFlowId: null,
+        activeHotspotId: null,
+        activeItemId: null,
+        activeLocale: null,
+        activePickupId: pickupId
+      }));
+      setStatus(`Created ${pickupId}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to create pickup");
+    }
+  };
+
+  const deleteSelectedPickup = async () => {
+    if (!selectedScene || !selectedPickup) return;
+
+    const deletedPickupId = selectedPickup.id;
+    const draftKey = createPickupKey(selectedScene.id, deletedPickupId);
+    setStatus(`Deleting ${deletedPickupId}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "pickup/delete",
+        pickupId: deletedPickupId,
+        sceneId: selectedScene.id
+      });
+      setProject(snapshot);
+      setWorkspace("scene");
+      setHistory((current) => ({
+        ...current,
+        present: discardSavedDraft(
+          {
+            ...current.present,
+            activeFlowId: null,
+            activeHotspotId: null,
+            activeItemId: null,
+            activeLocale: null,
+            activePickupId: null
+          },
+          "pickup",
+          draftKey
+        )
+      }));
+      setStatus(`Deleted ${deletedPickupId}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to delete pickup");
     }
   };
 
@@ -710,10 +1851,11 @@ export function EditorApp() {
           ...current.sceneDrafts,
           [selectedScene.id]: {
             ...sceneDraft,
-            walkAreaPoints: [
-              ...sceneDraft.walkAreaPoints,
+            walkAreaPoints: insertDraftPointAfter(
+              sceneDraft.walkAreaPoints,
+              sceneDraft.walkAreaPoints.length - 1,
               { x: lastPoint.x, y: lastPoint.y }
-            ]
+            )
           }
         }
       };
@@ -829,6 +1971,10 @@ export function EditorApp() {
     }
     if (cursor && !cursorOptions.includes(cursor as CursorValue)) {
       setStatus("Cursor must be blank, look, talk, use, or enter");
+      return;
+    }
+    if (hotspotGuardrail.blockingIssues.length > 0) {
+      setStatus(hotspotGuardrail.blockingIssues[0]!);
       return;
     }
 
@@ -968,6 +2114,10 @@ export function EditorApp() {
       setStatus("Pickup label key is required");
       return;
     }
+    if (pickupGuardrail.blockingIssues.length > 0) {
+      setStatus(pickupGuardrail.blockingIssues[0]!);
+      return;
+    }
 
     setStatus(`Saving ${selectedPickup.id}...`);
     try {
@@ -1069,6 +2219,33 @@ export function EditorApp() {
       setStatus(`Saved ${normalizedKey}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Failed to save locale string");
+    }
+  };
+
+  const applyLocaleDelete = async (key: string) => {
+    if (!selectedLocale) return;
+
+    const normalizedKey = key.trim();
+    if (!normalizedKey) {
+      setStatus("Locale keys cannot be empty");
+      return;
+    }
+
+    setStatus(`Deleting ${normalizedKey}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "locale/delete",
+        key: normalizedKey,
+        locale: selectedLocale.locale
+      });
+      setProject(snapshot);
+      setHistory((current) => ({
+        ...current,
+        present: discardSavedDraft(current.present, "locale", selectedLocale.locale)
+      }));
+      setStatus(`Deleted ${normalizedKey}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to delete locale string");
     }
   };
 
@@ -1236,6 +2413,11 @@ export function EditorApp() {
           </div>
           <div className="tree">
             <div className="tree-group open">Scenes</div>
+            {project ? (
+              <button className="tree-item tree-child" type="button" onClick={createScene}>
+                <span className="scene-dot muted" /> + New scene
+              </button>
+            ) : null}
             {scenes.map((scene) => (
               <button
                 className={`tree-item ${session.activeLocale === null && session.activeFlowId === null && !session.activeHotspotId && !session.activePickupId && !session.activeItemId && selectedScene?.id === scene.id ? "selected" : ""}`}
@@ -1247,7 +2429,31 @@ export function EditorApp() {
                 {dirtyState.sceneIds.has(scene.id) ? <span className="dirty-mark">*</span> : null}
               </button>
             ))}
+            <div className="tree-group open">Hotspots ({selectedScene?.hotspots.length ?? 0})</div>
+            {selectedScene ? (
+              <button className="tree-item tree-child" type="button" onClick={createHotspot}>
+                <span className="scene-dot muted" /> + New hotspot
+              </button>
+            ) : null}
+            {selectedScene?.hotspots.map((hotspot) => (
+              <button
+                className={`tree-item tree-child ${session.activeHotspotId === hotspot.id ? "selected" : ""}`}
+                key={hotspot.id}
+                type="button"
+                onClick={() => selectHotspot(hotspot)}
+              >
+                <span className="scene-dot muted" /> {hotspot.id}
+                {dirtyState.hotspotKeys.has(createHotspotKey(selectedScene.id, hotspot.id)) ? (
+                  <span className="dirty-mark">*</span>
+                ) : null}
+              </button>
+            ))}
             <div className="tree-group open">Pickups ({selectedScene?.pickups.length ?? 0})</div>
+            {selectedScene ? (
+              <button className="tree-item tree-child" type="button" onClick={createPickup}>
+                <span className="scene-dot muted" /> + New pickup
+              </button>
+            ) : null}
             {selectedScene?.pickups.map((pickup) => (
               <button
                 className={`tree-item tree-child ${session.activePickupId === pickup.id ? "selected" : ""}`}
@@ -1262,6 +2468,11 @@ export function EditorApp() {
               </button>
             ))}
             <div className="tree-group open">Flows ({project?.flowCount ?? 0})</div>
+            {project ? (
+              <button className="tree-item tree-child" type="button" onClick={createFlow}>
+                <span className="scene-dot muted" /> + New flow
+              </button>
+            ) : null}
             {project?.flows.map((flow) => (
               <button
                 className={`tree-item ${session.activeFlowId === flow.id ? "selected" : ""}`}
@@ -1274,6 +2485,11 @@ export function EditorApp() {
               </button>
             ))}
             <div className="tree-group open">Items ({project?.itemCount ?? 0})</div>
+            {project ? (
+              <button className="tree-item tree-child" type="button" onClick={createItem}>
+                <span className="scene-dot muted" /> + New item
+              </button>
+            ) : null}
             {project?.items.map((item) => (
               <button
                 className={`tree-item ${session.activeItemId === item.id ? "selected" : ""}`}
@@ -1475,6 +2691,22 @@ export function EditorApp() {
                     ? `${selectedAsset.kind} - ${selectedAsset.path}`
                     : "Choose an asset from the project tree to inspect it."}
                 </p>
+                {selectedAsset ? (
+                  <div className="asset-path-editor">
+                    <label>
+                      Asset path
+                      <input
+                        value={assetPathDraft}
+                        onChange={(event) => setAssetPathDraft(event.target.value)}
+                      />
+                    </label>
+                    <div className="build-actions">
+                      <button className="secondary-action" type="button" onClick={applyAssetRelink}>
+                        Relink Asset
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </section>
               <section className="overview-card">
                 <span className="overview-label">Usage</span>
@@ -1512,6 +2744,14 @@ export function EditorApp() {
                     >
                       Set As Scene Background
                     </button>
+                    <button
+                      className="secondary-action"
+                      disabled={selectedAssetUsage.length > 0}
+                      type="button"
+                      onClick={deleteSelectedAsset}
+                    >
+                      Delete Unused Asset
+                    </button>
                   </div>
                 ) : null}
               </section>
@@ -1519,6 +2759,7 @@ export function EditorApp() {
           ) : (
             <div
               className="scene-viewport"
+              ref={viewportRef}
               style={
                 selectedScene
                   ? sceneBackgroundStyle(selectedScene.background, project?.directory ?? "")
@@ -1549,9 +2790,34 @@ export function EditorApp() {
                   >
                     <polygon className="walk-region-fill" points={previewWalkAreaPoints} />
                     <polygon className="walk-region-outline" points={previewWalkAreaPoints} />
+                    {canEditViewportScene
+                      ? previewWalkArea.points.map((point, index) => {
+                          const nextPoint =
+                            previewWalkArea.points[(index + 1) % previewWalkArea.points.length]!;
+                          return (
+                            <line
+                              className="walk-region-edge-hit"
+                              key={`walk-edge-hit-${index}`}
+                              x1={point.x}
+                              x2={nextPoint.x}
+                              y1={point.y}
+                              y2={nextPoint.y}
+                              onPointerDown={(event) => insertWalkAreaPointFromEvent(index, event)}
+                            />
+                          );
+                        })
+                      : null}
                     {previewWalkArea.points.map((point, index) => (
                       <g key={`walk-point-${index}`}>
-                        <circle className="walk-region-point" cx={point.x} cy={point.y} r="7" />
+                        <circle
+                          className={`walk-region-point ${canEditViewportScene ? "editable" : ""}`}
+                          cx={point.x}
+                          cy={point.y}
+                          r="7"
+                          onPointerDown={(event) =>
+                            startWalkAreaPointInteraction(index, point, event)
+                          }
+                        />
                         <text className="walk-region-label" x={point.x + 10} y={point.y - 10}>
                           {index + 1}
                         </text>
@@ -1561,43 +2827,63 @@ export function EditorApp() {
                 ) : null}
                 <div
                   className="character"
+                  onPointerDown={startPlayerStartInteraction}
                   style={{
-                    left: `${(selectedScene.playerStart.x / selectedScene.size.width) * 100}%`,
-                    top: `${(selectedScene.playerStart.y / selectedScene.size.height) * 100}%`
+                    left: `${((previewPlayerStart ?? selectedScene.playerStart).x / selectedScene.size.width) * 100}%`,
+                    top: `${((previewPlayerStart ?? selectedScene.playerStart).y / selectedScene.size.height) * 100}%`
                   }}
+                  title="Drag to move player start"
                 >
                   <span />
                 </div>
-                {selectedScene.hotspots.map((hotspot) => (
+                {previewHotspots.map((hotspot) => (
                   <button
                     className={`hotspot-box ${selectedHotspot?.id === hotspot.id ? "selected" : ""}`}
                     key={hotspot.id}
                     type="button"
                     onClick={() => selectHotspot(hotspot)}
+                    onPointerDown={(event) => startHotspotInteraction("move", hotspot, event)}
                     style={{
                       height: `${(hotspot.bounds.height / selectedScene.size.height) * 100}%`,
                       left: `${(hotspot.bounds.x / selectedScene.size.width) * 100}%`,
                       top: `${(hotspot.bounds.y / selectedScene.size.height) * 100}%`,
                       width: `${(hotspot.bounds.width / selectedScene.size.width) * 100}%`
                     }}
+                    title="Click to inspect, drag to move"
                   >
-                    <span>{hotspot.id}</span>
+                    <span className="viewport-label">{hotspot.id}</span>
+                    {selectedHotspot?.id === hotspot.id ? (
+                      <span
+                        className="viewport-resize-handle"
+                        onClick={(event) => event.stopPropagation()}
+                        onPointerDown={(event) => startHotspotInteraction("resize", hotspot, event)}
+                      />
+                    ) : null}
                   </button>
                 ))}
-                {selectedScene.pickups.map((pickup) => (
+                {previewPickups.map((pickup) => (
                   <button
                     className={`pickup-box ${selectedPickup?.id === pickup.id ? "selected" : ""}`}
                     key={pickup.id}
                     type="button"
                     onClick={() => selectPickup(pickup)}
+                    onPointerDown={(event) => startPickupInteraction("move", pickup, event)}
                     style={{
                       height: `${(pickup.bounds.height / selectedScene.size.height) * 100}%`,
                       left: `${(pickup.bounds.x / selectedScene.size.width) * 100}%`,
                       top: `${(pickup.bounds.y / selectedScene.size.height) * 100}%`,
                       width: `${(pickup.bounds.width / selectedScene.size.width) * 100}%`
                     }}
+                    title="Click to inspect, drag to move"
                   >
-                    <span>{pickup.id}</span>
+                    <span className="viewport-label">{pickup.id}</span>
+                    {selectedPickup?.id === pickup.id ? (
+                      <span
+                        className="viewport-resize-handle"
+                        onClick={(event) => event.stopPropagation()}
+                        onPointerDown={(event) => startPickupInteraction("resize", pickup, event)}
+                      />
+                    ) : null}
                   </button>
                 ))}
               </>
@@ -1857,6 +3143,14 @@ export function EditorApp() {
                   ))}
                 </div>
                 <div className="flow-link">
+                  <span>Locale coverage</span>
+                  <div className="flow-status-line">
+                    <span className={`capability-badge ${flowGuardrail.tone}`}>{flowGuardrail.badge}</span>
+                  </div>
+                  <strong>{flowGuardrail.summary}</strong>
+                  <p className="inspector-copy">{flowGuardrail.detail}</p>
+                </div>
+                <div className="flow-link">
                   <span>Add node</span>
                   <strong>
                     {currentFlowDraft.nodes.length} node(s)
@@ -1871,6 +3165,9 @@ export function EditorApp() {
                     </button>
                     <button type="button" onClick={() => addFlowNode("end")}>
                       Add end
+                    </button>
+                    <button type="button" onClick={deleteSelectedFlow}>
+                      Delete flow
                     </button>
                     <button type="button" onClick={applyFlowChanges}>
                       Apply changes -&gt;
@@ -1898,9 +3195,14 @@ export function EditorApp() {
                           onChange={(event) => updateLocaleValue(key, event.target.value)}
                         />
                       </label>
-                      <button type="button" onClick={() => applyLocaleUpsert(key, currentLocaleDraft[key] ?? "")}>
-                        Save string
-                      </button>
+                      <div className="flow-actions">
+                        <button type="button" onClick={() => applyLocaleUpsert(key, currentLocaleDraft[key] ?? "")}>
+                          Save string
+                        </button>
+                        <button type="button" onClick={() => applyLocaleDelete(key)}>
+                          Delete string
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1979,24 +3281,45 @@ export function EditorApp() {
                 </label>
                 <label>
                   Look flow
-                  <input
+                  <select
                     value={currentHotspotDraft.lookFlowId}
                     onChange={(event) => updateHotspotDraft("lookFlowId", event.target.value)}
-                  />
+                  >
+                    <option value="">None</option>
+                    {availableFlowIds.map((flowId) => (
+                      <option key={`hotspot-look-${flowId}`} value={flowId}>
+                        {flowId}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <label>
                   Talk flow
-                  <input
+                  <select
                     value={currentHotspotDraft.talkFlowId}
                     onChange={(event) => updateHotspotDraft("talkFlowId", event.target.value)}
-                  />
+                  >
+                    <option value="">None</option>
+                    {availableFlowIds.map((flowId) => (
+                      <option key={`hotspot-talk-${flowId}`} value={flowId}>
+                        {flowId}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <label>
                   Use flow
-                  <input
+                  <select
                     value={currentHotspotDraft.useFlowId}
                     onChange={(event) => updateHotspotDraft("useFlowId", event.target.value)}
-                  />
+                  >
+                    <option value="">None</option>
+                    {availableFlowIds.map((flowId) => (
+                      <option key={`hotspot-use-${flowId}`} value={flowId}>
+                        {flowId}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <div className="field-group">
                   <span>Use item overrides</span>
@@ -2004,26 +3327,38 @@ export function EditorApp() {
                     {currentHotspotDraft.useItemFlows.map((entry, index) => (
                       <div className="use-item-flow-card" key={`use-item-flow-${index}`}>
                         <div className="four-fields">
-                          <input
+                          <select
                             aria-label={`Use item ${index + 1}`}
-                            placeholder="item-id"
                             value={entry.itemId}
                             onChange={(event) => {
                               const next = [...currentHotspotDraft.useItemFlows];
                               next[index] = { ...entry, itemId: event.target.value };
                               updateHotspotDraft("useItemFlows", next);
                             }}
-                          />
-                          <input
+                          >
+                            <option value="">Select item</option>
+                            {availableItemIds.map((itemId) => (
+                              <option key={`use-item-${index}-${itemId}`} value={itemId}>
+                                {itemId}
+                              </option>
+                            ))}
+                          </select>
+                          <select
                             aria-label={`Use flow ${index + 1}`}
-                            placeholder="flow-id"
                             value={entry.flowId}
                             onChange={(event) => {
                               const next = [...currentHotspotDraft.useItemFlows];
                               next[index] = { ...entry, flowId: event.target.value };
                               updateHotspotDraft("useItemFlows", next);
                             }}
-                          />
+                          >
+                            <option value="">Select flow</option>
+                            {availableFlowIds.map((flowId) => (
+                              <option key={`use-flow-${index}-${flowId}`} value={flowId}>
+                                {flowId}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                       </div>
                     ))}
@@ -2041,6 +3376,14 @@ export function EditorApp() {
                   </button>
                 </div>
                 <div className="flow-link">
+                  <span>Reference guardrails</span>
+                  <div className="flow-status-line">
+                    <span className={`capability-badge ${hotspotGuardrail.tone}`}>{hotspotGuardrail.badge}</span>
+                  </div>
+                  <strong>{hotspotGuardrail.summary}</strong>
+                  <p className="inspector-copy">{hotspotGuardrail.detail}</p>
+                </div>
+                <div className="flow-link">
                   <span>Verb-aware hotspot</span>
                   <strong>
                     {currentHotspotDraft.useFlowId || currentHotspotDraft.lookFlowId || currentHotspotDraft.talkFlowId || "missing"}
@@ -2048,6 +3391,9 @@ export function EditorApp() {
                       ? " - unsaved draft"
                       : ""}
                   </strong>
+                  <button type="button" onClick={deleteSelectedHotspot}>
+                    Delete hotspot
+                  </button>
                   <button type="button" onClick={applyHotspotChanges}>
                     Apply changes -&gt;
                   </button>
@@ -2061,10 +3407,17 @@ export function EditorApp() {
                 </label>
                 <label>
                   Item id
-                  <input
+                  <select
                     value={currentPickupDraft.itemId}
                     onChange={(event) => updatePickupDraft("itemId", event.target.value)}
-                  />
+                  >
+                    <option value="">Select item</option>
+                    {availableItemIds.map((itemId) => (
+                      <option key={`pickup-item-${itemId}`} value={itemId}>
+                        {itemId}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <label>
                   Display label
@@ -2075,10 +3428,17 @@ export function EditorApp() {
                 </label>
                 <label>
                   Pickup flow
-                  <input
+                  <select
                     value={currentPickupDraft.pickupFlowId}
                     onChange={(event) => updatePickupDraft("pickupFlowId", event.target.value)}
-                  />
+                  >
+                    <option value="">None</option>
+                    {availableFlowIds.map((flowId) => (
+                      <option key={`pickup-flow-${flowId}`} value={flowId}>
+                        {flowId}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <div className="field-group">
                   <span>Bounds</span>
@@ -2106,6 +3466,14 @@ export function EditorApp() {
                   </div>
                 </div>
                 <div className="flow-link">
+                  <span>Reference guardrails</span>
+                  <div className="flow-status-line">
+                    <span className={`capability-badge ${pickupGuardrail.tone}`}>{pickupGuardrail.badge}</span>
+                  </div>
+                  <strong>{pickupGuardrail.summary}</strong>
+                  <p className="inspector-copy">{pickupGuardrail.detail}</p>
+                </div>
+                <div className="flow-link">
                   <span>Scene pickup</span>
                   <strong>
                     {currentPickupDraft.itemId || "unbound item"}
@@ -2114,6 +3482,9 @@ export function EditorApp() {
                       ? " - unsaved draft"
                       : ""}
                   </strong>
+                  <button type="button" onClick={deleteSelectedPickup}>
+                    Delete pickup
+                  </button>
                   <button type="button" onClick={applyPickupChanges}>
                     Apply changes -&gt;
                   </button>
@@ -2140,11 +3511,22 @@ export function EditorApp() {
                   />
                 </label>
                 <div className="flow-link">
+                  <span>Locale coverage</span>
+                  <div className="flow-status-line">
+                    <span className={`capability-badge ${itemGuardrail.tone}`}>{itemGuardrail.badge}</span>
+                  </div>
+                  <strong>{itemGuardrail.summary}</strong>
+                  <p className="inspector-copy">{itemGuardrail.detail}</p>
+                </div>
+                <div className="flow-link">
                   <span>Inventory item</span>
                   <strong>
                     {currentItemDraft.name || "unnamed item"}
                     {dirtyState.itemIds.has(selectedItem.id) ? " - unsaved draft" : ""}
                   </strong>
+                  <button type="button" onClick={deleteSelectedItem}>
+                    Delete item
+                  </button>
                   <button type="button" onClick={applyItemChanges}>
                     Apply changes -&gt;
                   </button>
@@ -2191,6 +3573,10 @@ export function EditorApp() {
                 </div>
                 <div className="field-group">
                   <span>Walk area</span>
+                  <p className="inspector-copy">
+                    Drag points in the viewport to reshape the polygon. Click an edge to insert a
+                    point, or Shift-click a point to remove it.
+                  </p>
                   <div className="walk-points">
                     {currentSceneDraft.walkAreaPoints.map((point, index) => (
                       <div className="walk-point-card" key={`walk-point-editor-${index}`}>
@@ -2227,6 +3613,9 @@ export function EditorApp() {
                     {selectedScene.name}
                     {dirtyState.sceneIds.has(selectedScene.id) ? " - unsaved draft" : ""}
                   </strong>
+                  <button type="button" onClick={deleteSelectedScene}>
+                    Delete scene
+                  </button>
                   <button type="button" onClick={applySceneChanges}>
                     Apply changes -&gt;
                   </button>

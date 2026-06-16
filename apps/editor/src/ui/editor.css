@@ -484,6 +484,8 @@ button {
   box-shadow: 12px 19px 10px rgba(0, 0, 0, 0.35);
   transform: translate(-50%, -78%);
   z-index: 999;
+  cursor: grab;
+  touch-action: none;
 }
 
 .character::before {
@@ -511,14 +513,16 @@ button {
   border: 1px solid #e2ad60;
   background: rgba(226, 173, 96, 0.08);
   cursor: pointer;
+  touch-action: none;
 }
 
 .hotspot-box.selected {
   border-color: #f3d9a1;
   box-shadow: inset 0 0 0 1px rgba(255, 241, 209, 0.35);
+  cursor: move;
 }
 
-.hotspot-box span {
+.hotspot-box .viewport-label {
   padding: 3px 5px;
   color: #1b201d;
   border-radius: 2px;
@@ -527,7 +531,7 @@ button {
   font-size: 0.55rem;
 }
 
-.hotspot-box span {
+.hotspot-box .viewport-label {
   position: absolute;
   left: 0;
   top: -18px;
@@ -537,14 +541,16 @@ button {
   border: 1px solid #62b593;
   background: rgba(98, 181, 147, 0.12);
   cursor: pointer;
+  touch-action: none;
 }
 
 .pickup-box.selected {
   border-color: #d8ffef;
   box-shadow: inset 0 0 0 1px rgba(216, 255, 239, 0.38);
+  cursor: move;
 }
 
-.pickup-box span {
+.pickup-box .viewport-label {
   position: absolute;
   left: 0;
   top: -18px;
@@ -556,16 +562,33 @@ button {
   font-size: 0.55rem;
 }
 
+.viewport-resize-handle {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 14px;
+  height: 14px;
+  border: 1px solid rgba(7, 16, 25, 0.5);
+  border-radius: 2px;
+  background: #f3d9a1;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+  cursor: nwse-resize;
+}
+
+.pickup-box .viewport-resize-handle {
+  background: #d8ffef;
+}
+
 .walk-region {
   inset: 0;
   width: 100%;
   height: 100%;
   overflow: visible;
-  pointer-events: none;
 }
 
 .walk-region-fill {
   fill: rgba(98, 181, 147, 0.14);
+  pointer-events: none;
 }
 
 .walk-region-outline {
@@ -573,6 +596,13 @@ button {
   stroke: rgba(98, 181, 147, 0.86);
   stroke-dasharray: 14 10;
   stroke-width: 4;
+  pointer-events: none;
+}
+
+.walk-region-edge-hit {
+  stroke: rgba(98, 181, 147, 0.001);
+  stroke-width: 22;
+  cursor: copy;
 }
 
 .walk-region-point {
@@ -581,11 +611,16 @@ button {
   stroke-width: 2;
 }
 
+.walk-region-point.editable {
+  cursor: grab;
+}
+
 .walk-region-label {
   fill: #d8ffef;
   font-family: "Courier New", monospace;
   font-size: 22px;
   font-weight: 700;
+  pointer-events: none;
 }
 
 .empty-scene,
@@ -654,6 +689,12 @@ button {
 
 .build-actions {
   margin-top: 14px;
+}
+
+.asset-path-editor {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
 }
 
 .capability-card,
@@ -874,6 +915,10 @@ button {
 .flow-link span,
 .flow-link strong {
   display: block;
+}
+
+.flow-status-line {
+  margin-top: 8px;
 }
 
 .flow-link span {

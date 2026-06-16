@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   assertDocument,
@@ -69,6 +69,10 @@ export interface ImportedAssetPatch {
   source: "imported";
 }
 
+export interface AssetRelinkPatch {
+  path: string;
+}
+
 export interface LocaleUpsertPatch {
   key: string;
   value: string;
@@ -80,6 +84,15 @@ export interface FlowPatch {
   startNodeId: string;
 }
 
+export type FlowReferenceUse =
+  | "lookFlowId"
+  | "talkFlowId"
+  | "useFlowId"
+  | "useItemFlow"
+  | "pickupFlowId";
+
+export type ItemReferenceUse = "pickupItemId" | "hotspotUseItemFlow";
+
 export type HotspotUpdateCommand = {
   type: "hotspot/update";
   hotspotId: string;
@@ -87,9 +100,32 @@ export type HotspotUpdateCommand = {
   sceneId: string;
 };
 
+export type HotspotCreateCommand = {
+  type: "hotspot/create";
+  hotspot: Hotspot;
+  sceneId: string;
+};
+
+export type HotspotDeleteCommand = {
+  type: "hotspot/delete";
+  hotspotId: string;
+  sceneId: string;
+};
+
 export type SceneUpdateCommand = {
   type: "scene/update";
   patch: ScenePatch;
+  sceneId: string;
+};
+
+export type SceneCreateCommand = {
+  type: "scene/create";
+  scene: Layered2DScene;
+  documentPath?: string;
+};
+
+export type SceneDeleteCommand = {
+  type: "scene/delete";
   sceneId: string;
 };
 
@@ -100,10 +136,28 @@ export type PickupUpdateCommand = {
   sceneId: string;
 };
 
+export type PickupCreateCommand = {
+  type: "pickup/create";
+  pickup: ScenePickup;
+  sceneId: string;
+};
+
+export type PickupDeleteCommand = {
+  type: "pickup/delete";
+  pickupId: string;
+  sceneId: string;
+};
+
 export type LocaleUpsertCommand = {
   type: "locale/upsert";
   locale: string;
   patch: LocaleUpsertPatch;
+};
+
+export type LocaleDeleteCommand = {
+  type: "locale/delete";
+  key: string;
+  locale: string;
 };
 
 export type FlowUpdateCommand = {
@@ -112,10 +166,32 @@ export type FlowUpdateCommand = {
   patch: FlowPatch;
 };
 
+export type FlowCreateCommand = {
+  type: "flow/create";
+  flow: FlowDocument;
+  documentPath?: string;
+};
+
+export type FlowDeleteCommand = {
+  type: "flow/delete";
+  flowId: string;
+};
+
 export type ItemUpdateCommand = {
   type: "item/update";
   itemId: string;
   patch: ItemPatch;
+};
+
+export type ItemCreateCommand = {
+  type: "item/create";
+  item: ItemDocument;
+  documentPath?: string;
+};
+
+export type ItemDeleteCommand = {
+  type: "item/delete";
+  itemId: string;
 };
 
 export type AssetImportCommand = {
@@ -123,14 +199,38 @@ export type AssetImportCommand = {
   assets: ImportedAssetPatch[];
 };
 
+export type AssetRelinkCommand = {
+  type: "asset/relink";
+  assetId: string;
+  patch: AssetRelinkPatch;
+};
+
+export type AssetDeleteCommand = {
+  type: "asset/delete";
+  assetId: string;
+};
+
 export type EditorProjectCommand =
   | HotspotUpdateCommand
+  | HotspotCreateCommand
+  | HotspotDeleteCommand
+  | SceneCreateCommand
+  | SceneDeleteCommand
   | SceneUpdateCommand
   | PickupUpdateCommand
+  | PickupCreateCommand
+  | PickupDeleteCommand
   | LocaleUpsertCommand
+  | LocaleDeleteCommand
   | FlowUpdateCommand
+  | FlowCreateCommand
+  | FlowDeleteCommand
   | ItemUpdateCommand
-  | AssetImportCommand;
+  | ItemCreateCommand
+  | ItemDeleteCommand
+  | AssetImportCommand
+  | AssetRelinkCommand
+  | AssetDeleteCommand;
 
 async function readJson(filePath: string): Promise<unknown> {
   return JSON.parse(await readFile(filePath, "utf8")) as unknown;
@@ -465,8 +565,167 @@ function itemPathFor(project: LoadedProject, itemId: string): string {
   return path.resolve(project.directory, reference.path);
 }
 
+function assetPathFor(project: LoadedProject, assetId: string): string {
+  const reference = (project.bundle.manifest.assets ?? []).find((entry) => entry.id === assetId);
+  if (!reference) {
+    throw new Error(`Asset "${assetId}" is not referenced by the project manifest`);
+  }
+  return path.resolve(project.directory, reference.path);
+}
+
 function assetDocumentPathFor(projectDirectory: string, relativePath: string): string {
   return path.resolve(projectDirectory, relativePath);
+}
+
+function projectManifestPath(project: LoadedProject): string {
+  return path.join(project.directory, "adventure.project.json");
+}
+
+function defaultFlowDocumentPath(flowId: string): string {
+  return `flows/${flowId}.flow.json`;
+}
+
+function defaultItemDocumentPath(itemId: string): string {
+  return `items/${itemId}.item.json`;
+}
+
+function defaultSceneDocumentPath(sceneId: string): string {
+  return `scenes/${sceneId}.scene.json`;
+}
+
+function describeFlowReference(use: FlowReferenceUse): string {
+  switch (use) {
+    case "lookFlowId":
+      return "look action";
+    case "talkFlowId":
+      return "talk action";
+    case "useFlowId":
+      return "use action";
+    case "useItemFlow":
+      return "item-specific use action";
+    case "pickupFlowId":
+      return "pickup action";
+  }
+}
+
+function describeItemReference(use: ItemReferenceUse): string {
+  switch (use) {
+    case "pickupItemId":
+      return "pickup";
+    case "hotspotUseItemFlow":
+      return "item-specific hotspot action";
+  }
+}
+
+function findFlowReferences(
+  bundle: ProjectBundle,
+  flowId: string
+): Array<{ documentId: string; path: string; use: FlowReferenceUse }> {
+  const references: Array<{ documentId: string; path: string; use: FlowReferenceUse }> = [];
+
+  for (const scene of Object.values(bundle.scenes)) {
+    if (scene.type !== "layered-2d") continue;
+
+    for (const hotspot of scene.hotspots) {
+      if (hotspot.actions.lookFlowId === flowId) {
+        references.push({
+          documentId: hotspot.id,
+          path: `scenes/${scene.id}/hotspots/${hotspot.id}/actions/lookFlowId`,
+          use: "lookFlowId"
+        });
+      }
+      if (hotspot.actions.talkFlowId === flowId) {
+        references.push({
+          documentId: hotspot.id,
+          path: `scenes/${scene.id}/hotspots/${hotspot.id}/actions/talkFlowId`,
+          use: "talkFlowId"
+        });
+      }
+      if (hotspot.actions.useFlowId === flowId) {
+        references.push({
+          documentId: hotspot.id,
+          path: `scenes/${scene.id}/hotspots/${hotspot.id}/actions/useFlowId`,
+          use: "useFlowId"
+        });
+      }
+      for (const mapping of hotspot.actions.useItemFlows) {
+        if (mapping.flowId === flowId) {
+          references.push({
+            documentId: hotspot.id,
+            path: `scenes/${scene.id}/hotspots/${hotspot.id}/actions/useItemFlows/${mapping.itemId}/flowId`,
+            use: "useItemFlow"
+          });
+        }
+      }
+    }
+
+    for (const pickup of scene.pickups) {
+      if (pickup.pickupFlowId === flowId) {
+        references.push({
+          documentId: pickup.id,
+          path: `scenes/${scene.id}/pickups/${pickup.id}/pickupFlowId`,
+          use: "pickupFlowId"
+        });
+      }
+    }
+  }
+
+  return references;
+}
+
+function findItemReferences(
+  bundle: ProjectBundle,
+  itemId: string
+): Array<{ documentId: string; path: string; use: ItemReferenceUse }> {
+  const references: Array<{ documentId: string; path: string; use: ItemReferenceUse }> = [];
+
+  for (const scene of Object.values(bundle.scenes)) {
+    if (scene.type !== "layered-2d") continue;
+
+    for (const hotspot of scene.hotspots) {
+      for (const mapping of hotspot.actions.useItemFlows) {
+        if (mapping.itemId === itemId) {
+          references.push({
+            documentId: hotspot.id,
+            path: `scenes/${scene.id}/hotspots/${hotspot.id}/actions/useItemFlows/${mapping.itemId}`,
+            use: "hotspotUseItemFlow"
+          });
+        }
+      }
+    }
+
+    for (const pickup of scene.pickups) {
+      if (pickup.itemId === itemId) {
+        references.push({
+          documentId: pickup.id,
+          path: `scenes/${scene.id}/pickups/${pickup.id}/itemId`,
+          use: "pickupItemId"
+        });
+      }
+    }
+  }
+
+  return references;
+}
+
+function findAssetReferences(
+  bundle: ProjectBundle,
+  assetPath: string
+): Array<{ documentId: string; path: string; use: "sceneBackground" }> {
+  const references: Array<{ documentId: string; path: string; use: "sceneBackground" }> = [];
+
+  for (const scene of Object.values(bundle.scenes)) {
+    if (scene.type !== "layered-2d") continue;
+    if (scene.background === assetPath) {
+      references.push({
+        documentId: scene.id,
+        path: `scenes/${scene.id}/background`,
+        use: "sceneBackground"
+      });
+    }
+  }
+
+  return references;
 }
 
 function patchHotspot(scene: Layered2DScene, hotspotId: string, patch: HotspotPatch): Layered2DScene {
@@ -493,6 +752,29 @@ function patchHotspot(scene: Layered2DScene, hotspotId: string, patch: HotspotPa
   return {
     ...scene,
     hotspots
+  };
+}
+
+function addHotspot(scene: Layered2DScene, hotspot: Hotspot): Layered2DScene {
+  if (scene.hotspots.some((entry) => entry.id === hotspot.id)) {
+    throw new Error(`Hotspot "${hotspot.id}" already exists in scene "${scene.id}"`);
+  }
+
+  return {
+    ...scene,
+    hotspots: [...scene.hotspots, hotspot]
+  };
+}
+
+function removeHotspot(scene: Layered2DScene, hotspotId: string): Layered2DScene {
+  const index = scene.hotspots.findIndex((hotspot) => hotspot.id === hotspotId);
+  if (index < 0) {
+    throw new Error(`Hotspot "${hotspotId}" was not found in scene "${scene.id}"`);
+  }
+
+  return {
+    ...scene,
+    hotspots: scene.hotspots.filter((hotspot) => hotspot.id !== hotspotId)
   };
 }
 
@@ -533,6 +815,40 @@ function patchPickup(scene: Layered2DScene, pickupId: string, patch: PickupPatch
   };
 }
 
+function addPickup(scene: Layered2DScene, pickup: ScenePickup): Layered2DScene {
+  if (scene.pickups.some((entry) => entry.id === pickup.id)) {
+    throw new Error(`Pickup "${pickup.id}" already exists in scene "${scene.id}"`);
+  }
+
+  return {
+    ...scene,
+    pickups: [...scene.pickups, pickup]
+  };
+}
+
+function removePickup(scene: Layered2DScene, pickupId: string): Layered2DScene {
+  const index = scene.pickups.findIndex((pickup) => pickup.id === pickupId);
+  if (index < 0) {
+    throw new Error(`Pickup "${pickupId}" was not found in scene "${scene.id}"`);
+  }
+
+  return {
+    ...scene,
+    pickups: scene.pickups.filter((pickup) => pickup.id !== pickupId)
+  };
+}
+
+function replaceSceneBackground(scene: Layered2DScene, currentPath: string, nextPath: string): Layered2DScene {
+  if (scene.background !== currentPath) {
+    return scene;
+  }
+
+  return {
+    ...scene,
+    background: nextPath
+  };
+}
+
 function patchLocale(locale: LocaleDocument, patch: LocaleUpsertPatch): LocaleDocument {
   return {
     ...locale,
@@ -540,6 +856,18 @@ function patchLocale(locale: LocaleDocument, patch: LocaleUpsertPatch): LocaleDo
       ...locale.strings,
       [patch.key]: patch.value
     }
+  };
+}
+
+function removeLocaleKey(locale: LocaleDocument, key: string): LocaleDocument {
+  if (!(key in locale.strings)) {
+    throw new Error(`Locale key "${key}" does not exist in locale "${locale.locale}"`);
+  }
+
+  const { [key]: _removed, ...strings } = locale.strings;
+  return {
+    ...locale,
+    strings
   };
 }
 
@@ -557,6 +885,13 @@ function patchItem(item: ItemDocument, patch: ItemPatch): ItemDocument {
     ...item,
     labelKey: patch.labelKey,
     name: patch.name
+  };
+}
+
+function patchAsset(asset: AssetDocument, patch: AssetRelinkPatch): AssetDocument {
+  return {
+    ...asset,
+    path: patch.path
   };
 }
 
@@ -635,6 +970,34 @@ export async function applyProjectCommand(
     await writeJson(scenePathFor(project, command.sceneId), nextScene);
   }
 
+  if (command.type === "hotspot/create") {
+    const scene = project.bundle.scenes[command.sceneId];
+    if (!scene) {
+      throw new Error(`Scene "${command.sceneId}" was not found in the loaded project`);
+    }
+    if (scene.type !== "layered-2d") {
+      throw new Error(`Scene "${command.sceneId}" does not support hotspot editing yet`);
+    }
+
+    const nextScene = addHotspot(scene, command.hotspot);
+    assertDocument<Layered2DScene>("layered2dScene", nextScene);
+    await writeJson(scenePathFor(project, command.sceneId), nextScene);
+  }
+
+  if (command.type === "hotspot/delete") {
+    const scene = project.bundle.scenes[command.sceneId];
+    if (!scene) {
+      throw new Error(`Scene "${command.sceneId}" was not found in the loaded project`);
+    }
+    if (scene.type !== "layered-2d") {
+      throw new Error(`Scene "${command.sceneId}" does not support hotspot editing yet`);
+    }
+
+    const nextScene = removeHotspot(scene, command.hotspotId);
+    assertDocument<Layered2DScene>("layered2dScene", nextScene);
+    await writeJson(scenePathFor(project, command.sceneId), nextScene);
+  }
+
   if (command.type === "scene/update") {
     const scene = project.bundle.scenes[command.sceneId];
     if (!scene) {
@@ -649,6 +1012,62 @@ export async function applyProjectCommand(
     await writeJson(scenePathFor(project, command.sceneId), nextScene);
   }
 
+  if (command.type === "scene/create") {
+    if (project.bundle.scenes[command.scene.id]) {
+      throw new Error(`Scene "${command.scene.id}" already exists in the loaded project`);
+    }
+
+    assertDocument<Layered2DScene>("layered2dScene", command.scene);
+
+    const documentPath = command.documentPath ?? defaultSceneDocumentPath(command.scene.id);
+    if (project.bundle.manifest.scenes.some((entry) => entry.id === command.scene.id || entry.path === documentPath)) {
+      throw new Error(`Scene "${command.scene.id}" already has a manifest entry`);
+    }
+
+    const nextManifest: ProjectManifest = {
+      ...project.bundle.manifest,
+      scenes: [...project.bundle.manifest.scenes, { id: command.scene.id, path: documentPath }]
+    };
+
+    await writeJson(path.resolve(project.directory, documentPath), command.scene);
+    assertDocument<ProjectManifest>("project", nextManifest);
+    await writeJson(projectManifestPath(project), nextManifest);
+  }
+
+  if (command.type === "scene/delete") {
+    const scene = project.bundle.scenes[command.sceneId];
+    if (!scene) {
+      throw new Error(`Scene "${command.sceneId}" was not found in the loaded project`);
+    }
+
+    if (project.bundle.manifest.scenes.length <= 1) {
+      throw new Error("A project must keep at least one scene");
+    }
+
+    const remainingScenes = project.bundle.manifest.scenes.filter((entry) => entry.id !== command.sceneId);
+    const nextInitialSceneId =
+      project.bundle.manifest.initialSceneId === command.sceneId
+        ? remainingScenes[0]!.id
+        : project.bundle.manifest.initialSceneId;
+
+    const nextManifest: ProjectManifest = {
+      ...project.bundle.manifest,
+      initialSceneId: nextInitialSceneId,
+      scenes: remainingScenes
+    };
+
+    assertDocument<ProjectManifest>("project", nextManifest);
+    await writeJson(projectManifestPath(project), nextManifest);
+
+    try {
+      await unlink(scenePathFor(project, command.sceneId));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
   if (command.type === "pickup/update") {
     const scene = project.bundle.scenes[command.sceneId];
     if (!scene) {
@@ -659,6 +1078,34 @@ export async function applyProjectCommand(
     }
 
     const nextScene = patchPickup(scene, command.pickupId, command.patch);
+    assertDocument<Layered2DScene>("layered2dScene", nextScene);
+    await writeJson(scenePathFor(project, command.sceneId), nextScene);
+  }
+
+  if (command.type === "pickup/create") {
+    const scene = project.bundle.scenes[command.sceneId];
+    if (!scene) {
+      throw new Error(`Scene "${command.sceneId}" was not found in the loaded project`);
+    }
+    if (scene.type !== "layered-2d") {
+      throw new Error(`Scene "${command.sceneId}" does not support pickup editing yet`);
+    }
+
+    const nextScene = addPickup(scene, command.pickup);
+    assertDocument<Layered2DScene>("layered2dScene", nextScene);
+    await writeJson(scenePathFor(project, command.sceneId), nextScene);
+  }
+
+  if (command.type === "pickup/delete") {
+    const scene = project.bundle.scenes[command.sceneId];
+    if (!scene) {
+      throw new Error(`Scene "${command.sceneId}" was not found in the loaded project`);
+    }
+    if (scene.type !== "layered-2d") {
+      throw new Error(`Scene "${command.sceneId}" does not support pickup editing yet`);
+    }
+
+    const nextScene = removePickup(scene, command.pickupId);
     assertDocument<Layered2DScene>("layered2dScene", nextScene);
     await writeJson(scenePathFor(project, command.sceneId), nextScene);
   }
@@ -677,6 +1124,22 @@ export async function applyProjectCommand(
     await writeJson(localePathFor(project, command.locale), nextLocale);
   }
 
+  if (command.type === "locale/delete") {
+    const locale = project.bundle.locales[command.locale];
+    if (!locale) {
+      throw new Error(`Locale "${command.locale}" was not found in the loaded project`);
+    }
+
+    const normalizedKey = command.key.trim();
+    if (!normalizedKey) {
+      throw new Error("Locale key cannot be empty");
+    }
+
+    const nextLocale = removeLocaleKey(locale, normalizedKey);
+    assertDocument<LocaleDocument>("locale", nextLocale);
+    await writeJson(localePathFor(project, command.locale), nextLocale);
+  }
+
   if (command.type === "flow/update") {
     const flow = project.bundle.flows[command.flowId];
     if (!flow) {
@@ -689,6 +1152,60 @@ export async function applyProjectCommand(
     await writeJson(flowPathFor(project, command.flowId), nextFlow);
   }
 
+  if (command.type === "flow/create") {
+    if (project.bundle.flows[command.flow.id]) {
+      throw new Error(`Flow "${command.flow.id}" already exists in the loaded project`);
+    }
+
+    assertDocument<FlowDocument>("flow", command.flow);
+    validateFlowReferences(command.flow);
+
+    const documentPath = command.documentPath ?? defaultFlowDocumentPath(command.flow.id);
+    if (project.bundle.manifest.flows.some((entry) => entry.id === command.flow.id || entry.path === documentPath)) {
+      throw new Error(`Flow "${command.flow.id}" already has a manifest entry`);
+    }
+
+    const nextManifest: ProjectManifest = {
+      ...project.bundle.manifest,
+      flows: [...project.bundle.manifest.flows, { id: command.flow.id, path: documentPath }]
+    };
+
+    await writeJson(path.resolve(project.directory, documentPath), command.flow);
+    assertDocument<ProjectManifest>("project", nextManifest);
+    await writeJson(projectManifestPath(project), nextManifest);
+  }
+
+  if (command.type === "flow/delete") {
+    const flow = project.bundle.flows[command.flowId];
+    if (!flow) {
+      throw new Error(`Flow "${command.flowId}" was not found in the loaded project`);
+    }
+
+    const references = findFlowReferences(project.bundle, command.flowId);
+    if (references.length > 0) {
+      const details = references
+        .map((reference) => `${reference.documentId} (${describeFlowReference(reference.use)})`)
+        .join(", ");
+      throw new Error(`Flow "${command.flowId}" is still referenced by ${details}`);
+    }
+
+    const nextManifest: ProjectManifest = {
+      ...project.bundle.manifest,
+      flows: project.bundle.manifest.flows.filter((entry) => entry.id !== command.flowId)
+    };
+
+    assertDocument<ProjectManifest>("project", nextManifest);
+    await writeJson(projectManifestPath(project), nextManifest);
+
+    try {
+      await unlink(flowPathFor(project, command.flowId));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
   if (command.type === "item/update") {
     const item = project.bundle.items[command.itemId];
     if (!item) {
@@ -698,6 +1215,59 @@ export async function applyProjectCommand(
     const nextItem = patchItem(item, command.patch);
     assertDocument<ItemDocument>("item", nextItem);
     await writeJson(itemPathFor(project, command.itemId), nextItem);
+  }
+
+  if (command.type === "item/create") {
+    if (project.bundle.items[command.item.id]) {
+      throw new Error(`Item "${command.item.id}" already exists in the loaded project`);
+    }
+
+    assertDocument<ItemDocument>("item", command.item);
+
+    const documentPath = command.documentPath ?? defaultItemDocumentPath(command.item.id);
+    if (project.bundle.manifest.items.some((entry) => entry.id === command.item.id || entry.path === documentPath)) {
+      throw new Error(`Item "${command.item.id}" already has a manifest entry`);
+    }
+
+    const nextManifest: ProjectManifest = {
+      ...project.bundle.manifest,
+      items: [...project.bundle.manifest.items, { id: command.item.id, path: documentPath }]
+    };
+
+    await writeJson(path.resolve(project.directory, documentPath), command.item);
+    assertDocument<ProjectManifest>("project", nextManifest);
+    await writeJson(projectManifestPath(project), nextManifest);
+  }
+
+  if (command.type === "item/delete") {
+    const item = project.bundle.items[command.itemId];
+    if (!item) {
+      throw new Error(`Item "${command.itemId}" was not found in the loaded project`);
+    }
+
+    const references = findItemReferences(project.bundle, command.itemId);
+    if (references.length > 0) {
+      const details = references
+        .map((reference) => `${reference.documentId} (${describeItemReference(reference.use)})`)
+        .join(", ");
+      throw new Error(`Item "${command.itemId}" is still referenced by ${details}`);
+    }
+
+    const nextManifest: ProjectManifest = {
+      ...project.bundle.manifest,
+      items: project.bundle.manifest.items.filter((entry) => entry.id !== command.itemId)
+    };
+
+    assertDocument<ProjectManifest>("project", nextManifest);
+    await writeJson(projectManifestPath(project), nextManifest);
+
+    try {
+      await unlink(itemPathFor(project, command.itemId));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
   }
 
   if (command.type === "asset/import") {
@@ -732,7 +1302,62 @@ export async function applyProjectCommand(
     }
 
     assertDocument<ProjectManifest>("project", nextManifest);
-    await writeJson(path.join(project.directory, "adventure.project.json"), nextManifest);
+    await writeJson(projectManifestPath(project), nextManifest);
+  }
+
+  if (command.type === "asset/relink") {
+    const asset = project.bundle.assets[command.assetId];
+    if (!asset) {
+      throw new Error(`Asset "${command.assetId}" was not found in the loaded project`);
+    }
+
+    const nextPath = command.patch.path.trim();
+    if (!nextPath) {
+      throw new Error("Asset path cannot be empty");
+    }
+
+    const nextAsset = patchAsset(asset, { path: nextPath });
+    assertDocument<AssetDocument>("asset", nextAsset);
+    await writeJson(assetPathFor(project, command.assetId), nextAsset);
+
+    for (const scene of Object.values(project.bundle.scenes)) {
+      if (scene.type !== "layered-2d" || scene.background !== asset.path) continue;
+      const nextScene = replaceSceneBackground(scene, asset.path, nextPath);
+      assertDocument<Layered2DScene>("layered2dScene", nextScene);
+      await writeJson(scenePathFor(project, scene.id), nextScene);
+    }
+  }
+
+  if (command.type === "asset/delete") {
+    const asset = project.bundle.assets[command.assetId];
+    if (!asset) {
+      throw new Error(`Asset "${command.assetId}" was not found in the loaded project`);
+    }
+
+    const references = findAssetReferences(project.bundle, asset.path);
+    if (references.length > 0) {
+      throw new Error(
+        `Asset "${command.assetId}" is still referenced by ${references
+          .map((reference) => reference.documentId)
+          .join(", ")}`
+      );
+    }
+
+    const nextManifest: ProjectManifest = {
+      ...project.bundle.manifest,
+      assets: (project.bundle.manifest.assets ?? []).filter((entry) => entry.id !== command.assetId)
+    };
+
+    assertDocument<ProjectManifest>("project", nextManifest);
+    await writeJson(projectManifestPath(project), nextManifest);
+
+    try {
+      await unlink(assetPathFor(project, command.assetId));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
   }
 
   return loadProjectFromDirectory(projectDirectory);
