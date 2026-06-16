@@ -15,6 +15,30 @@ adventures. The repository currently implements the first playable foundation:
 The sample game, **The Isle of Echoes**, supports walking, activating the tavern
 hotspot, setting world state, and completing a localized dialogue flow.
 
+## Why This Exists
+
+Point & Click Engine is aimed at teams who want classic adventure-game structure
+without hiding the project behind opaque binaries or editor-only state. The
+project keeps the source of truth in Git-friendly documents, runs on a
+deterministic command/event core, and layers visual authoring on top so the
+engine, editor, and sample game can evolve together.
+
+## Build In Public
+
+The project is being reorganized so each milestone produces something easy to
+share publicly: a GIF, short demo video, screenshot set, technical post, or
+playable slice. The current content-driven roadmap lives in
+[docs/content-driven-roadmap.md](docs/content-driven-roadmap.md), and media for
+future posts can live under `docs/assets/`.
+
+## AI-Assisted, Human-Directed
+
+AI is planned here as a focused assistant for authors, not a magic "generate a
+whole game" button. The intended uses are narrow, reviewable tasks such as
+puzzle drafts, dialogue drafts, validation explanations, NPC profiles, and
+asset prompt generation while keeping design direction and final editorial
+control in human hands.
+
 ## Requirements
 
 - Node.js 22.17 or newer; Node.js 24 LTS is recommended.
@@ -30,6 +54,18 @@ pnpm dev
 `pnpm dev` starts the player at `http://127.0.0.1:5173` and the Electron editor.
 Use **Play from here** for the isolated Electron preview or **Browser** for the
 system browser.
+
+## Sample Game
+
+The current sample is intentionally small, but it already demonstrates the
+core point-and-click loop end to end:
+
+`scene -> hotspot -> inventory -> item use -> flow -> state update`
+
+In **The Isle of Echoes**, the player can walk the dock, inspect the tavern
+door, collect the rusty hook, use it on the tavern entrance, and see the world
+state update through the same deterministic runtime used by the editor preview
+and web player.
 
 ## Verify
 
@@ -65,5 +101,5 @@ packages/cli           Project validation commands
 ```
 
 See [Architecture](docs/architecture.md), [Project Format](docs/project-format.md),
-and [Roadmap](docs/roadmap.md).
-
+the technical [Roadmap](docs/roadmap.md), and the
+[Content-Driven Roadmap](docs/content-driven-roadmap.md).
