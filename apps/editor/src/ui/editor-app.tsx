@@ -419,6 +419,107 @@ function buildGuardrail(
   };
 }
 
+function summarizeHotspotViewportIssues(
+  hotspot: Hotspot,
+  availableFlowIdsSet: Set<string>,
+  availableItemIdsSet: Set<string>,
+  defaultLocaleId: string,
+  defaultLocaleStrings: LocaleDocument["strings"] | null
+) {
+  const blockingIssues: string[] = [];
+  const warningIssues: string[] = [];
+  const labelKey = hotspot.labelKey.trim();
+
+  if (!labelKey) {
+    blockingIssues.push("Display label is required.");
+  } else if (!defaultLocaleStrings) {
+    warningIssues.push(`Default locale "${defaultLocaleId}" is unavailable.`);
+  } else if (!(labelKey in defaultLocaleStrings)) {
+    warningIssues.push(`Label key "${labelKey}" is missing in ${defaultLocaleId}.`);
+  }
+
+  for (const [verb, flowId] of [
+    ["Look", hotspot.actions.lookFlowId?.trim() ?? ""],
+    ["Talk", hotspot.actions.talkFlowId?.trim() ?? ""],
+    ["Use", hotspot.actions.useFlowId?.trim() ?? ""]
+  ] as const) {
+    if (flowId && !availableFlowIdsSet.has(flowId)) {
+      blockingIssues.push(`${verb} flow "${flowId}" no longer exists.`);
+    }
+  }
+
+  hotspot.actions.useItemFlows.forEach((entry, index) => {
+    const itemId = entry.itemId.trim();
+    const flowId = entry.flowId.trim();
+    if (!itemId || !flowId) {
+      blockingIssues.push(`Override ${index + 1} must include both an item and a flow.`);
+      return;
+    }
+    if (!availableItemIdsSet.has(itemId)) {
+      blockingIssues.push(`Override ${index + 1} item "${itemId}" no longer exists.`);
+    }
+    if (!availableFlowIdsSet.has(flowId)) {
+      blockingIssues.push(`Override ${index + 1} flow "${flowId}" no longer exists.`);
+    }
+  });
+
+  return {
+    detail: [...blockingIssues, ...warningIssues][0] ?? "Ready to save.",
+    hasIssues: blockingIssues.length > 0 || warningIssues.length > 0,
+    issueCount: blockingIssues.length + warningIssues.length,
+    tone:
+      blockingIssues.length > 0
+        ? ("error" as const)
+        : warningIssues.length > 0
+          ? ("warn" as const)
+          : ("good" as const)
+  };
+}
+
+function summarizePickupViewportIssues(
+  pickup: ScenePickup,
+  availableFlowIdsSet: Set<string>,
+  availableItemIdsSet: Set<string>,
+  defaultLocaleId: string,
+  defaultLocaleStrings: LocaleDocument["strings"] | null
+) {
+  const blockingIssues: string[] = [];
+  const warningIssues: string[] = [];
+  const itemId = pickup.itemId.trim();
+  const labelKey = pickup.labelKey.trim();
+  const pickupFlowId = pickup.pickupFlowId?.trim() ?? "";
+
+  if (!itemId) {
+    blockingIssues.push("Pickup item is required.");
+  } else if (!availableItemIdsSet.has(itemId)) {
+    blockingIssues.push(`Pickup item "${itemId}" no longer exists.`);
+  }
+
+  if (pickupFlowId && !availableFlowIdsSet.has(pickupFlowId)) {
+    blockingIssues.push(`Pickup flow "${pickupFlowId}" no longer exists.`);
+  }
+
+  if (!labelKey) {
+    blockingIssues.push("Pickup label key is required.");
+  } else if (!defaultLocaleStrings) {
+    warningIssues.push(`Default locale "${defaultLocaleId}" is unavailable.`);
+  } else if (!(labelKey in defaultLocaleStrings)) {
+    warningIssues.push(`Label key "${labelKey}" is missing in ${defaultLocaleId}.`);
+  }
+
+  return {
+    detail: [...blockingIssues, ...warningIssues][0] ?? "Ready to save.",
+    hasIssues: blockingIssues.length > 0 || warningIssues.length > 0,
+    issueCount: blockingIssues.length + warningIssues.length,
+    tone:
+      blockingIssues.length > 0
+        ? ("error" as const)
+        : warningIssues.length > 0
+          ? ("warn" as const)
+          : ("good" as const)
+  };
+}
+
 type ViewportInteraction =
   | {
       baseSession: EditorSessionState;
@@ -694,6 +795,38 @@ export function EditorApp() {
   const defaultLocaleStrings = defaultLocaleDocument?.strings ?? null;
   const availableFlowIdsSet = useMemo(() => new Set(availableFlowIds), [availableFlowIds]);
   const availableItemIdsSet = useMemo(() => new Set(availableItemIds), [availableItemIds]);
+  const previewHotspotIssueMap = useMemo(
+    () =>
+      Object.fromEntries(
+        previewHotspots.map((hotspot) => [
+          hotspot.id,
+          summarizeHotspotViewportIssues(
+            hotspot,
+            availableFlowIdsSet,
+            availableItemIdsSet,
+            defaultLocaleId,
+            defaultLocaleStrings
+          )
+        ])
+      ),
+    [availableFlowIdsSet, availableItemIdsSet, defaultLocaleId, defaultLocaleStrings, previewHotspots]
+  );
+  const previewPickupIssueMap = useMemo(
+    () =>
+      Object.fromEntries(
+        previewPickups.map((pickup) => [
+          pickup.id,
+          summarizePickupViewportIssues(
+            pickup,
+            availableFlowIdsSet,
+            availableItemIdsSet,
+            defaultLocaleId,
+            defaultLocaleStrings
+          )
+        ])
+      ),
+    [availableFlowIdsSet, availableItemIdsSet, defaultLocaleId, defaultLocaleStrings, previewPickups]
+  );
   const flowGuardrail = useMemo(() => {
     if (!currentFlowDraft) {
       return buildGuardrail([], [], "No flow selected", "Select a flow to inspect locale coverage.");
@@ -2928,8 +3061,11 @@ export function EditorApp() {
                     <span />
                 </div>
                 {previewHotspots.map((hotspot) => (
+                  (() => {
+                    const hotspotIssues = previewHotspotIssueMap[hotspot.id];
+                    return (
                   <button
-                    className={`hotspot-box ${selectedHotspot?.id === hotspot.id ? "selected" : ""}`}
+                    className={`hotspot-box ${selectedHotspot?.id === hotspot.id ? "selected" : ""} ${hotspotIssues?.hasIssues ? `has-issues ${hotspotIssues.tone}` : ""}`}
                     key={hotspot.id}
                     type="button"
                     onClick={() => selectHotspot(hotspot)}
@@ -2941,12 +3077,21 @@ export function EditorApp() {
                       width: `${(hotspot.bounds.width / selectedScene.size.width) * 100}%`
                     }}
                     title={
-                      activeSceneTool === "hotspot"
-                        ? "Click to inspect, drag to move"
-                        : "Switch to Hotspot to move or resize"
+                      hotspotIssues?.hasIssues
+                        ? hotspotIssues.detail
+                        : activeSceneTool === "hotspot"
+                          ? "Click to inspect, drag to move"
+                          : "Switch to Hotspot to move or resize"
                     }
                   >
-                    <span className="viewport-label">{hotspot.id}</span>
+                    <span className="viewport-label">
+                      {hotspot.id}
+                      {hotspotIssues?.hasIssues ? (
+                        <span className={`viewport-issue-badge ${hotspotIssues.tone}`}>
+                          {hotspotIssues.issueCount}
+                        </span>
+                      ) : null}
+                    </span>
                     {selectedHotspot?.id === hotspot.id ? (
                       <span
                         className="viewport-resize-handle"
@@ -2955,10 +3100,15 @@ export function EditorApp() {
                       />
                     ) : null}
                   </button>
+                    );
+                  })()
                 ))}
                 {previewPickups.map((pickup) => (
+                  (() => {
+                    const pickupIssues = previewPickupIssueMap[pickup.id];
+                    return (
                   <button
-                    className={`pickup-box ${selectedPickup?.id === pickup.id ? "selected" : ""}`}
+                    className={`pickup-box ${selectedPickup?.id === pickup.id ? "selected" : ""} ${pickupIssues?.hasIssues ? `has-issues ${pickupIssues.tone}` : ""}`}
                     key={pickup.id}
                     type="button"
                     onClick={() => selectPickup(pickup)}
@@ -2970,12 +3120,21 @@ export function EditorApp() {
                       width: `${(pickup.bounds.width / selectedScene.size.width) * 100}%`
                     }}
                     title={
-                      activeSceneTool === "pickup"
-                        ? "Click to inspect, drag to move"
-                        : "Switch to Pickup to move or resize"
+                      pickupIssues?.hasIssues
+                        ? pickupIssues.detail
+                        : activeSceneTool === "pickup"
+                          ? "Click to inspect, drag to move"
+                          : "Switch to Pickup to move or resize"
                     }
                   >
-                    <span className="viewport-label">{pickup.id}</span>
+                    <span className="viewport-label">
+                      {pickup.id}
+                      {pickupIssues?.hasIssues ? (
+                        <span className={`viewport-issue-badge ${pickupIssues.tone}`}>
+                          {pickupIssues.issueCount}
+                        </span>
+                      ) : null}
+                    </span>
                     {selectedPickup?.id === pickup.id ? (
                       <span
                         className="viewport-resize-handle"
@@ -2984,6 +3143,8 @@ export function EditorApp() {
                       />
                     ) : null}
                   </button>
+                    );
+                  })()
                 ))}
               </>
             ) : (
