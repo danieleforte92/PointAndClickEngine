@@ -27,6 +27,19 @@ Show the smallest complete loop that proves the product direction:
 - Let the dialogue card stay on screen for a beat before advancing it.
 - End with the selected scene and event trace still readable.
 
+## Optional Screenshot Capture
+
+To refresh the checked-in sample screenshot after UI changes, run:
+
+```powershell
+$env:CAPTURE_SAMPLE_SCREENSHOT_PATH='docs/assets/sample-player-demo.png'
+pnpm test:e2e
+```
+
+The Playwright run currently completes the browser test successfully and may
+still time out during shutdown. If the test output shows `ok 1` and the image
+file was updated, the screenshot capture itself succeeded.
+
 ## Talking Points
 
 - The same deterministic runtime powers the web player and editor preview.

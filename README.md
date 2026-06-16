@@ -31,6 +31,8 @@ playable slice. The current content-driven roadmap lives in
 [docs/content-driven-roadmap.md](docs/content-driven-roadmap.md), and media for
 future posts can live under `docs/assets/`.
 
+![Current sample player demo](docs/assets/sample-player-demo.png)
+
 ## AI-Assisted, Human-Directed
 
 AI is planned here as a focused assistant for authors, not a magic "generate a
