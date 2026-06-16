@@ -21,7 +21,9 @@ type StorySignal = {
 type PlayerSurfaceMode = "guide" | "capture";
 
 function readSurfaceMode(): PlayerSurfaceMode {
-  return new URLSearchParams(window.location.search).get("mode") === "capture" ? "capture" : "guide";
+  return new URLSearchParams(window.location.search).get("mode") === "capture"
+    ? "capture"
+    : "guide";
 }
 
 function writeSurfaceMode(mode: PlayerSurfaceMode) {
@@ -45,13 +47,15 @@ function applySceneOverride(bundle: ProjectBundle): ProjectBundle {
     ...bundle,
     manifest: {
       ...bundle.manifest,
-      initialSceneId: sceneId
-    }
+      initialSceneId: sceneId,
+    },
   };
 }
 
 async function loadPreviewBundle(): Promise<ProjectBundle> {
-  const bundleUrl = new URLSearchParams(window.location.search).get("bundleUrl");
+  const bundleUrl = new URLSearchParams(window.location.search).get(
+    "bundleUrl",
+  );
   if (!bundleUrl) {
     return applySceneOverride(sampleBundle);
   }
@@ -64,15 +68,19 @@ async function loadPreviewBundle(): Promise<ProjectBundle> {
   return applySceneOverride((await response.json()) as ProjectBundle);
 }
 
-function buildDemoSteps(frame: RuntimeFrame, engine: AdventureEngine): DemoStep[] {
+function buildDemoSteps(
+  frame: RuntimeFrame,
+  engine: AdventureEngine,
+): DemoStep[] {
   const inspectedDoor = engine.events.some(
     (event) =>
       event.type === "hotspot/interacted" &&
       event.hotspotId === "tavern-entrance" &&
-      event.verb === "look"
+      event.verb === "look",
   );
   const collectedHook =
-    frame.state.collectedPickups.includes("dock-hook") || frame.state.inventory.includes("rusty-hook");
+    frame.state.collectedPickups.includes("dock-hook") ||
+    frame.state.inventory.includes("rusty-hook");
   const usedHook = frame.state.flags["tavern.hook-used"] === true;
 
   return [
@@ -80,20 +88,22 @@ function buildDemoSteps(frame: RuntimeFrame, engine: AdventureEngine): DemoStep[
       id: "inspect-door",
       label: "Inspect the tavern door",
       description: "Switch to Look, then click the amber tavern entrance.",
-      done: inspectedDoor
+      done: inspectedDoor,
     },
     {
       id: "collect-hook",
       label: "Collect the rusty hook",
-      description: "Switch to Use, click the dock hook, then select it in the inventory bar.",
-      done: collectedHook
+      description:
+        "Switch to Use, click the dock hook, then select it in the inventory bar.",
+      done: collectedHook,
     },
     {
       id: "use-hook",
       label: "Use the hook on the door",
-      description: "With Rusty Hook selected, click the tavern entrance again to trigger the state change.",
-      done: usedHook
-    }
+      description:
+        "With Rusty Hook selected, click the tavern entrance again to trigger the state change.",
+      done: usedHook,
+    },
   ];
 }
 
@@ -106,8 +116,14 @@ function nextDemoHint(steps: DemoStep[]): string {
   return nextStep.description;
 }
 
-function localize(bundle: ProjectBundle, labelKey: string, fallback: string): string {
-  return bundle.locales[bundle.manifest.defaultLocale]?.strings[labelKey] ?? fallback;
+function localize(
+  bundle: ProjectBundle,
+  labelKey: string,
+  fallback: string,
+): string {
+  return (
+    bundle.locales[bundle.manifest.defaultLocale]?.strings[labelKey] ?? fallback
+  );
 }
 
 function humanizeIdentifier(value: string): string {
@@ -119,7 +135,11 @@ function humanizeIdentifier(value: string): string {
 }
 
 function speakerLabel(bundle: ProjectBundle, speakerId: string): string {
-  return localize(bundle, `speaker.${speakerId}`, humanizeIdentifier(speakerId));
+  return localize(
+    bundle,
+    `speaker.${speakerId}`,
+    humanizeIdentifier(speakerId),
+  );
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -132,15 +152,19 @@ function isEditableTarget(target: EventTarget | null): boolean {
   );
 }
 
-function buildStorySignals(frame: RuntimeFrame, engine: AdventureEngine): StorySignal[] {
+function buildStorySignals(
+  frame: RuntimeFrame,
+  engine: AdventureEngine,
+): StorySignal[] {
   const inspectedDoor = engine.events.some(
     (event) =>
       event.type === "hotspot/interacted" &&
       event.hotspotId === "tavern-entrance" &&
-      event.verb === "look"
+      event.verb === "look",
   );
   const collectedHook =
-    frame.state.collectedPickups.includes("dock-hook") || frame.state.inventory.includes("rusty-hook");
+    frame.state.collectedPickups.includes("dock-hook") ||
+    frame.state.inventory.includes("rusty-hook");
   const openedLatch = frame.state.flags["tavern.hook-used"] === true;
 
   return [
@@ -148,24 +172,28 @@ function buildStorySignals(frame: RuntimeFrame, engine: AdventureEngine): StoryS
       id: "door-inspected",
       label: "Door inspected",
       detail: "The first look interaction has fired.",
-      done: inspectedDoor
+      done: inspectedDoor,
     },
     {
       id: "hook-collected",
       label: "Hook collected",
       detail: "The sample inventory now contains the rusty hook.",
-      done: collectedHook
+      done: collectedHook,
     },
     {
       id: "latch-opened",
       label: "Latch opened",
       detail: "The item-use flow updated world state.",
-      done: openedLatch
-    }
+      done: openedLatch,
+    },
   ];
 }
 
-function formatEvent(event: AdventureEngine["events"][number], bundle: ProjectBundle, scene: Layered2DScene): string {
+function formatEvent(
+  event: AdventureEngine["events"][number],
+  bundle: ProjectBundle,
+  scene: Layered2DScene,
+): string {
   switch (event.type) {
     case "game/started":
       return "game started";
@@ -184,7 +212,9 @@ function formatEvent(event: AdventureEngine["events"][number], bundle: ProjectBu
     case "character/moved":
       return `character moved: ${Math.round(event.x)}, ${Math.round(event.y)}`;
     case "hotspot/interacted": {
-      const hotspot = scene.hotspots.find((entry) => entry.id === event.hotspotId);
+      const hotspot = scene.hotspots.find(
+        (entry) => entry.id === event.hotspotId,
+      );
       return `hotspot ${event.verb}: ${localize(bundle, hotspot?.labelKey ?? "", hotspot?.id ?? event.hotspotId)}`;
     }
     case "flag/set":
@@ -204,9 +234,16 @@ export function PlayerApp() {
   const frameRef = useRef<RuntimeFrame | null>(null);
   const [bundle, setBundle] = useState<ProjectBundle | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [surfaceMode, setSurfaceMode] = useState<PlayerSurfaceMode>(() => readSurfaceMode());
-  const assetBaseUrl = new URLSearchParams(window.location.search).get("assetBaseUrl") ?? undefined;
-  const engine = useMemo(() => (bundle ? new AdventureEngine(bundle) : null), [bundle]);
+  const [surfaceMode, setSurfaceMode] = useState<PlayerSurfaceMode>(() =>
+    readSurfaceMode(),
+  );
+  const assetBaseUrl =
+    new URLSearchParams(window.location.search).get("assetBaseUrl") ??
+    undefined;
+  const engine = useMemo(
+    () => (bundle ? new AdventureEngine(bundle) : null),
+    [bundle],
+  );
   const [frame, setFrame] = useState<RuntimeFrame | null>(null);
   const scene = engine?.currentScene as Layered2DScene | undefined;
   const rendererReady = frame !== null;
@@ -216,19 +253,27 @@ export function PlayerApp() {
       .filter((item) => item !== undefined) ?? [];
   const demoSteps = frame && engine ? buildDemoSteps(frame, engine) : [];
   const completedDemoSteps = demoSteps.filter((step) => step.done).length;
-  const demoHint = demoSteps.length > 0 ? nextDemoHint(demoSteps) : "Preparing the current demo loop...";
+  const demoHint =
+    demoSteps.length > 0
+      ? nextDemoHint(demoSteps)
+      : "Preparing the current demo loop...";
   const storySignals = frame && engine ? buildStorySignals(frame, engine) : [];
   const recentEvents =
     bundle && engine && scene
-      ? engine.events.slice(-4).reverse().map((event) => formatEvent(event, bundle, scene))
+      ? engine.events
+          .slice(-4)
+          .reverse()
+          .map((event) => formatEvent(event, bundle, scene))
       : [];
-  const selectedItemLabel = bundle && frame?.state.selectedItemId
-    ? localize(
-        bundle,
-        bundle.items[frame.state.selectedItemId]?.labelKey ?? "",
-        bundle.items[frame.state.selectedItemId]?.name ?? frame.state.selectedItemId
-      )
-    : "None";
+  const selectedItemLabel =
+    bundle && frame?.state.selectedItemId
+      ? localize(
+          bundle,
+          bundle.items[frame.state.selectedItemId]?.labelKey ?? "",
+          bundle.items[frame.state.selectedItemId]?.name ??
+            frame.state.selectedItemId,
+        )
+      : "None";
   const latestEventLabel = recentEvents[0] ?? "ready";
   const captureMode = surfaceMode === "capture";
 
@@ -242,7 +287,11 @@ export function PlayerApp() {
       })
       .catch((error) => {
         if (cancelled) return;
-        setLoadError(error instanceof Error ? error.message : "Preview bundle could not be loaded.");
+        setLoadError(
+          error instanceof Error
+            ? error.message
+            : "Preview bundle could not be loaded.",
+        );
       });
 
     return () => {
@@ -262,38 +311,42 @@ export function PlayerApp() {
     if (!host || !engine || !scene || !rendererReady) return;
 
     let disposed = false;
-    const renderer = new PixiSceneRenderer(scene, {
-      onWalk: (position) => {
-        const currentFrame = frameRef.current;
-        if (!currentFrame) return;
+    const renderer = new PixiSceneRenderer(
+      scene,
+      {
+        onWalk: (position) => {
+          const currentFrame = frameRef.current;
+          if (!currentFrame) return;
 
-        const nextFrame =
-          currentFrame.state.activeVerb === "walk"
-            ? engine.walkTo(position.x, position.y)
-            : {
-                ...engine.selectVerb("walk"),
-                feedback: "Switched to Walk."
-              };
-        frameRef.current = nextFrame;
-        renderer.renderPlayer(nextFrame.state.player);
-        renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
-        setFrame(nextFrame);
+          const nextFrame =
+            currentFrame.state.activeVerb === "walk"
+              ? engine.walkTo(position.x, position.y)
+              : {
+                  ...engine.selectVerb("walk"),
+                  feedback: "Switched to Walk.",
+                };
+          frameRef.current = nextFrame;
+          renderer.renderPlayer(nextFrame.state.player);
+          renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
+          setFrame(nextFrame);
+        },
+        onHotspot: (hotspotId) => {
+          const nextFrame = engine.interactHotspot(hotspotId);
+          frameRef.current = nextFrame;
+          renderer.renderPlayer(nextFrame.state.player);
+          renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
+          setFrame(nextFrame);
+        },
+        onPickup: (pickupId) => {
+          const nextFrame = engine.interactPickup(pickupId);
+          frameRef.current = nextFrame;
+          renderer.renderPlayer(nextFrame.state.player);
+          renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
+          setFrame(nextFrame);
+        },
       },
-      onHotspot: (hotspotId) => {
-        const nextFrame = engine.interactHotspot(hotspotId);
-        frameRef.current = nextFrame;
-        renderer.renderPlayer(nextFrame.state.player);
-        renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
-        setFrame(nextFrame);
-      },
-      onPickup: (pickupId) => {
-        const nextFrame = engine.interactPickup(pickupId);
-        frameRef.current = nextFrame;
-        renderer.renderPlayer(nextFrame.state.player);
-        renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
-        setFrame(nextFrame);
-      }
-    }, assetBaseUrl ? { assetBaseUrl } : {});
+      assetBaseUrl ? { assetBaseUrl } : {},
+    );
     rendererRef.current = renderer;
 
     void renderer.mount(host).then(() => {
@@ -316,6 +369,84 @@ export function PlayerApp() {
     rendererRef.current?.renderPlayer(frame.state.player);
     rendererRef.current?.renderCollectedPickups(frame.state.collectedPickups);
   }, [frame]);
+
+  const advanceDialogue = () => {
+    const nextFrame = engine?.advanceDialogue();
+    if (!nextFrame) return;
+
+    frameRef.current = nextFrame;
+    rendererRef.current?.renderPlayer(nextFrame.state.player);
+    rendererRef.current?.renderCollectedPickups(
+      nextFrame.state.collectedPickups,
+    );
+    setFrame(nextFrame);
+  };
+
+  const selectVerb = (verb: "walk" | "look" | "use" | "talk") => {
+    if (!engine) return;
+
+    const nextFrame = engine.selectVerb(verb);
+    frameRef.current = nextFrame;
+    setFrame(nextFrame);
+  };
+
+  const toggleItem = (itemId: string) => {
+    if (!engine) return;
+
+    const nextFrame = engine.toggleSelectedItem(itemId);
+    frameRef.current = nextFrame;
+    setFrame(nextFrame);
+  };
+
+  const changeSurfaceMode = (mode: PlayerSurfaceMode) => {
+    setSurfaceMode(mode);
+    writeSurfaceMode(mode);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || isEditableTarget(event.target) || !engine)
+        return;
+
+      if (event.key === " " || event.key === "Enter") {
+        if (!frameRef.current?.dialogue) return;
+        event.preventDefault();
+        const nextFrame = engine.advanceDialogue();
+        frameRef.current = nextFrame;
+        rendererRef.current?.renderPlayer(nextFrame.state.player);
+        rendererRef.current?.renderCollectedPickups(
+          nextFrame.state.collectedPickups,
+        );
+        setFrame(nextFrame);
+        return;
+      }
+
+      if (event.key.toLowerCase() === "c") {
+        event.preventDefault();
+        const nextMode = surfaceMode === "capture" ? "guide" : "capture";
+        setSurfaceMode(nextMode);
+        writeSurfaceMode(nextMode);
+        return;
+      }
+
+      const verbByKey = {
+        "1": "walk",
+        "2": "look",
+        "3": "use",
+        "4": "talk",
+      } as const;
+      const verb = verbByKey[event.key as keyof typeof verbByKey];
+      if (!verb) return;
+
+      event.preventDefault();
+      const nextFrame = engine.selectVerb(verb);
+      frameRef.current = nextFrame;
+      setFrame(nextFrame);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [engine, surfaceMode]);
 
   if (loadError) {
     return (
@@ -349,75 +480,10 @@ export function PlayerApp() {
     );
   }
 
-  const advanceDialogue = () => {
-    const nextFrame = engine.advanceDialogue();
-    frameRef.current = nextFrame;
-    rendererRef.current?.renderPlayer(nextFrame.state.player);
-    rendererRef.current?.renderCollectedPickups(nextFrame.state.collectedPickups);
-    setFrame(nextFrame);
-  };
-
-  const selectVerb = (verb: "walk" | "look" | "use" | "talk") => {
-    const nextFrame = engine.selectVerb(verb);
-    frameRef.current = nextFrame;
-    setFrame(nextFrame);
-  };
-
-  const toggleItem = (itemId: string) => {
-    const nextFrame = engine.toggleSelectedItem(itemId);
-    frameRef.current = nextFrame;
-    setFrame(nextFrame);
-  };
-
-  const changeSurfaceMode = (mode: PlayerSurfaceMode) => {
-    setSurfaceMode(mode);
-    writeSurfaceMode(mode);
-  };
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || isEditableTarget(event.target) || !engine) return;
-
-      if (event.key === " " || event.key === "Enter") {
-        if (!frameRef.current?.dialogue) return;
-        event.preventDefault();
-        const nextFrame = engine.advanceDialogue();
-        frameRef.current = nextFrame;
-        rendererRef.current?.renderPlayer(nextFrame.state.player);
-        rendererRef.current?.renderCollectedPickups(nextFrame.state.collectedPickups);
-        setFrame(nextFrame);
-        return;
-      }
-
-      if (event.key.toLowerCase() === "c") {
-        event.preventDefault();
-        const nextMode = surfaceMode === "capture" ? "guide" : "capture";
-        setSurfaceMode(nextMode);
-        writeSurfaceMode(nextMode);
-        return;
-      }
-
-      const verbByKey = {
-        "1": "walk",
-        "2": "look",
-        "3": "use",
-        "4": "talk"
-      } as const;
-      const verb = verbByKey[event.key as keyof typeof verbByKey];
-      if (!verb) return;
-
-      event.preventDefault();
-      const nextFrame = engine.selectVerb(verb);
-      frameRef.current = nextFrame;
-      setFrame(nextFrame);
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [engine, surfaceMode]);
-
   return (
-    <main className={captureMode ? "player-shell capture-mode" : "player-shell"}>
+    <main
+      className={captureMode ? "player-shell capture-mode" : "player-shell"}
+    >
       <header className="game-header">
         <div>
           <p className="eyebrow">Foundation playable</p>
@@ -428,7 +494,11 @@ export function PlayerApp() {
             <span>Scene</span>
             <strong>{scene.name}</strong>
           </div>
-          <div className="surface-mode-toggle" aria-label="Player surface mode" role="group">
+          <div
+            className="surface-mode-toggle"
+            aria-label="Player surface mode"
+            role="group"
+          >
             <button
               aria-pressed={surfaceMode === "guide"}
               className={surfaceMode === "guide" ? "active" : ""}
@@ -471,8 +541,8 @@ export function PlayerApp() {
               <p className="eyebrow">Demo-first sample</p>
               <h2>Record the full point-and-click loop in one take.</h2>
               <p className="demo-summary">
-                This sample is small on purpose: scene, hotspot, inventory, item use, flow, and
-                state update are all visible in under 30 seconds.
+                This sample is small on purpose: scene, hotspot, inventory, item
+                use, flow, and state update are all visible in under 30 seconds.
               </p>
             </div>
             <div className="demo-progress">
@@ -485,7 +555,10 @@ export function PlayerApp() {
 
           <section className="demo-checklist" aria-label="Current sample loop">
             {demoSteps.map((step, index) => (
-              <article className={step.done ? "demo-step done" : "demo-step"} key={step.id}>
+              <article
+                className={step.done ? "demo-step done" : "demo-step"}
+                key={step.id}
+              >
                 <span className="demo-step-index">0{index + 1}</span>
                 <div>
                   <h3>{step.label}</h3>
@@ -496,10 +569,16 @@ export function PlayerApp() {
             ))}
           </section>
 
-          <section className="demo-state-strip" aria-label="Current story state">
+          <section
+            className="demo-state-strip"
+            aria-label="Current story state"
+          >
             <div className="story-signals">
               {storySignals.map((signal) => (
-                <article className={signal.done ? "story-signal done" : "story-signal"} key={signal.id}>
+                <article
+                  className={signal.done ? "story-signal done" : "story-signal"}
+                  key={signal.id}
+                >
                   <span>{signal.done ? "Ready" : "Pending"}</span>
                   <strong>{signal.label}</strong>
                   <p>{signal.detail}</p>
@@ -531,7 +610,13 @@ export function PlayerApp() {
         {(["walk", "look", "use", "talk"] as const).map((verb) => (
           <button
             aria-keyshortcuts={
-              verb === "walk" ? "1" : verb === "look" ? "2" : verb === "use" ? "3" : "4"
+              verb === "walk"
+                ? "1"
+                : verb === "look"
+                  ? "2"
+                  : verb === "use"
+                    ? "3"
+                    : "4"
             }
             className={frame.state.activeVerb === verb ? "active" : ""}
             key={verb}
@@ -551,12 +636,16 @@ export function PlayerApp() {
           ) : (
             inventoryItems.map((item) => (
               <button
-                className={frame.state.selectedItemId === item.id ? "selected" : ""}
+                className={
+                  frame.state.selectedItemId === item.id ? "selected" : ""
+                }
                 key={item.id}
                 type="button"
                 onClick={() => toggleItem(item.id)}
               >
-                {bundle.locales[bundle.manifest.defaultLocale]?.strings[item.labelKey] ?? item.name}
+                {bundle.locales[bundle.manifest.defaultLocale]?.strings[
+                  item.labelKey
+                ] ?? item.name}
               </button>
             ))
           )}
@@ -571,7 +660,8 @@ export function PlayerApp() {
         <div className="event-readout">
           <span>Position</span>
           <strong>
-            {Math.round(frame.state.player.x)}, {Math.round(frame.state.player.y)}
+            {Math.round(frame.state.player.x)},{" "}
+            {Math.round(frame.state.player.y)}
           </strong>
         </div>
         <div className="event-readout">
@@ -588,11 +678,19 @@ export function PlayerApp() {
         </div>
       </footer>
 
-      {frame.feedback ? <div className="feedback-banner">{frame.feedback}</div> : null}
+      {frame.feedback ? (
+        <div className="feedback-banner">{frame.feedback}</div>
+      ) : null}
 
       {frame.dialogue ? (
-        <button className="dialogue-card" type="button" onClick={advanceDialogue}>
-          <span className="speaker">{speakerLabel(bundle, frame.dialogue.speakerId)}</span>
+        <button
+          className="dialogue-card"
+          type="button"
+          onClick={advanceDialogue}
+        >
+          <span className="speaker">
+            {speakerLabel(bundle, frame.dialogue.speakerId)}
+          </span>
           <span className="line">{frame.dialogue.text}</span>
           <span className="continue">Continue</span>
         </button>
