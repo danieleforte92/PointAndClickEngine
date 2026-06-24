@@ -74,6 +74,14 @@ export const toolCapabilities: EditorCapability[] = [
     detail: "Hotspots can already be selected, dragged, and resized directly in the viewport."
   },
   {
+    id: "tool-actor",
+    label: "Actors",
+    status: "beta",
+    workspace: "scene",
+    summary: "Place visible props and actor-style scene objects.",
+    detail: "Actors can be selected, dragged, resized, and previewed as scene objects."
+  },
+  {
     id: "tool-pickup",
     label: "Pickup",
     status: "beta",

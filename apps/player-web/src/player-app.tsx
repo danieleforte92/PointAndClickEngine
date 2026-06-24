@@ -312,9 +312,11 @@ export function PlayerApp() {
 
   useEffect(() => {
     const host = hostRef.current;
-    if (!host || !engine || !scene || !rendererReady) return;
+    if (!host || !bundle || !engine || !scene || !rendererReady) return;
 
     let disposed = false;
+    const activeBundle = bundle;
+    const activeEngine = engine;
     const renderer = new PixiSceneRenderer(
       scene,
       {
@@ -324,43 +326,43 @@ export function PlayerApp() {
 
           const nextFrame =
             currentFrame.state.activeVerb === "walk"
-              ? engine.walkTo(position.x, position.y)
+              ? activeEngine.walkTo(position.x, position.y)
               : {
-                  ...engine.selectVerb("walk"),
+                  ...activeEngine.selectVerb("walk"),
                   feedback: "Switched to Walk.",
                 };
           frameRef.current = nextFrame;
           renderer.renderPlayer(nextFrame.state.player);
           renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
-          renderer.renderVisibleActors(engine.visibleActors().map((actor) => actor.id));
+          renderer.renderVisibleActors(activeEngine.visibleActors().map((actor) => actor.id));
           setFrame(nextFrame);
         },
         onActor: (actorId) => {
-          const nextFrame = engine.interactActor(actorId);
+          const nextFrame = activeEngine.interactActor(actorId);
           frameRef.current = nextFrame;
           renderer.renderPlayer(nextFrame.state.player);
           renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
-          renderer.renderVisibleActors(engine.visibleActors().map((actor) => actor.id));
+          renderer.renderVisibleActors(activeEngine.visibleActors().map((actor) => actor.id));
           setFrame(nextFrame);
         },
         onHotspot: (hotspotId) => {
-          const nextFrame = engine.interactHotspot(hotspotId);
+          const nextFrame = activeEngine.interactHotspot(hotspotId);
           frameRef.current = nextFrame;
           renderer.renderPlayer(nextFrame.state.player);
           renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
-          renderer.renderVisibleActors(engine.visibleActors().map((actor) => actor.id));
+          renderer.renderVisibleActors(activeEngine.visibleActors().map((actor) => actor.id));
           setFrame(nextFrame);
         },
         onPickup: (pickupId) => {
-          const nextFrame = engine.interactPickup(pickupId);
+          const nextFrame = activeEngine.interactPickup(pickupId);
           frameRef.current = nextFrame;
           renderer.renderPlayer(nextFrame.state.player);
           renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
-          renderer.renderVisibleActors(engine.visibleActors().map((actor) => actor.id));
+          renderer.renderVisibleActors(activeEngine.visibleActors().map((actor) => actor.id));
           setFrame(nextFrame);
         },
       },
-      { assets: bundle.assets, ...(assetBaseUrl ? { assetBaseUrl } : {}) },
+      { assets: activeBundle.assets, ...(assetBaseUrl ? { assetBaseUrl } : {}) },
     );
     rendererRef.current = renderer;
 
@@ -369,7 +371,7 @@ export function PlayerApp() {
       if (!disposed && nextFrame) {
         renderer.renderPlayer(nextFrame.state.player);
         renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
-        renderer.renderVisibleActors(engine.visibleActors().map((actor) => actor.id));
+        renderer.renderVisibleActors(activeEngine.visibleActors().map((actor) => actor.id));
       }
     });
 
@@ -378,7 +380,7 @@ export function PlayerApp() {
       renderer.destroy();
       rendererRef.current = null;
     };
-  }, [assetBaseUrl, engine, rendererReady, scene]);
+  }, [assetBaseUrl, bundle, engine, rendererReady, scene]);
 
   useEffect(() => {
     if (!frame || !engine) return;
@@ -388,7 +390,8 @@ export function PlayerApp() {
   }, [engine, frame]);
 
   const advanceDialogue = () => {
-    const nextFrame = engine?.advanceDialogue();
+    if (!engine) return;
+    const nextFrame = engine.advanceDialogue();
     if (!nextFrame) return;
 
     frameRef.current = nextFrame;

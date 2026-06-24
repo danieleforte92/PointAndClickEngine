@@ -7,6 +7,8 @@ import type {
   Layered2DScene,
   LocaleDocument,
   Rect,
+  SceneActor,
+  SceneActorRole,
   SceneDocument,
   ScenePickup
 } from "@pointclick/contracts";
@@ -26,11 +28,14 @@ import {
 } from "../editor-capabilities";
 import {
   buildHotspotUseItemFlows,
+  buildActorFromDraft,
   buildFlowNodes,
   buildRecoverySnapshot,
   clampScenePoint,
   cloneSessionState,
   commitHistory,
+  createActorDraft,
+  createActorKey,
   createFlowDraft,
   createHistoryState,
   createHotspotDraft,
@@ -350,6 +355,17 @@ function nextPickupId(scene: Layered2DScene): string {
   return candidate;
 }
 
+function nextActorId(scene: Layered2DScene): string {
+  const existing = new Set(scene.actors.map((actor) => actor.id));
+  let counter = 0;
+  let candidate = "new-actor";
+  while (existing.has(candidate)) {
+    counter += 1;
+    candidate = `new-actor-${counter}`;
+  }
+  return candidate;
+}
+
 function createDefaultHotspot(scene: Layered2DScene, hotspotId: string): Hotspot {
   const width = Math.max(80, Math.floor(scene.size.width * 0.12));
   const height = Math.max(80, Math.floor(scene.size.height * 0.14));
@@ -382,6 +398,27 @@ function createDefaultPickup(scene: Layered2DScene, pickupId: string, itemId: st
     id: pickupId,
     itemId,
     labelKey: `pickup.${pickupId}`
+  };
+}
+
+function createDefaultActor(scene: Layered2DScene, actorId: string): SceneActor {
+  const width = Math.max(72, Math.floor(scene.size.width * 0.08));
+  const height = Math.max(56, Math.floor(scene.size.height * 0.08));
+  const x = Math.floor(scene.size.width / 2 - width / 2);
+  const y = Math.floor(scene.size.height * 0.55 - height / 2);
+  return {
+    actions: {
+      useItemFlows: []
+    },
+    bounds: { x, y, width, height },
+    depth: 8,
+    id: actorId,
+    interactSpot: {
+      x: Math.floor(x + width / 2),
+      y: Math.floor(y + height + 24)
+    },
+    labelKey: `actor.${actorId}`,
+    role: "prop"
   };
 }
 
@@ -523,13 +560,101 @@ function summarizePickupViewportIssues(
   };
 }
 
+function scenePointIsInside(
+  point: ScenePointDraftValue | undefined,
+  size: { height: number; width: number }
+): boolean {
+  if (!point) return true;
+  return point.x >= 0 && point.x <= size.width && point.y >= 0 && point.y <= size.height;
+}
+
+function summarizeActorViewportIssues(
+  actor: SceneActor,
+  scene: Layered2DScene,
+  availableAssetIdsSet: Set<string>,
+  availableFlowIdsSet: Set<string>,
+  availableItemIdsSet: Set<string>,
+  defaultLocaleId: string,
+  defaultLocaleStrings: LocaleDocument["strings"] | null
+) {
+  const blockingIssues: string[] = [];
+  const warningIssues: string[] = [];
+  const labelKey = actor.labelKey.trim();
+
+  if (actor.assetId && !availableAssetIdsSet.has(actor.assetId)) {
+    blockingIssues.push(`Actor asset "${actor.assetId}" no longer exists.`);
+  }
+
+  if (!labelKey) {
+    blockingIssues.push("Actor label key is required.");
+  } else if (!defaultLocaleStrings) {
+    warningIssues.push(`Default locale "${defaultLocaleId}" is unavailable.`);
+  } else if (!(labelKey in defaultLocaleStrings)) {
+    warningIssues.push(`Label key "${labelKey}" is missing in ${defaultLocaleId}.`);
+  }
+
+  for (const [verb, flowId] of [
+    ["Look", actor.actions.lookFlowId?.trim() ?? ""],
+    ["Talk", actor.actions.talkFlowId?.trim() ?? ""],
+    ["Use", actor.actions.useFlowId?.trim() ?? ""]
+  ] as const) {
+    if (flowId && !availableFlowIdsSet.has(flowId)) {
+      blockingIssues.push(`${verb} flow "${flowId}" no longer exists.`);
+    }
+  }
+
+  if (!actor.actions.lookFlowId && !actor.actions.talkFlowId && !actor.actions.useFlowId && actor.actions.useItemFlows.length === 0) {
+    warningIssues.push("Actor has no action flow yet.");
+  }
+
+  actor.actions.useItemFlows.forEach((entry, index) => {
+    const itemId = entry.itemId.trim();
+    const flowId = entry.flowId.trim();
+    if (!itemId || !flowId) {
+      blockingIssues.push(`Override ${index + 1} must include both an item and a flow.`);
+      return;
+    }
+    if (!availableItemIdsSet.has(itemId)) {
+      blockingIssues.push(`Override ${index + 1} item "${itemId}" no longer exists.`);
+    }
+    if (!availableFlowIdsSet.has(flowId)) {
+      blockingIssues.push(`Override ${index + 1} flow "${flowId}" no longer exists.`);
+    }
+  });
+
+  if (!scenePointIsInside(actor.interactSpot, scene.size)) {
+    blockingIssues.push("Interact spot is outside the scene.");
+  }
+  if (!scenePointIsInside(actor.lookSpot, scene.size)) {
+    blockingIssues.push("Look spot is outside the scene.");
+  }
+
+  return {
+    detail: [...blockingIssues, ...warningIssues][0] ?? "Ready to save.",
+    hasIssues: blockingIssues.length > 0 || warningIssues.length > 0,
+    issueCount: blockingIssues.length + warningIssues.length,
+    tone:
+      blockingIssues.length > 0
+        ? ("error" as const)
+        : warningIssues.length > 0
+          ? ("warn" as const)
+          : ("good" as const)
+  };
+}
+
 type ViewportInteraction =
   | {
       baseSession: EditorSessionState;
-      kind: "hotspot" | "pickup";
+      kind: "actor" | "hotspot" | "pickup";
       mode: "move" | "resize";
       startPoint: ScenePointDraftValue;
       startRect: SceneRectDraftValue;
+    }
+  | {
+      baseSession: EditorSessionState;
+      kind: "actor-interact-spot" | "actor-look-spot";
+      startPoint: ScenePointDraftValue;
+      startPosition: ScenePointDraftValue;
     }
   | {
       baseSession: EditorSessionState;
@@ -545,7 +670,7 @@ type ViewportInteraction =
       startPosition: ScenePointDraftValue;
     };
 
-type SceneTool = "select" | "hotspot" | "pickup" | "player-start" | "walk-area";
+type SceneTool = "select" | "actor" | "hotspot" | "pickup" | "player-start" | "walk-area";
 
 function sceneToolFromCapability(capabilityId: string): SceneTool | null {
   switch (capabilityId) {
@@ -553,6 +678,8 @@ function sceneToolFromCapability(capabilityId: string): SceneTool | null {
       return "select";
     case "tool-hotspot":
       return "hotspot";
+    case "tool-actor":
+      return "actor";
     case "tool-pickup":
       return "pickup";
     case "tool-player-start":
@@ -570,6 +697,8 @@ function sceneToolLabel(tool: SceneTool): string {
       return "Select";
     case "hotspot":
       return "Hotspot";
+    case "actor":
+      return "Actors";
     case "pickup":
       return "Pickup";
     case "player-start":
@@ -585,6 +714,8 @@ function sceneToolHint(tool: SceneTool): string {
       return "Click hotspots and pickups to inspect them without moving the scene.";
     case "hotspot":
       return "Drag the selected hotspot to move it, or use the lower-right handle to resize it.";
+    case "actor":
+      return "Drag the selected actor to move it, or use the lower-right handle to resize it.";
     case "pickup":
       return "Drag the selected pickup to move it, or use the lower-right handle to resize it.";
     case "player-start":
@@ -620,6 +751,11 @@ export function EditorApp() {
   const hotspotUseFlowRef = useRef<HTMLSelectElement | null>(null);
   const hotspotOverrideItemRefs = useRef<Array<HTMLSelectElement | null>>([]);
   const hotspotOverrideFlowRefs = useRef<Array<HTMLSelectElement | null>>([]);
+  const actorLabelInputRef = useRef<HTMLInputElement | null>(null);
+  const actorAssetRef = useRef<HTMLSelectElement | null>(null);
+  const actorLookFlowRef = useRef<HTMLSelectElement | null>(null);
+  const actorTalkFlowRef = useRef<HTMLSelectElement | null>(null);
+  const actorUseFlowRef = useRef<HTMLSelectElement | null>(null);
   const pickupItemRef = useRef<HTMLSelectElement | null>(null);
   const pickupLabelRef = useRef<HTMLInputElement | null>(null);
   const pickupFlowRef = useRef<HTMLSelectElement | null>(null);
@@ -630,6 +766,10 @@ export function EditorApp() {
     sceneFromSnapshot(project, session.activeSceneId) ?? project?.selectedScene ?? scenes[0] ?? null;
   const selectedHotspot =
     hotspotFromSnapshot(project, session.activeSceneId, session.activeHotspotId) ?? null;
+  const selectedActor =
+    project && session.activeSceneId && session.activeActorId
+      ? sceneFromSnapshot(project, session.activeSceneId)?.actors.find((actor) => actor.id === session.activeActorId) ?? null
+      : null;
   const selectedLocale = localeFromSnapshot(project, session.activeLocale) ?? null;
   const selectedFlow = flowFromSnapshot(project, session.activeFlowId) ?? null;
   const selectedItem = itemFromSnapshot(project, session.activeItemId) ?? project?.selectedItem ?? null;
@@ -645,6 +785,11 @@ export function EditorApp() {
     ? session.hotspotDrafts[createHotspotKey(selectedScene?.id ?? "", selectedHotspot.id)] ??
       createHotspotDraft(selectedHotspot)
     : createHotspotDraft(null);
+  const currentActorDraft =
+    selectedScene && selectedActor
+      ? session.actorDrafts[createActorKey(selectedScene.id, selectedActor.id)] ??
+        createActorDraft(selectedActor)
+      : createActorDraft(null);
   const currentLocaleDraft = selectedLocale
     ? session.localeDrafts[selectedLocale.locale] ?? selectedLocale.strings
     : {};
@@ -684,6 +829,7 @@ export function EditorApp() {
       project
         ? getDirtyState(project, session)
         : {
+            actorKeys: new Set<string>(),
             count: 0,
             flowIds: new Set<string>(),
             hotspotKeys: new Set<string>(),
@@ -747,6 +893,17 @@ export function EditorApp() {
         : hotspot
     );
   }, [currentHotspotDraft, selectedHotspot, selectedScene]);
+  const previewActors = useMemo(() => {
+    if (!selectedScene || !selectedActor) {
+      return selectedScene?.actors ?? [];
+    }
+
+    return selectedScene.actors.map((actor) =>
+      actor.id === selectedActor.id ? buildActorFromDraft(actor, currentActorDraft) : actor
+    );
+  }, [currentActorDraft, selectedActor, selectedScene]);
+  const previewSelectedActor =
+    selectedActor ? previewActors.find((actor) => actor.id === selectedActor.id) ?? selectedActor : null;
   const previewPickups = useMemo(() => {
     if (!selectedScene || !selectedPickup) {
       return selectedScene?.pickups ?? [];
@@ -811,8 +968,38 @@ export function EditorApp() {
   );
   const defaultLocaleId = defaultLocaleDocument?.locale ?? project?.manifest.defaultLocale ?? "default locale";
   const defaultLocaleStrings = defaultLocaleDocument?.strings ?? null;
+  const availableAssetIds = useMemo(() => (project ? project.assets.map((asset) => asset.id) : []), [project]);
+  const availableAssetIdsSet = useMemo(() => new Set(availableAssetIds), [availableAssetIds]);
   const availableFlowIdsSet = useMemo(() => new Set(availableFlowIds), [availableFlowIds]);
   const availableItemIdsSet = useMemo(() => new Set(availableItemIds), [availableItemIds]);
+  const previewActorIssueMap = useMemo(
+    () =>
+      selectedScene
+        ? Object.fromEntries(
+            previewActors.map((actor) => [
+              actor.id,
+              summarizeActorViewportIssues(
+                actor,
+                selectedScene,
+                availableAssetIdsSet,
+                availableFlowIdsSet,
+                availableItemIdsSet,
+                defaultLocaleId,
+                defaultLocaleStrings
+              )
+            ])
+          )
+        : {},
+    [
+      availableAssetIdsSet,
+      availableFlowIdsSet,
+      availableItemIdsSet,
+      defaultLocaleId,
+      defaultLocaleStrings,
+      previewActors,
+      selectedScene
+    ]
+  );
   const previewHotspotIssueMap = useMemo(
     () =>
       Object.fromEntries(
@@ -928,6 +1115,117 @@ export function EditorApp() {
     defaultLocaleId,
     defaultLocaleStrings
   ]);
+  const actorGuardrail = useMemo(() => {
+    const blockingIssues: string[] = [];
+    const warningIssues: string[] = [];
+    const labelKey = currentActorDraft.labelKey.trim();
+    const assetId = currentActorDraft.assetId.trim();
+
+    if (assetId && !availableAssetIdsSet.has(assetId)) {
+      blockingIssues.push(`Actor asset "${assetId}" no longer exists.`);
+    }
+
+    if (!labelKey) {
+      blockingIssues.push("Actor label key is required.");
+    } else if (!defaultLocaleStrings) {
+      warningIssues.push(`Default locale "${defaultLocaleId}" is unavailable.`);
+    } else if (!(labelKey in defaultLocaleStrings)) {
+      warningIssues.push(`Label key "${labelKey}" is missing in ${defaultLocaleId}.`);
+    }
+
+    for (const [verb, flowId] of [
+      ["Look", currentActorDraft.lookFlowId.trim()],
+      ["Talk", currentActorDraft.talkFlowId.trim()],
+      ["Use", currentActorDraft.useFlowId.trim()]
+    ] as const) {
+      if (flowId && !availableFlowIdsSet.has(flowId)) {
+        blockingIssues.push(`${verb} flow "${flowId}" no longer exists.`);
+      }
+    }
+
+    currentActorDraft.useItemFlows.forEach((entry, index) => {
+      const itemId = entry.itemId.trim();
+      const flowId = entry.flowId.trim();
+      if (!itemId && !flowId) {
+        return;
+      }
+      if (!itemId || !flowId) {
+        blockingIssues.push(`Override ${index + 1} must include both an item and a flow.`);
+        return;
+      }
+      if (!availableItemIdsSet.has(itemId)) {
+        blockingIssues.push(`Override ${index + 1} item "${itemId}" no longer exists.`);
+      }
+      if (!availableFlowIdsSet.has(flowId)) {
+        blockingIssues.push(`Override ${index + 1} flow "${flowId}" no longer exists.`);
+      }
+    });
+
+    const interactSpot =
+      currentActorDraft.interactSpotEnabled &&
+      parseNumber(currentActorDraft.interactSpotX) !== null &&
+      parseNumber(currentActorDraft.interactSpotY) !== null
+        ? {
+            x: parseNumber(currentActorDraft.interactSpotX)!,
+            y: parseNumber(currentActorDraft.interactSpotY)!
+          }
+        : undefined;
+    const lookSpot =
+      currentActorDraft.lookSpotEnabled &&
+      parseNumber(currentActorDraft.lookSpotX) !== null &&
+      parseNumber(currentActorDraft.lookSpotY) !== null
+        ? {
+            x: parseNumber(currentActorDraft.lookSpotX)!,
+            y: parseNumber(currentActorDraft.lookSpotY)!
+          }
+        : undefined;
+
+    if (currentActorDraft.interactSpotEnabled && !interactSpot) {
+      blockingIssues.push("Interact spot must use valid X/Y numbers.");
+    } else if (selectedScene && !scenePointIsInside(interactSpot, selectedScene.size)) {
+      blockingIssues.push("Interact spot is outside the scene.");
+    }
+    if (currentActorDraft.lookSpotEnabled && !lookSpot) {
+      blockingIssues.push("Look spot must use valid X/Y numbers.");
+    } else if (selectedScene && !scenePointIsInside(lookSpot, selectedScene.size)) {
+      blockingIssues.push("Look spot is outside the scene.");
+    }
+
+    if (
+      !currentActorDraft.lookFlowId.trim() &&
+      !currentActorDraft.talkFlowId.trim() &&
+      !currentActorDraft.useFlowId.trim() &&
+      currentActorDraft.useItemFlows.length === 0
+    ) {
+      warningIssues.push("Actor has no action flow yet.");
+    }
+
+    return buildGuardrail(
+      blockingIssues,
+      warningIssues,
+      "Actor bindings look good",
+      "Actor asset, locale, actions, and spots are ready to save."
+    );
+  }, [
+    availableAssetIdsSet,
+    availableFlowIdsSet,
+    availableItemIdsSet,
+    currentActorDraft.assetId,
+    currentActorDraft.interactSpotEnabled,
+    currentActorDraft.interactSpotX,
+    currentActorDraft.interactSpotY,
+    currentActorDraft.labelKey,
+    currentActorDraft.lookFlowId,
+    currentActorDraft.lookSpotEnabled,
+    currentActorDraft.lookSpotX,
+    currentActorDraft.lookSpotY,
+    currentActorDraft.talkFlowId,
+    currentActorDraft.useFlowId,
+    currentActorDraft.useItemFlows,
+    defaultLocaleId,
+    defaultLocaleStrings,
+    selectedScene
+  ]);
   const pickupGuardrail = useMemo(() => {
     const blockingIssues: string[] = [];
     const warningIssues: string[] = [];
@@ -1006,6 +1304,17 @@ export function EditorApp() {
       incomplete: (!itemId && !!flowId) || (!!itemId && !flowId)
     };
   });
+  const actorAssetMissing =
+    !!currentActorDraft.assetId.trim() && !availableAssetIdsSet.has(currentActorDraft.assetId.trim());
+  const actorLabelMissing =
+    currentActorDraft.labelKey.trim().length === 0 ||
+    (!!defaultLocaleStrings && !(currentActorDraft.labelKey.trim() in defaultLocaleStrings));
+  const actorLookFlowMissing =
+    !!currentActorDraft.lookFlowId.trim() && !availableFlowIdsSet.has(currentActorDraft.lookFlowId.trim());
+  const actorTalkFlowMissing =
+    !!currentActorDraft.talkFlowId.trim() && !availableFlowIdsSet.has(currentActorDraft.talkFlowId.trim());
+  const actorUseFlowMissing =
+    !!currentActorDraft.useFlowId.trim() && !availableFlowIdsSet.has(currentActorDraft.useFlowId.trim());
   const pickupItemMissing =
     currentPickupDraft.itemId.trim().length === 0 ||
     !availableItemIdsSet.has(currentPickupDraft.itemId.trim());
@@ -1165,6 +1474,49 @@ export function EditorApp() {
     }));
   };
 
+  const setActorDraftBoundsFromRect = (bounds: Rect) => {
+    if (!selectedScene || !selectedActor) return;
+    const key = createActorKey(selectedScene.id, selectedActor.id);
+
+    updatePresentWithoutHistory((current) => ({
+      ...current,
+      actorDrafts: {
+        ...current.actorDrafts,
+        [key]: {
+          ...(current.actorDrafts[key] ?? createActorDraft(selectedActor)),
+          height: String(bounds.height),
+          width: String(bounds.width),
+          x: String(bounds.x),
+          y: String(bounds.y)
+        }
+      }
+    }));
+  };
+
+  const setActorDraftSpot = (
+    spot: "interact" | "look",
+    point: ScenePointDraftValue
+  ) => {
+    if (!selectedScene || !selectedActor) return;
+    const key = createActorKey(selectedScene.id, selectedActor.id);
+    const xKey = spot === "interact" ? "interactSpotX" : "lookSpotX";
+    const yKey = spot === "interact" ? "interactSpotY" : "lookSpotY";
+    const enabledKey = spot === "interact" ? "interactSpotEnabled" : "lookSpotEnabled";
+
+    updatePresentWithoutHistory((current) => ({
+      ...current,
+      actorDrafts: {
+        ...current.actorDrafts,
+        [key]: {
+          ...(current.actorDrafts[key] ?? createActorDraft(selectedActor)),
+          [enabledKey]: true,
+          [xKey]: String(point.x),
+          [yKey]: String(point.y)
+        }
+      }
+    }));
+  };
+
   const setSceneDraftPlayerStart = (point: ScenePointDraftValue) => {
     if (!selectedScene) return;
 
@@ -1289,6 +1641,64 @@ export function EditorApp() {
         x: pickup.bounds.x,
         y: pickup.bounds.y
       }
+    });
+  };
+
+  const startActorInteraction = (
+    mode: "move" | "resize",
+    actor: SceneActor,
+    event: ReactPointerEvent
+  ) => {
+    if (
+      !selectedScene ||
+      !canEditViewportScene ||
+      activeSceneTool !== "actor" ||
+      selectedActor?.id !== actor.id
+    )
+      return;
+
+    const startPoint = scenePointFromClient(event.clientX, event.clientY);
+    if (!startPoint) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    setViewportInteraction({
+      baseSession: cloneSessionState(history.present),
+      kind: "actor",
+      mode,
+      startPoint,
+      startRect: {
+        height: actor.bounds.height,
+        width: actor.bounds.width,
+        x: actor.bounds.x,
+        y: actor.bounds.y
+      }
+    });
+  };
+
+  const startActorSpotInteraction = (
+    spot: "interact" | "look",
+    point: ScenePointDraftValue,
+    event: ReactPointerEvent
+  ) => {
+    if (
+      !selectedScene ||
+      !canEditViewportScene ||
+      activeSceneTool !== "actor" ||
+      !selectedActor
+    )
+      return;
+
+    const startPoint = scenePointFromClient(event.clientX, event.clientY);
+    if (!startPoint) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    setViewportInteraction({
+      baseSession: cloneSessionState(history.present),
+      kind: spot === "interact" ? "actor-interact-spot" : "actor-look-spot",
+      startPoint,
+      startPosition: point
     });
   };
 
@@ -1471,21 +1881,48 @@ export function EditorApp() {
         return;
       }
 
-      const nextRect =
-        viewportInteraction.mode === "move"
-          ? moveSceneRect(viewportInteraction.startRect, delta, selectedScene.size)
-          : resizeSceneRectFromBottomRight(
-              viewportInteraction.startRect,
-              delta,
-              selectedScene.size
-            );
-
-      if (viewportInteraction.kind === "hotspot") {
-        setHotspotDraftBoundsFromRect(nextRect);
+      if (viewportInteraction.kind === "actor-interact-spot") {
+        setActorDraftSpot(
+          "interact",
+          moveScenePoint(viewportInteraction.startPosition, delta, selectedScene.size)
+        );
         return;
       }
 
-      setPickupDraftBoundsFromRect(nextRect);
+      if (viewportInteraction.kind === "actor-look-spot") {
+        setActorDraftSpot(
+          "look",
+          moveScenePoint(viewportInteraction.startPosition, delta, selectedScene.size)
+        );
+        return;
+      }
+
+      if (
+        viewportInteraction.kind === "hotspot" ||
+        viewportInteraction.kind === "actor" ||
+        viewportInteraction.kind === "pickup"
+      ) {
+        const nextRect =
+          viewportInteraction.mode === "move"
+            ? moveSceneRect(viewportInteraction.startRect, delta, selectedScene.size)
+            : resizeSceneRectFromBottomRight(
+                viewportInteraction.startRect,
+                delta,
+                selectedScene.size
+              );
+
+        if (viewportInteraction.kind === "hotspot") {
+          setHotspotDraftBoundsFromRect(nextRect);
+          return;
+        }
+
+        if (viewportInteraction.kind === "actor") {
+          setActorDraftBoundsFromRect(nextRect);
+          return;
+        }
+
+        setPickupDraftBoundsFromRect(nextRect);
+      }
     };
 
     const finishInteraction = () => {
@@ -1673,6 +2110,7 @@ export function EditorApp() {
       setWorkspace("narrative");
       updateSessionSelection((current) => ({
         ...current,
+        activeActorId: null,
         activeFlowId: flowId,
         activeHotspotId: null,
         activeItemId: null,
@@ -1702,6 +2140,7 @@ export function EditorApp() {
         present: discardSavedDraft(
           {
             ...current.present,
+            activeActorId: null,
             activeFlowId: nextActiveFlowId,
             activeHotspotId: null,
             activeItemId: null,
@@ -1738,6 +2177,7 @@ export function EditorApp() {
       setWorkspace("scene");
       updateSessionSelection((current) => ({
         ...current,
+        activeActorId: null,
         activeFlowId: null,
         activeHotspotId: null,
         activeItemId: itemId,
@@ -1768,6 +2208,7 @@ export function EditorApp() {
         present: discardSavedDraft(
           {
             ...current.present,
+            activeActorId: null,
             activeFlowId: null,
             activeHotspotId: null,
             activeItemId: nextActiveItemId,
@@ -1798,6 +2239,7 @@ export function EditorApp() {
       setWorkspace("scene");
       updateSessionSelection((current) => ({
         ...current,
+        activeActorId: null,
         activeFlowId: null,
         activeHotspotId: null,
         activeItemId: null,
@@ -1828,6 +2270,7 @@ export function EditorApp() {
         const nextPresent = discardSavedDraft(
           {
             ...current.present,
+            activeActorId: null,
             activeFlowId: null,
             activeHotspotId: null,
             activeItemId: null,
@@ -1848,6 +2291,12 @@ export function EditorApp() {
         for (const key of Object.keys(nextPresent.pickupDrafts)) {
           if (key.startsWith(`${deletedSceneId}::`)) {
             delete nextPresent.pickupDrafts[key];
+          }
+        }
+
+        for (const key of Object.keys(nextPresent.actorDrafts)) {
+          if (key.startsWith(`${deletedSceneId}::`)) {
+            delete nextPresent.actorDrafts[key];
           }
         }
 
@@ -1881,6 +2330,7 @@ export function EditorApp() {
       setWorkspace("scene");
       updateSessionSelection((current) => ({
         ...current,
+        activeActorId: null,
         activeFlowId: null,
         activeHotspotId: hotspotId,
         activeItemId: null,
@@ -1912,6 +2362,7 @@ export function EditorApp() {
         present: discardSavedDraft(
           {
             ...current.present,
+            activeActorId: null,
             activeFlowId: null,
             activeHotspotId: null,
             activeItemId: null,
@@ -1948,6 +2399,7 @@ export function EditorApp() {
       setWorkspace("scene");
       updateSessionSelection((current) => ({
         ...current,
+        activeActorId: null,
         activeFlowId: null,
         activeHotspotId: null,
         activeItemId: null,
@@ -1979,6 +2431,7 @@ export function EditorApp() {
         present: discardSavedDraft(
           {
             ...current.present,
+            activeActorId: null,
             activeFlowId: null,
             activeHotspotId: null,
             activeItemId: null,
@@ -1995,9 +2448,75 @@ export function EditorApp() {
     }
   };
 
+  const createActor = async () => {
+    if (!project || !selectedScene) return;
+
+    const actorId = nextActorId(selectedScene);
+    setStatus(`Creating ${actorId}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        actor: createDefaultActor(selectedScene, actorId),
+        sceneId: selectedScene.id,
+        type: "actor/create"
+      });
+      setProject(snapshot);
+      setWorkspace("scene");
+      updateSessionSelection((current) => ({
+        ...current,
+        activeActorId: actorId,
+        activeFlowId: null,
+        activeHotspotId: null,
+        activeItemId: null,
+        activeLocale: null,
+        activePickupId: null
+      }));
+      setActiveSceneTool("actor");
+      setStatus(`Created ${actorId}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to create actor");
+    }
+  };
+
+  const deleteSelectedActor = async () => {
+    if (!selectedScene || !selectedActor) return;
+
+    const deletedActorId = selectedActor.id;
+    const draftKey = createActorKey(selectedScene.id, deletedActorId);
+    setStatus(`Deleting ${deletedActorId}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        actorId: deletedActorId,
+        sceneId: selectedScene.id,
+        type: "actor/delete"
+      });
+      setProject(snapshot);
+      setWorkspace("scene");
+      setHistory((current) => ({
+        ...current,
+        present: discardSavedDraft(
+          {
+            ...current.present,
+            activeActorId: null,
+            activeFlowId: null,
+            activeHotspotId: null,
+            activeItemId: null,
+            activeLocale: null,
+            activePickupId: null
+          },
+          "actor",
+          draftKey
+        )
+      }));
+      setStatus(`Deleted ${deletedActorId}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to delete actor");
+    }
+  };
+
   const selectScene = (sceneId: string) => {
     updateSessionSelection((current) => ({
       ...current,
+      activeActorId: null,
       activeFlowId: null,
       activeHotspotId: null,
       activeItemId: null,
@@ -2010,6 +2529,7 @@ export function EditorApp() {
   const selectHotspot = (hotspot: Hotspot) => {
     updateSessionSelection((current) => ({
       ...current,
+      activeActorId: null,
       activeFlowId: null,
       activeHotspotId: hotspot.id,
       activeItemId: null,
@@ -2021,6 +2541,7 @@ export function EditorApp() {
   const selectPickup = (pickup: ScenePickup) => {
     updateSessionSelection((current) => ({
       ...current,
+      activeActorId: null,
       activeFlowId: null,
       activeHotspotId: null,
       activeItemId: null,
@@ -2029,9 +2550,22 @@ export function EditorApp() {
     }));
   };
 
+  const selectActor = (actor: SceneActor) => {
+    updateSessionSelection((current) => ({
+      ...current,
+      activeActorId: actor.id,
+      activeFlowId: null,
+      activeHotspotId: null,
+      activeItemId: null,
+      activeLocale: null,
+      activePickupId: null
+    }));
+  };
+
   const selectLocale = (locale: LocaleDocument) => {
     updateSessionSelection((current) => ({
       ...current,
+      activeActorId: null,
       activeFlowId: null,
       activeHotspotId: null,
       activeItemId: null,
@@ -2043,6 +2577,7 @@ export function EditorApp() {
   const selectFlow = (flow: FlowDocument) => {
     updateSessionSelection((current) => ({
       ...current,
+      activeActorId: null,
       activeFlowId: flow.id,
       activeHotspotId: null,
       activeItemId: null,
@@ -2054,6 +2589,7 @@ export function EditorApp() {
   const selectItem = (item: ItemDocument) => {
     updateSessionSelection((current) => ({
       ...current,
+      activeActorId: null,
       activeFlowId: null,
       activeHotspotId: null,
       activeItemId: item.id,
@@ -2088,6 +2624,24 @@ export function EditorApp() {
         ...current.sceneDrafts,
         [selectedScene.id]: {
           ...(current.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene)),
+          [field]: value
+        }
+      }
+    }));
+  };
+
+  const updateActorDraft = <K extends keyof typeof currentActorDraft>(
+    field: K,
+    value: (typeof currentActorDraft)[K]
+  ) => {
+    if (!selectedScene || !selectedActor) return;
+    const key = createActorKey(selectedScene.id, selectedActor.id);
+    updateDraftWithHistory((current) => ({
+      ...current,
+      actorDrafts: {
+        ...current.actorDrafts,
+        [key]: {
+          ...(current.actorDrafts[key] ?? createActorDraft(selectedActor)),
           [field]: value
         }
       }
@@ -2256,6 +2810,57 @@ export function EditorApp() {
         startNodeId: nextStartNodeId
       };
     });
+  };
+
+  const applyActorChanges = async () => {
+    if (!selectedScene || !selectedActor) return;
+
+    const x = parseNumber(currentActorDraft.x);
+    const y = parseNumber(currentActorDraft.y);
+    const width = parsePositiveNumber(currentActorDraft.width);
+    const height = parsePositiveNumber(currentActorDraft.height);
+    const depth = parseNumber(currentActorDraft.depth);
+    const labelKey = currentActorDraft.labelKey.trim();
+
+    if (x === null || y === null || width === null || height === null) {
+      setStatus("Actor bounds must be valid numbers, with width and height above zero");
+      return;
+    }
+    if (depth === null) {
+      setStatus("Actor depth must be a valid number");
+      return;
+    }
+    if (!labelKey) {
+      setStatus("Actor label key is required");
+      return;
+    }
+    if (actorGuardrail.blockingIssues.length > 0) {
+      setStatus(actorGuardrail.blockingIssues[0]!);
+      return;
+    }
+
+    const patch = buildActorFromDraft(selectedActor, currentActorDraft);
+    setStatus(`Saving ${selectedActor.id}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        actorId: selectedActor.id,
+        patch,
+        sceneId: selectedScene.id,
+        type: "actor/update"
+      });
+      setProject(snapshot);
+      setHistory((current) => ({
+        ...current,
+        present: discardSavedDraft(
+          current.present,
+          "actor",
+          createActorKey(selectedScene.id, selectedActor.id)
+        )
+      }));
+      setStatus(`Saved ${selectedActor.id}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to save actor");
+    }
   };
 
   const applyHotspotChanges = async () => {
@@ -2730,7 +3335,7 @@ export function EditorApp() {
             ) : null}
             {scenes.map((scene) => (
               <button
-                className={`tree-item ${session.activeLocale === null && session.activeFlowId === null && !session.activeHotspotId && !session.activePickupId && !session.activeItemId && selectedScene?.id === scene.id ? "selected" : ""}`}
+                className={`tree-item ${session.activeLocale === null && session.activeFlowId === null && !session.activeActorId && !session.activeHotspotId && !session.activePickupId && !session.activeItemId && selectedScene?.id === scene.id ? "selected" : ""}`}
                 key={scene.id}
                 type="button"
                 onClick={() => selectScene(scene.id)}
@@ -2754,6 +3359,25 @@ export function EditorApp() {
               >
                 <span className="scene-dot muted" /> {hotspot.id}
                 {dirtyState.hotspotKeys.has(createHotspotKey(selectedScene.id, hotspot.id)) ? (
+                  <span className="dirty-mark">*</span>
+                ) : null}
+              </button>
+            ))}
+            <div className="tree-group open">Actors ({selectedScene?.actors.length ?? 0})</div>
+            {selectedScene ? (
+              <button className="tree-item tree-child" type="button" onClick={createActor}>
+                <span className="scene-dot muted" /> + New actor
+              </button>
+            ) : null}
+            {selectedScene?.actors.map((actor) => (
+              <button
+                className={`tree-item tree-child ${session.activeActorId === actor.id ? "selected" : ""}`}
+                key={actor.id}
+                type="button"
+                onClick={() => selectActor(actor)}
+              >
+                <span className="scene-dot muted" /> {actor.id}
+                {dirtyState.actorKeys.has(createActorKey(selectedScene.id, actor.id)) ? (
                   <span className="dirty-mark">*</span>
                 ) : null}
               </button>
@@ -3157,6 +3781,82 @@ export function EditorApp() {
                       </g>
                     ))}
                   </svg>
+                ) : null}
+                {previewActors.map((actor) => (
+                  (() => {
+                    const actorIssues = previewActorIssueMap[actor.id];
+                    return (
+                  <button
+                    className={`actor-box ${selectedActor?.id === actor.id ? "selected" : ""} ${actorIssues?.hasIssues ? `has-issues ${actorIssues.tone}` : ""}`}
+                    key={actor.id}
+                    type="button"
+                    onClick={() => selectActor(actor)}
+                    onPointerDown={(event) => startActorInteraction("move", actor, event)}
+                    style={{
+                      height: `${(actor.bounds.height / selectedScene.size.height) * 100}%`,
+                      left: `${(actor.bounds.x / selectedScene.size.width) * 100}%`,
+                      top: `${(actor.bounds.y / selectedScene.size.height) * 100}%`,
+                      width: `${(actor.bounds.width / selectedScene.size.width) * 100}%`,
+                      zIndex: actor.depth
+                    }}
+                    title={
+                      actorIssues?.hasIssues
+                        ? actorIssues.detail
+                        : activeSceneTool === "actor"
+                        ? "Click to inspect, drag to move"
+                        : "Switch to Actors to move or resize"
+                    }
+                  >
+                    <span className="viewport-label">
+                      actor: {actor.id}
+                      {actorIssues?.hasIssues ? (
+                        <span className={`viewport-issue-badge ${actorIssues.tone}`}>
+                          {actorIssues.issueCount}
+                        </span>
+                      ) : null}
+                    </span>
+                    {selectedActor?.id === actor.id ? (
+                      <span
+                        className="viewport-resize-handle"
+                        onClick={(event) => event.stopPropagation()}
+                        onPointerDown={(event) => startActorInteraction("resize", actor, event)}
+                      />
+                    ) : null}
+                  </button>
+                    );
+                  })()
+                ))}
+                {previewSelectedActor?.interactSpot ? (
+                  <button
+                    className="viewport-spot actor-interact-spot"
+                    type="button"
+                    style={{
+                      left: `${(previewSelectedActor.interactSpot.x / selectedScene.size.width) * 100}%`,
+                      top: `${(previewSelectedActor.interactSpot.y / selectedScene.size.height) * 100}%`
+                    }}
+                    title="Actor interact spot"
+                    onPointerDown={(event) =>
+                      startActorSpotInteraction("interact", previewSelectedActor.interactSpot!, event)
+                    }
+                  >
+                    I
+                  </button>
+                ) : null}
+                {previewSelectedActor?.lookSpot ? (
+                  <button
+                    className="viewport-spot actor-look-spot"
+                    type="button"
+                    style={{
+                      left: `${(previewSelectedActor.lookSpot.x / selectedScene.size.width) * 100}%`,
+                      top: `${(previewSelectedActor.lookSpot.y / selectedScene.size.height) * 100}%`
+                    }}
+                    title="Actor look spot"
+                    onPointerDown={(event) =>
+                      startActorSpotInteraction("look", previewSelectedActor.lookSpot!, event)
+                    }
+                  >
+                    L
+                  </button>
                 ) : null}
                 <div
                   className="character"
@@ -3598,6 +4298,224 @@ export function EditorApp() {
                     }
                   >
                     Add or update
+                  </button>
+                </div>
+              </>
+            ) : selectedActor ? (
+              <>
+                <label>
+                  Actor
+                  <input value={selectedActor.id} readOnly />
+                </label>
+                <label>
+                  Role
+                  <select
+                    value={currentActorDraft.role}
+                    onChange={(event) =>
+                      updateActorDraft("role", event.target.value as SceneActorRole)
+                    }
+                  >
+                    <option value="prop">Prop</option>
+                    <option value="pickup">Pickup</option>
+                    <option value="npc">NPC</option>
+                    <option value="exit">Exit</option>
+                    <option value="decoration">Decoration</option>
+                  </select>
+                </label>
+                <label>
+                  Display label
+                  <input
+                    className={actorLabelMissing ? "field-input-invalid" : ""}
+                    ref={actorLabelInputRef}
+                    value={currentActorDraft.labelKey}
+                    onChange={(event) => updateActorDraft("labelKey", event.target.value)}
+                  />
+                  {actorLabelMissing ? (
+                    <small className="field-hint error">
+                      {currentActorDraft.labelKey.trim().length === 0
+                        ? "Actor label key is required."
+                        : `Label key is missing in ${defaultLocaleId}.`}
+                    </small>
+                  ) : null}
+                </label>
+                <label>
+                  Asset
+                  <select
+                    className={actorAssetMissing ? "field-input-invalid" : ""}
+                    ref={actorAssetRef}
+                    value={currentActorDraft.assetId}
+                    onChange={(event) => updateActorDraft("assetId", event.target.value)}
+                  >
+                    <option value="">Debug bounds only</option>
+                    {availableAssetIds.map((assetId) => (
+                      <option key={`actor-asset-${assetId}`} value={assetId}>
+                        {assetId}
+                      </option>
+                    ))}
+                  </select>
+                  {actorAssetMissing ? (
+                    <small className="field-hint error">Selected actor asset no longer exists.</small>
+                  ) : null}
+                </label>
+                <div className="field-group">
+                  <span>Bounds and depth</span>
+                  <div className="four-fields">
+                    <input
+                      aria-label="Actor X"
+                      value={currentActorDraft.x}
+                      onChange={(event) => updateActorDraft("x", event.target.value)}
+                    />
+                    <input
+                      aria-label="Actor Y"
+                      value={currentActorDraft.y}
+                      onChange={(event) => updateActorDraft("y", event.target.value)}
+                    />
+                    <input
+                      aria-label="Actor Width"
+                      value={currentActorDraft.width}
+                      onChange={(event) => updateActorDraft("width", event.target.value)}
+                    />
+                    <input
+                      aria-label="Actor Height"
+                      value={currentActorDraft.height}
+                      onChange={(event) => updateActorDraft("height", event.target.value)}
+                    />
+                  </div>
+                  <input
+                    aria-label="Actor depth"
+                    value={currentActorDraft.depth}
+                    onChange={(event) => updateActorDraft("depth", event.target.value)}
+                  />
+                </div>
+                <div className="field-group">
+                  <span>Interaction spots</span>
+                  <label className="checkbox-line">
+                    <input
+                      checked={currentActorDraft.interactSpotEnabled}
+                      type="checkbox"
+                      onChange={(event) =>
+                        updateActorDraft("interactSpotEnabled", event.target.checked)
+                      }
+                    />
+                    Interact spot
+                  </label>
+                  <div className="four-fields">
+                    <input
+                      aria-label="Interact spot X"
+                      disabled={!currentActorDraft.interactSpotEnabled}
+                      value={currentActorDraft.interactSpotX}
+                      onChange={(event) => updateActorDraft("interactSpotX", event.target.value)}
+                    />
+                    <input
+                      aria-label="Interact spot Y"
+                      disabled={!currentActorDraft.interactSpotEnabled}
+                      value={currentActorDraft.interactSpotY}
+                      onChange={(event) => updateActorDraft("interactSpotY", event.target.value)}
+                    />
+                  </div>
+                  <label className="checkbox-line">
+                    <input
+                      checked={currentActorDraft.lookSpotEnabled}
+                      type="checkbox"
+                      onChange={(event) =>
+                        updateActorDraft("lookSpotEnabled", event.target.checked)
+                      }
+                    />
+                    Look spot
+                  </label>
+                  <div className="four-fields">
+                    <input
+                      aria-label="Look spot X"
+                      disabled={!currentActorDraft.lookSpotEnabled}
+                      value={currentActorDraft.lookSpotX}
+                      onChange={(event) => updateActorDraft("lookSpotX", event.target.value)}
+                    />
+                    <input
+                      aria-label="Look spot Y"
+                      disabled={!currentActorDraft.lookSpotEnabled}
+                      value={currentActorDraft.lookSpotY}
+                      onChange={(event) => updateActorDraft("lookSpotY", event.target.value)}
+                    />
+                  </div>
+                </div>
+                <label>
+                  Look flow
+                  <select
+                    className={actorLookFlowMissing ? "field-input-invalid" : ""}
+                    ref={actorLookFlowRef}
+                    value={currentActorDraft.lookFlowId}
+                    onChange={(event) => updateActorDraft("lookFlowId", event.target.value)}
+                  >
+                    <option value="">None</option>
+                    {availableFlowIds.map((flowId) => (
+                      <option key={`actor-look-${flowId}`} value={flowId}>
+                        {flowId}
+                      </option>
+                    ))}
+                  </select>
+                  {actorLookFlowMissing ? (
+                    <small className="field-hint error">Selected look flow no longer exists.</small>
+                  ) : null}
+                </label>
+                <label>
+                  Talk flow
+                  <select
+                    className={actorTalkFlowMissing ? "field-input-invalid" : ""}
+                    ref={actorTalkFlowRef}
+                    value={currentActorDraft.talkFlowId}
+                    onChange={(event) => updateActorDraft("talkFlowId", event.target.value)}
+                  >
+                    <option value="">None</option>
+                    {availableFlowIds.map((flowId) => (
+                      <option key={`actor-talk-${flowId}`} value={flowId}>
+                        {flowId}
+                      </option>
+                    ))}
+                  </select>
+                  {actorTalkFlowMissing ? (
+                    <small className="field-hint error">Selected talk flow no longer exists.</small>
+                  ) : null}
+                </label>
+                <label>
+                  Use flow
+                  <select
+                    className={actorUseFlowMissing ? "field-input-invalid" : ""}
+                    ref={actorUseFlowRef}
+                    value={currentActorDraft.useFlowId}
+                    onChange={(event) => updateActorDraft("useFlowId", event.target.value)}
+                  >
+                    <option value="">None</option>
+                    {availableFlowIds.map((flowId) => (
+                      <option key={`actor-use-${flowId}`} value={flowId}>
+                        {flowId}
+                      </option>
+                    ))}
+                  </select>
+                  {actorUseFlowMissing ? (
+                    <small className="field-hint error">Selected use flow no longer exists.</small>
+                  ) : null}
+                </label>
+                <div className="flow-link">
+                  <span>Reference guardrails</span>
+                  <div className="flow-status-line">
+                    <span className={`capability-badge ${actorGuardrail.tone}`}>{actorGuardrail.badge}</span>
+                  </div>
+                  <strong>{actorGuardrail.summary}</strong>
+                  <p className="inspector-copy">{actorGuardrail.detail}</p>
+                </div>
+                <div className="flow-link">
+                  <span>Scene actor</span>
+                  <strong>
+                    {currentActorDraft.role} / depth {currentActorDraft.depth || "0"}
+                    {selectedScene && dirtyState.actorKeys.has(createActorKey(selectedScene.id, selectedActor.id))
+                      ? " - unsaved draft"
+                      : ""}
+                  </strong>
+                  <button type="button" onClick={deleteSelectedActor}>
+                    Delete actor
+                  </button>
+                  <button type="button" onClick={applyActorChanges}>
+                    Apply changes -&gt;
                   </button>
                 </div>
               </>
@@ -4081,6 +4999,9 @@ export function EditorApp() {
                   </strong>
                   <button type="button" onClick={deleteSelectedScene}>
                     Delete scene
+                  </button>
+                  <button type="button" onClick={createActor}>
+                    Add actor
                   </button>
                   <button type="button" onClick={applySceneChanges}>
                     Apply changes -&gt;

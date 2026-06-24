@@ -148,6 +148,108 @@ describe("loadProjectFromDirectory", () => {
     expect(scene.hotspots.some((entry) => entry.id === "tavern-entrance")).toBe(false);
   });
 
+  it("creates, updates, and deletes actors in the scene document", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+
+    const created = await applyProjectCommand(projectRoot, {
+      type: "actor/create",
+      actor: {
+        actions: {
+          lookFlowId: "look-tavern-door",
+          useItemFlows: []
+        },
+        bounds: {
+          x: 500,
+          y: 350,
+          width: 120,
+          height: 90
+        },
+        depth: 12,
+        id: "desk-drawer",
+        interactSpot: {
+          x: 560,
+          y: 470
+        },
+        labelKey: "actor.desk-drawer",
+        role: "prop"
+      },
+      sceneId: "moonlit-dock"
+    });
+
+    const createdScene = created.bundle.scenes["moonlit-dock"];
+    expect(createdScene?.type).toBe("layered-2d");
+    if (!createdScene || createdScene.type !== "layered-2d") {
+      throw new Error("Expected layered 2D scene");
+    }
+    expect(createdScene.actors.some((entry) => entry.id === "desk-drawer")).toBe(true);
+
+    const updated = await applyProjectCommand(projectRoot, {
+      type: "actor/update",
+      actorId: "desk-drawer",
+      patch: {
+        actions: {
+          talkFlowId: "talk-tavern-door",
+          useItemFlows: []
+        },
+        bounds: {
+          x: 510,
+          y: 360,
+          width: 130,
+          height: 95
+        },
+        depth: 18,
+        id: "desk-drawer",
+        interactSpot: {
+          x: 575,
+          y: 480
+        },
+        labelKey: "actor.desk-drawer-updated",
+        lookSpot: {
+          x: 575,
+          y: 380
+        },
+        role: "prop"
+      },
+      sceneId: "moonlit-dock"
+    });
+
+    const updatedScene = updated.bundle.scenes["moonlit-dock"];
+    expect(updatedScene?.type).toBe("layered-2d");
+    if (!updatedScene || updatedScene.type !== "layered-2d") {
+      throw new Error("Expected layered 2D scene");
+    }
+    expect(updatedScene.actors.find((entry) => entry.id === "desk-drawer")).toMatchObject({
+      depth: 18,
+      labelKey: "actor.desk-drawer-updated",
+      lookSpot: {
+        x: 575,
+        y: 380
+      }
+    });
+
+    const deleted = await applyProjectCommand(projectRoot, {
+      type: "actor/delete",
+      actorId: "desk-drawer",
+      sceneId: "moonlit-dock"
+    });
+
+    const deletedScene = deleted.bundle.scenes["moonlit-dock"];
+    expect(deletedScene?.type).toBe("layered-2d");
+    if (!deletedScene || deletedScene.type !== "layered-2d") {
+      throw new Error("Expected layered 2D scene");
+    }
+    expect(deletedScene.actors.some((entry) => entry.id === "desk-drawer")).toBe(false);
+
+    const sceneFile = JSON.parse(
+      await readFile(path.join(projectRoot, "scenes", "moonlit-dock.scene.json"), "utf8")
+    ) as { actors: Array<{ id: string }> };
+    expect(sceneFile.actors.some((entry) => entry.id === "desk-drawer")).toBe(false);
+  });
+
   it("persists scene inspector edits back to the scene document", async () => {
     const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
     const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));

@@ -55,6 +55,8 @@ export interface PickupPatch {
   pickupFlowId?: string;
 }
 
+export type ActorPatch = SceneActor;
+
 export interface ScenePatch {
   background: string;
   name: string;
@@ -159,6 +161,25 @@ export type PickupDeleteCommand = {
   sceneId: string;
 };
 
+export type ActorUpdateCommand = {
+  type: "actor/update";
+  actorId: string;
+  patch: ActorPatch;
+  sceneId: string;
+};
+
+export type ActorCreateCommand = {
+  type: "actor/create";
+  actor: SceneActor;
+  sceneId: string;
+};
+
+export type ActorDeleteCommand = {
+  type: "actor/delete";
+  actorId: string;
+  sceneId: string;
+};
+
 export type LocaleUpsertCommand = {
   type: "locale/upsert";
   locale: string;
@@ -236,6 +257,9 @@ export type EditorProjectCommand =
   | PickupUpdateCommand
   | PickupCreateCommand
   | PickupDeleteCommand
+  | ActorUpdateCommand
+  | ActorCreateCommand
+  | ActorDeleteCommand
   | LocaleUpsertCommand
   | LocaleDeleteCommand
   | FlowUpdateCommand
@@ -1113,6 +1137,46 @@ function removePickup(scene: Layered2DScene, pickupId: string): Layered2DScene {
   };
 }
 
+function patchActor(scene: Layered2DScene, actorId: string, patch: ActorPatch): Layered2DScene {
+  const index = scene.actors.findIndex((actor) => actor.id === actorId);
+  if (index < 0) {
+    throw new Error(`Actor "${actorId}" was not found in scene "${scene.id}"`);
+  }
+  if (patch.id !== actorId) {
+    throw new Error(`Actor patch id "${patch.id}" must match actor "${actorId}"`);
+  }
+
+  const actors = [...scene.actors];
+  actors[index] = patch;
+  return {
+    ...scene,
+    actors
+  };
+}
+
+function addActor(scene: Layered2DScene, actor: SceneActor): Layered2DScene {
+  if (scene.actors.some((entry) => entry.id === actor.id)) {
+    throw new Error(`Actor "${actor.id}" already exists in scene "${scene.id}"`);
+  }
+
+  return {
+    ...scene,
+    actors: [...scene.actors, actor]
+  };
+}
+
+function removeActor(scene: Layered2DScene, actorId: string): Layered2DScene {
+  const index = scene.actors.findIndex((actor) => actor.id === actorId);
+  if (index < 0) {
+    throw new Error(`Actor "${actorId}" was not found in scene "${scene.id}"`);
+  }
+
+  return {
+    ...scene,
+    actors: scene.actors.filter((actor) => actor.id !== actorId)
+  };
+}
+
 function replaceSceneBackground(scene: Layered2DScene, currentPath: string, nextPath: string): Layered2DScene {
   if (scene.background !== currentPath) {
     return scene;
@@ -1402,6 +1466,48 @@ export async function applyProjectCommand(
     }
 
     const nextScene = removePickup(scene, command.pickupId);
+    assertDocument<Layered2DScene>("layered2dScene", nextScene);
+    await writeJson(scenePathFor(project, command.sceneId), nextScene);
+  }
+
+  if (command.type === "actor/update") {
+    const scene = project.bundle.scenes[command.sceneId];
+    if (!scene) {
+      throw new Error(`Scene "${command.sceneId}" was not found in the loaded project`);
+    }
+    if (scene.type !== "layered-2d") {
+      throw new Error(`Scene "${command.sceneId}" does not support actor editing yet`);
+    }
+
+    const nextScene = patchActor(scene, command.actorId, command.patch);
+    assertDocument<Layered2DScene>("layered2dScene", nextScene);
+    await writeJson(scenePathFor(project, command.sceneId), nextScene);
+  }
+
+  if (command.type === "actor/create") {
+    const scene = project.bundle.scenes[command.sceneId];
+    if (!scene) {
+      throw new Error(`Scene "${command.sceneId}" was not found in the loaded project`);
+    }
+    if (scene.type !== "layered-2d") {
+      throw new Error(`Scene "${command.sceneId}" does not support actor editing yet`);
+    }
+
+    const nextScene = addActor(scene, command.actor);
+    assertDocument<Layered2DScene>("layered2dScene", nextScene);
+    await writeJson(scenePathFor(project, command.sceneId), nextScene);
+  }
+
+  if (command.type === "actor/delete") {
+    const scene = project.bundle.scenes[command.sceneId];
+    if (!scene) {
+      throw new Error(`Scene "${command.sceneId}" was not found in the loaded project`);
+    }
+    if (scene.type !== "layered-2d") {
+      throw new Error(`Scene "${command.sceneId}" does not support actor editing yet`);
+    }
+
+    const nextScene = removeActor(scene, command.actorId);
     assertDocument<Layered2DScene>("layered2dScene", nextScene);
     await writeJson(scenePathFor(project, command.sceneId), nextScene);
   }

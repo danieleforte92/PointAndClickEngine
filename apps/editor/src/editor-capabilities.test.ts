@@ -27,12 +27,15 @@ describe("editor capabilities", () => {
 
   it("surfaces viewport tools that are already usable in the scene editor", () => {
     const hotspot = toolCapabilities.find((capability) => capability.id === "tool-hotspot");
+    const actor = toolCapabilities.find((capability) => capability.id === "tool-actor");
     const pickup = toolCapabilities.find((capability) => capability.id === "tool-pickup");
     const playerStart = toolCapabilities.find((capability) => capability.id === "tool-player-start");
     const walkArea = toolCapabilities.find((capability) => capability.id === "tool-walk-area");
 
     expect(hotspot?.status).toBe("beta");
     expect(hotspot?.detail).toContain("dragged");
+    expect(actor?.status).toBe("beta");
+    expect(actor?.summary).toContain("visible props");
     expect(pickup?.status).toBe("beta");
     expect(playerStart?.status).toBe("beta");
     expect(walkArea?.status).toBe("beta");
