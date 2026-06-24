@@ -8,6 +8,8 @@ import type {
   Layered2DScene,
   LocaleDocument,
   Polygon2,
+  SceneActor,
+  SceneActorRole,
   ScenePickup,
   SceneDocument
 } from "@pointclick/contracts";
@@ -34,6 +36,33 @@ export interface PickupDraft {
   itemId: string;
   labelKey: string;
   pickupFlowId: string;
+  width: string;
+  x: string;
+  y: string;
+}
+
+export interface ActorDraft {
+  assetId: string;
+  cursor: string;
+  depth: string;
+  height: string;
+  interactSpotEnabled: boolean;
+  interactSpotX: string;
+  interactSpotY: string;
+  labelKey: string;
+  lookFlowId: string;
+  lookSpotEnabled: boolean;
+  lookSpotX: string;
+  lookSpotY: string;
+  role: SceneActorRole;
+  talkFlowId: string;
+  useFlowId: string;
+  useItemFlows: Array<{ itemId: string; flowId: string }>;
+  visibleFlagKey: string;
+  visibleFlagValue: string;
+  visibleFlagValueKind: FlagValueKind;
+  visibleItemId: string;
+  visibleWhenType: "none" | "flag-equals" | "item-in-inventory";
   width: string;
   x: string;
   y: string;
@@ -89,6 +118,7 @@ export interface LocaleEntryDraft {
 }
 
 export interface EditorProjectData {
+  activeActorId: string | null;
   activeFlowId: string | null;
   activeHotspotId: string | null;
   activeItemId: string | null;
@@ -103,12 +133,14 @@ export interface EditorProjectData {
 }
 
 export interface EditorSessionState {
+  activeActorId: string | null;
   activeFlowId: string | null;
   activeHotspotId: string | null;
   activeItemId: string | null;
   activeLocale: string | null;
   activePickupId: string | null;
   activeSceneId: string | null;
+  actorDrafts: Record<string, ActorDraft>;
   flowDrafts: Record<string, FlowDraft>;
   hotspotDrafts: Record<string, HotspotDraft>;
   itemDrafts: Record<string, ItemDraft>;
@@ -131,6 +163,7 @@ export interface EditorRecoverySnapshot {
 }
 
 export interface DirtyState {
+  actorKeys: Set<string>;
   count: number;
   flowIds: Set<string>;
   hotspotKeys: Set<string>;
@@ -185,6 +218,41 @@ export function createPickupDraft(pickup: ScenePickup | null): PickupDraft {
     width: pickup ? String(pickup.bounds.width) : "",
     x: pickup ? String(pickup.bounds.x) : "",
     y: pickup ? String(pickup.bounds.y) : ""
+  };
+}
+
+export function createActorDraft(actor: SceneActor | null): ActorDraft {
+  const visibleWhen = actor?.visibleWhen;
+  const visibleWhenType = visibleWhen?.type ?? "none";
+  return {
+    assetId: actor?.assetId ?? "",
+    cursor: "",
+    depth: actor ? String(actor.depth) : "0",
+    height: actor ? String(actor.bounds.height) : "",
+    interactSpotEnabled: actor?.interactSpot !== undefined,
+    interactSpotX: actor?.interactSpot ? String(actor.interactSpot.x) : "",
+    interactSpotY: actor?.interactSpot ? String(actor.interactSpot.y) : "",
+    labelKey: actor?.labelKey ?? "",
+    lookFlowId: actor?.actions.lookFlowId ?? "",
+    lookSpotEnabled: actor?.lookSpot !== undefined,
+    lookSpotX: actor?.lookSpot ? String(actor.lookSpot.x) : "",
+    lookSpotY: actor?.lookSpot ? String(actor.lookSpot.y) : "",
+    role: actor?.role ?? "prop",
+    talkFlowId: actor?.actions.talkFlowId ?? "",
+    useFlowId: actor?.actions.useFlowId ?? "",
+    useItemFlows:
+      actor?.actions.useItemFlows.map((entry) => ({
+        itemId: entry.itemId,
+        flowId: entry.flowId
+      })) ?? [],
+    visibleFlagKey: visibleWhen?.type === "flag-equals" ? visibleWhen.key : "",
+    visibleFlagValue: visibleWhen?.type === "flag-equals" ? String(visibleWhen.value) : "",
+    visibleFlagValueKind: visibleWhen?.type === "flag-equals" ? inferFlagValueKind(visibleWhen.value) : "boolean",
+    visibleItemId: visibleWhen?.type === "item-in-inventory" ? visibleWhen.itemId : "",
+    visibleWhenType,
+    width: actor ? String(actor.bounds.width) : "",
+    x: actor ? String(actor.bounds.x) : "",
+    y: actor ? String(actor.bounds.y) : ""
   };
 }
 
@@ -272,6 +340,78 @@ export function buildHotspotUseItemFlows(
       flowId: entry.flowId.trim()
     }))
     .filter((entry) => entry.itemId.length > 0 && entry.flowId.length > 0);
+}
+
+export function buildActorFromDraft(actor: SceneActor, draft: ActorDraft): SceneActor {
+  const x = parseNumber(draft.x);
+  const y = parseNumber(draft.y);
+  const width = parsePositiveNumber(draft.width);
+  const height = parsePositiveNumber(draft.height);
+  const depth = parseNumber(draft.depth);
+  const interactSpotX = parseNumber(draft.interactSpotX);
+  const interactSpotY = parseNumber(draft.interactSpotY);
+  const lookSpotX = parseNumber(draft.lookSpotX);
+  const lookSpotY = parseNumber(draft.lookSpotY);
+
+  const nextActor: SceneActor = {
+    ...actor,
+    actions: {
+      useItemFlows: buildHotspotUseItemFlows(draft.useItemFlows)
+    },
+    bounds:
+      x === null || y === null || width === null || height === null
+        ? actor.bounds
+        : { x, y, width, height },
+    depth: depth ?? actor.depth,
+    labelKey: draft.labelKey,
+    role: draft.role
+  };
+
+  const assetId = draft.assetId.trim();
+  if (assetId) {
+    nextActor.assetId = assetId;
+  } else {
+    delete nextActor.assetId;
+  }
+
+  if (draft.lookFlowId.trim()) nextActor.actions.lookFlowId = draft.lookFlowId.trim();
+  if (draft.talkFlowId.trim()) nextActor.actions.talkFlowId = draft.talkFlowId.trim();
+  if (draft.useFlowId.trim()) nextActor.actions.useFlowId = draft.useFlowId.trim();
+
+  if (draft.interactSpotEnabled && interactSpotX !== null && interactSpotY !== null) {
+    nextActor.interactSpot = { x: interactSpotX, y: interactSpotY };
+  } else {
+    delete nextActor.interactSpot;
+  }
+
+  if (draft.lookSpotEnabled && lookSpotX !== null && lookSpotY !== null) {
+    nextActor.lookSpot = { x: lookSpotX, y: lookSpotY };
+  } else {
+    delete nextActor.lookSpot;
+  }
+
+  if (draft.visibleWhenType === "flag-equals" && draft.visibleFlagKey.trim()) {
+    let value: string | number | boolean = draft.visibleFlagValue;
+    if (draft.visibleFlagValueKind === "boolean") {
+      value = draft.visibleFlagValue.trim().toLowerCase() === "true";
+    } else if (draft.visibleFlagValueKind === "number") {
+      value = Number(draft.visibleFlagValue);
+    }
+    nextActor.visibleWhen = {
+      key: draft.visibleFlagKey.trim(),
+      type: "flag-equals",
+      value
+    };
+  } else if (draft.visibleWhenType === "item-in-inventory" && draft.visibleItemId.trim()) {
+    nextActor.visibleWhen = {
+      itemId: draft.visibleItemId.trim(),
+      type: "item-in-inventory"
+    };
+  } else {
+    delete nextActor.visibleWhen;
+  }
+
+  return nextActor;
 }
 
 export function parsePositiveNumber(value: string): number | null {
@@ -450,12 +590,14 @@ export function sessionEquals(left: EditorSessionState, right: EditorSessionStat
 
 export function initializeEditorSession(project: EditorProjectData): EditorSessionState {
   return {
+    activeActorId: project.activeActorId,
     activeFlowId: null,
     activeHotspotId: project.activeHotspotId,
     activeItemId: project.activeItemId,
     activeLocale: null,
     activePickupId: project.activePickupId,
     activeSceneId: project.activeSceneId,
+    actorDrafts: {},
     flowDrafts: {},
     hotspotDrafts: {},
     itemDrafts: {},
@@ -528,6 +670,20 @@ function findHotspot(
   return scene.hotspots.find((hotspot) => hotspot.id === hotspotId) ?? null;
 }
 
+function actorKey(sceneId: string, actorId: string): string {
+  return `${sceneId}::actor::${actorId}`;
+}
+
+function findActor(
+  project: EditorProjectData,
+  sceneId: string | null,
+  actorId: string | null
+): SceneActor | null {
+  const scene = findScene(project, sceneId);
+  if (!scene || !actorId) return null;
+  return scene.actors.find((actor) => actor.id === actorId) ?? null;
+}
+
 function findLocale(project: EditorProjectData, localeId: string | null): LocaleDocument | null {
   if (!localeId) return null;
   return project.locales.find((locale) => locale.locale === localeId) ?? null;
@@ -569,12 +725,22 @@ function localeEntriesEqual(left: Record<string, string>, right: Record<string, 
 }
 
 export function getDirtyState(project: EditorProjectData, session: EditorSessionState): DirtyState {
+  const actorKeys = new Set<string>();
   const flowIds = new Set<string>();
   const hotspotKeys = new Set<string>();
   const itemIds = new Set<string>();
   const localeIds = new Set<string>();
   const pickupKeys = new Set<string>();
   const sceneIds = new Set<string>();
+
+  for (const [key, draft] of Object.entries(session.actorDrafts)) {
+    const [sceneId, kind, actorId] = key.split("::");
+    if (!sceneId || kind !== "actor" || !actorId) continue;
+    const actor = findActor(project, sceneId, actorId);
+    if (actor && JSON.stringify(draft) !== JSON.stringify(createActorDraft(actor))) {
+      actorKeys.add(key);
+    }
+  }
 
   for (const [sceneId, draft] of Object.entries(session.sceneDrafts)) {
     const scene = findScene(project, sceneId);
@@ -629,7 +795,15 @@ export function getDirtyState(project: EditorProjectData, session: EditorSession
   }
 
   return {
-    count: flowIds.size + hotspotKeys.size + itemIds.size + localeIds.size + pickupKeys.size + sceneIds.size,
+    actorKeys,
+    count:
+      actorKeys.size +
+      flowIds.size +
+      hotspotKeys.size +
+      itemIds.size +
+      localeIds.size +
+      pickupKeys.size +
+      sceneIds.size,
     flowIds,
     hotspotKeys,
     itemIds,
@@ -648,12 +822,14 @@ export function buildRecoverySnapshot(
   if (dirty.count === 0) return null;
 
   const recoverySession: EditorSessionState = {
+    activeActorId: session.activeActorId,
     activeFlowId: session.activeFlowId,
     activeHotspotId: session.activeHotspotId,
     activeItemId: session.activeItemId,
     activeLocale: session.activeLocale,
     activePickupId: session.activePickupId,
     activeSceneId: session.activeSceneId,
+    actorDrafts: {},
     flowDrafts: {},
     hotspotDrafts: {},
     itemDrafts: {},
@@ -662,6 +838,12 @@ export function buildRecoverySnapshot(
     pickupDrafts: {},
     sceneDrafts: {}
   };
+
+  for (const key of dirty.actorKeys) {
+    recoverySession.actorDrafts[key] = {
+      ...session.actorDrafts[key]!
+    };
+  }
 
   for (const flowId of dirty.flowIds) {
     recoverySession.flowDrafts[flowId] = cloneSessionState({
@@ -723,12 +905,14 @@ export function restoreSessionFromRecovery(
   const base = initializeEditorSession(project);
   return {
     ...base,
+    activeActorId: recovery.session.activeActorId ?? base.activeActorId,
     activeFlowId: recovery.session.activeFlowId ?? base.activeFlowId,
     activeHotspotId: recovery.session.activeHotspotId ?? base.activeHotspotId,
     activeItemId: recovery.session.activeItemId ?? base.activeItemId,
     activeLocale: recovery.session.activeLocale ?? base.activeLocale,
     activePickupId: recovery.session.activePickupId ?? base.activePickupId,
     activeSceneId: recovery.session.activeSceneId ?? base.activeSceneId,
+    actorDrafts: { ...recovery.session.actorDrafts },
     flowDrafts: { ...recovery.session.flowDrafts },
     hotspotDrafts: { ...recovery.session.hotspotDrafts },
     itemDrafts: { ...recovery.session.itemDrafts },
@@ -741,10 +925,11 @@ export function restoreSessionFromRecovery(
 
 export function discardSavedDraft(
   session: EditorSessionState,
-  kind: "flow" | "hotspot" | "item" | "locale" | "pickup" | "scene",
+  kind: "actor" | "flow" | "hotspot" | "item" | "locale" | "pickup" | "scene",
   id: string
 ): EditorSessionState {
   const next = cloneSessionState(session);
+  if (kind === "actor") delete next.actorDrafts[id];
   if (kind === "flow") delete next.flowDrafts[id];
   if (kind === "hotspot") delete next.hotspotDrafts[id];
   if (kind === "item") delete next.itemDrafts[id];
@@ -759,6 +944,10 @@ export function discardSavedDraft(
 
 export function createHotspotKey(sceneId: string, hotspotId: string): string {
   return hotspotKey(sceneId, hotspotId);
+}
+
+export function createActorKey(sceneId: string, actorId: string): string {
+  return actorKey(sceneId, actorId);
 }
 
 export function createPickupKey(sceneId: string, pickupId: string): string {

@@ -74,6 +74,7 @@ import { createValidationReport } from "../validation-report";
 
 const emptyHistory = createHistoryState(
   initializeEditorSession({
+    activeActorId: null,
     activeFlowId: null,
     activeHotspotId: null,
     activeItemId: null,

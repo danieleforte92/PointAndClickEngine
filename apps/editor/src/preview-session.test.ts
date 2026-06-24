@@ -40,7 +40,19 @@ const scene: SceneDocument = {
       { x: 1280, y: 720 }
     ]
   },
-  actors: [],
+  actors: [
+    {
+      actions: {
+        lookFlowId: "look-door",
+        useItemFlows: []
+      },
+      bounds: { x: 100, y: 320, width: 80, height: 90 },
+      depth: 6,
+      id: "radio",
+      labelKey: "actor.radio",
+      role: "prop"
+    }
+  ],
   pickups: [
     {
       id: "dock-hook",
@@ -85,6 +97,7 @@ const locale: LocaleDocument = {
   locale: "en",
   strings: {
     "dialogue.look-door": "The door looks solid.",
+    "actor.radio": "Radio",
     "hotspot.tavern-door": "The Lantern & Gull",
     "item.rusty-hook": "Rusty Hook",
     "pickup.rusty-hook": "Rusty Hook"
@@ -99,6 +112,7 @@ const item: ItemDocument = {
 };
 
 const snapshot: EditorProjectSnapshot = {
+  activeActorId: "radio",
   activeAssetId: null,
   activeFlowId: flow.id,
   activeHotspotId: "tavern-door",
@@ -120,6 +134,7 @@ const snapshot: EditorProjectSnapshot = {
   promptPackCount: 0,
   promptPacks: [],
   selectedAsset: null,
+  selectedActor: scene.actors[0]!,
   sceneCount: 1,
   scenes: [scene],
   selectedFlow: flow,
@@ -155,6 +170,32 @@ describe("buildDraftProjectBundle", () => {
       width: "120",
       x: "890",
       y: "330"
+    };
+    session.actorDrafts[`${scene.id}::actor::radio`] = {
+      assetId: "",
+      cursor: "",
+      depth: "9",
+      height: "96",
+      interactSpotEnabled: true,
+      interactSpotX: "150",
+      interactSpotY: "560",
+      labelKey: "actor.radio.updated",
+      lookFlowId: "look-door",
+      lookSpotEnabled: true,
+      lookSpotX: "140",
+      lookSpotY: "330",
+      role: "prop",
+      talkFlowId: "",
+      useFlowId: "",
+      useItemFlows: [],
+      visibleFlagKey: "",
+      visibleFlagValue: "",
+      visibleFlagValueKind: "boolean",
+      visibleItemId: "rusty-hook",
+      visibleWhenType: "item-in-inventory",
+      width: "88",
+      x: "110",
+      y: "315"
     };
     session.pickupDrafts[`${scene.id}::pickup::dock-hook`] = {
       height: "48",
@@ -200,6 +241,7 @@ describe("buildDraftProjectBundle", () => {
       throw new Error("Expected layered 2D scene");
     }
     const nextHotspot = nextScene.hotspots[0];
+    const nextActor = nextScene.actors[0];
     const nextPickup = nextScene.pickups[0];
 
     expect(nextScene).toMatchObject({
@@ -213,6 +255,14 @@ describe("buildDraftProjectBundle", () => {
       actions: {
         lookFlowId: "look-door"
       }
+    });
+    expect(nextActor).toMatchObject({
+      bounds: { x: 110, y: 315, width: 88, height: 96 },
+      depth: 9,
+      interactSpot: { x: 150, y: 560 },
+      labelKey: "actor.radio.updated",
+      lookSpot: { x: 140, y: 330 },
+      visibleWhen: { itemId: "rusty-hook", type: "item-in-inventory" }
     });
     expect(nextPickup).toMatchObject({
       labelKey: "pickup.rusty-hook.updated",

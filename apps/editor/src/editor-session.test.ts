@@ -5,6 +5,8 @@ import {
   clampSceneRect,
   clampScenePoint,
   commitHistory,
+  createActorDraft,
+  createActorKey,
   createFlowDraft,
   createHistoryState,
   createSceneDraft,
@@ -21,7 +23,19 @@ import {
 } from "./editor-session";
 
 const sceneDocument: SceneDocument = {
-  actors: [],
+  actors: [
+    {
+      actions: {
+        lookFlowId: "inspect-tavern-door",
+        useItemFlows: []
+      },
+      bounds: { height: 80, width: 90, x: 420, y: 360 },
+      depth: 8,
+      id: "radio",
+      labelKey: "actor.radio",
+      role: "prop"
+    }
+  ],
   background: "#132538",
   hotspots: [
     {
@@ -87,6 +101,7 @@ const localeDocument: LocaleDocument = {
   schemaVersion: 1,
   strings: {
     "dialogue.tavern.01": "The tavern door is warm.",
+    "actor.radio": "Radio",
     "hotspot.tavern-entrance": "The Lantern & Gull"
   }
 };
@@ -99,6 +114,7 @@ const itemDocument: ItemDocument = {
 };
 
 const project = {
+  activeActorId: "radio",
   activeFlowId: "inspect-tavern-door",
   activeHotspotId: "tavern-entrance",
   activeItemId: "rusty-hook",
@@ -145,19 +161,24 @@ describe("editor-session recovery", () => {
       ...localeDocument.strings,
       "dialogue.tavern.01": "The tavern door is warm, again."
     };
+    session.actorDrafts[createActorKey("moonlit-dock", "radio")] = {
+      ...createActorDraft(sceneDocument.actors[0] ?? null),
+      depth: "12"
+    };
     session.sceneDrafts["moonlit-dock"] = {
       ...createSceneDraft(sceneItems(project.scenes)[0] ?? null),
       background: "#204060"
     };
 
     const dirty = getDirtyState(project, session);
-    expect(dirty.count).toBe(2);
+    expect(dirty.count).toBe(3);
 
     const recovery = buildRecoverySnapshot(project.directory, project, session);
     expect(recovery?.session.localeDrafts.en?.["dialogue.tavern.01"]).toBe(
       "The tavern door is warm, again."
     );
     expect(recovery?.session.sceneDrafts["moonlit-dock"]?.background).toBe("#204060");
+    expect(recovery?.session.actorDrafts[createActorKey("moonlit-dock", "radio")]?.depth).toBe("12");
     expect(recovery?.session.flowDrafts["inspect-tavern-door"]).toBeUndefined();
   });
 

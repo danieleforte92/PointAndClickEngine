@@ -7,11 +7,13 @@ import type {
   LocaleDocument,
   PromptPackDocument,
   ProjectBundle,
+  SceneActor,
   SceneDocument,
   ScenePickup
 } from "@pointclick/contracts";
 import {
   buildFlowNodes,
+  buildActorFromDraft,
   buildHotspotUseItemFlows,
   parseNumber,
   parsePositiveNumber,
@@ -149,11 +151,28 @@ function applyPickupDraft(scene: Layered2DScene, pickupId: string, draft: Editor
   });
 }
 
+function applyActorDraft(scene: Layered2DScene, actorId: string, draft: EditorSessionState["actorDrafts"][string]) {
+  return scene.actors.map((actor): SceneActor => {
+    if (actor.id !== actorId) return actor;
+    return buildActorFromDraft(actor, draft);
+  });
+}
+
 function applyEntityDrafts(
   scenes: Record<string, SceneDocument>,
   session: EditorSessionState
 ): Record<string, SceneDocument> {
   const nextScenes = { ...scenes };
+
+  for (const [key, draft] of Object.entries(session.actorDrafts)) {
+    const [sceneId, kind, actorId] = key.split("::");
+    const scene = nextScenes[sceneId ?? ""];
+    if (!sceneId || kind !== "actor" || !actorId || !scene || scene.type !== "layered-2d") continue;
+    nextScenes[sceneId] = {
+      ...scene,
+      actors: applyActorDraft(scene, actorId, draft)
+    };
+  }
 
   for (const [key, draft] of Object.entries(session.hotspotDrafts)) {
     const [sceneId, hotspotId] = key.split("::");

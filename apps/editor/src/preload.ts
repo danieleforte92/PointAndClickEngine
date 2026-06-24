@@ -8,6 +8,7 @@ import type {
   LocaleDocument,
   PromptPackDocument,
   ProjectBundle,
+  SceneActor,
   ScenePickup,
   ProjectManifest,
   SceneDocument
@@ -22,6 +23,7 @@ export interface EditorPreviewRequest {
 }
 
 export interface EditorProjectSnapshot {
+  activeActorId: string | null;
   activeAssetId: string | null;
   activeFlowId: string | null;
   activeHotspotId: string | null;
@@ -45,6 +47,7 @@ export interface EditorProjectSnapshot {
   sceneCount: number;
   scenes: SceneDocument[];
   selectedAsset: AssetDocument | null;
+  selectedActor: SceneActor | null;
   selectedFlow: FlowDocument | null;
   selectedHotspot: Hotspot | null;
   selectedItem: ItemDocument | null;

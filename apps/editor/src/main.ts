@@ -11,6 +11,7 @@ import type {
   Layered2DScene,
   LocaleDocument,
   PromptPackDocument,
+  SceneActor,
   ScenePickup,
   ProjectBundle
 } from "@pointclick/contracts";
@@ -348,6 +349,7 @@ async function summarizeProject(projectDirectory: string, bundle: ProjectBundle)
           (scene): scene is Layered2DScene => scene.type === "layered-2d"
         ) ?? null;
   const activeHotspot: Hotspot | null = activeScene?.hotspots[0] ?? null;
+  const activeActor: SceneActor | null = activeScene?.actors[0] ?? null;
   const activeLocale: LocaleDocument | null =
     bundle.locales[bundle.manifest.defaultLocale] ??
     Object.values(bundle.locales)[0] ??
@@ -359,6 +361,7 @@ async function summarizeProject(projectDirectory: string, bundle: ProjectBundle)
   const promptPacks: PromptPackDocument[] = Object.values(bundle.promptPacks);
 
   return {
+    activeActorId: activeActor?.id ?? null,
     activeAssetId: activeAsset?.id ?? null,
     activeFlowId: activeFlow?.id ?? null,
     activeHotspotId: activeHotspot?.id ?? null,
@@ -382,6 +385,7 @@ async function summarizeProject(projectDirectory: string, bundle: ProjectBundle)
     sceneCount: Object.keys(bundle.scenes).length,
     scenes: Object.values(bundle.scenes),
     selectedAsset: activeAsset,
+    selectedActor: activeActor,
     selectedFlow: activeFlow,
     selectedHotspot: activeHotspot,
     selectedItem: activeItem,
