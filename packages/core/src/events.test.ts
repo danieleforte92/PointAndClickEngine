@@ -61,4 +61,24 @@ describe("deterministic command/event core", () => {
     expect(first.state.collectedPickups).toEqual(["dock-hook"]);
     expect(duplicate.events).toEqual([]);
   });
+
+  it("records actor interactions as replayable events", () => {
+    const initial = createInitialState("dock", { x: 0, y: 0 });
+    const result = executeCommand(initial, {
+      actorId: "screwdriver",
+      itemId: null,
+      type: "actor/interact",
+      verb: "look"
+    });
+
+    expect(result.events).toEqual([
+      {
+        actorId: "screwdriver",
+        itemId: null,
+        type: "actor/interacted",
+        verb: "look"
+      }
+    ]);
+    expect(result.state.sequence).toBe(1);
+  });
 });

@@ -150,6 +150,7 @@ function sceneBackgroundStyle(background: string, assetBase = "") {
       : `file:///${normalizedBase}${background}`
     : background;
   return {
+    actors: [],
     background: "#24384a",
     backgroundImage: `url("${assetUrl}")`,
     backgroundPosition: "center",
@@ -301,6 +302,7 @@ function createDefaultSceneDocument(snapshot: EditorProjectSnapshot, sceneId: st
   const insetBottom = Math.max(40, Math.floor(height * 0.06));
 
   return {
+    actors: [],
     background: "#24384a",
     hotspots: [],
     id: sceneId,

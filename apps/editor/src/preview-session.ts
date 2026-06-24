@@ -5,6 +5,7 @@ import type {
   ItemDocument,
   Layered2DScene,
   LocaleDocument,
+  PromptPackDocument,
   ProjectBundle,
   SceneDocument,
   ScenePickup
@@ -36,6 +37,10 @@ function toItemMap(items: ItemDocument[]): Record<string, ItemDocument> {
 
 function toAssetMap(assets: AssetDocument[]): Record<string, AssetDocument> {
   return Object.fromEntries(assets.map((asset) => [asset.id, asset]));
+}
+
+function toPromptPackMap(promptPacks: PromptPackDocument[]): Record<string, PromptPackDocument> {
+  return Object.fromEntries(promptPacks.map((promptPack) => [promptPack.id, promptPack]));
 }
 
 function applySceneDrafts(
@@ -253,6 +258,7 @@ export function buildDraftProjectBundle(
   const localeMap = applyLocaleDrafts(toLocaleMap(snapshot.locales), session);
   const itemMap = applyItemDrafts(toItemMap(snapshot.items), session);
   const assetMap = toAssetMap(snapshot.assets);
+  const promptPackMap = toPromptPackMap(snapshot.promptPacks);
 
   return {
     manifest: snapshot.manifest,
@@ -260,6 +266,7 @@ export function buildDraftProjectBundle(
     flows: flowMap,
     locales: localeMap,
     items: itemMap,
-    assets: assetMap
+    assets: assetMap,
+    promptPacks: promptPackMap
   };
 }

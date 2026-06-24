@@ -3,6 +3,7 @@ import {
   type FlowDocument,
   type ItemDocument,
   type LocaleDocument,
+  type PromptPackDocument,
   type ProjectBundle,
   type ProjectManifest,
   type SceneDocument
@@ -15,6 +16,7 @@ import pickupFlowJson from "../project/flows/pickup-rusty-hook.flow.json";
 import useHookFlowJson from "../project/flows/use-rusty-hook-on-door.flow.json";
 import itemJson from "../project/items/rusty-hook.item.json";
 import localeJson from "../project/locales/en.json";
+import promptPackJson from "../project/prompt-packs/moonlit-dock-art.prompt-pack.json";
 
 assertDocument<ProjectManifest>("project", manifestJson);
 assertDocument<SceneDocument>("scene", sceneJson);
@@ -24,6 +26,7 @@ assertDocument<FlowDocument>("flow", pickupFlowJson);
 assertDocument<FlowDocument>("flow", useHookFlowJson);
 assertDocument<LocaleDocument>("locale", localeJson);
 assertDocument<ItemDocument>("item", itemJson);
+assertDocument<PromptPackDocument>("promptPack", promptPackJson);
 
 export const sampleBundle: ProjectBundle = {
   manifest: manifestJson,
@@ -42,5 +45,8 @@ export const sampleBundle: ProjectBundle = {
   items: {
     [itemJson.id]: itemJson
   },
-  assets: {}
+  assets: {},
+  promptPacks: {
+    [promptPackJson.id]: promptPackJson
+  }
 };

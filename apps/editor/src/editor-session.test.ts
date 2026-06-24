@@ -21,6 +21,7 @@ import {
 } from "./editor-session";
 
 const sceneDocument: SceneDocument = {
+  actors: [],
   background: "#132538",
   hotspots: [
     {

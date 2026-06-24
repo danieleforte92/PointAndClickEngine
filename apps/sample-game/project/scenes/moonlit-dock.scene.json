@@ -40,6 +40,7 @@
       }
     ]
   },
+  "actors": [],
   "pickups": [
     {
       "id": "dock-hook",
@@ -50,6 +51,14 @@
         "y": 560,
         "width": 70,
         "height": 60
+      },
+      "interactSpot": {
+        "x": 335,
+        "y": 610
+      },
+      "lookSpot": {
+        "x": 335,
+        "y": 560
       },
       "pickupFlowId": "pickup-rusty-hook"
     }
@@ -149,6 +158,14 @@
         "y": 335,
         "width": 125,
         "height": 215
+      },
+      "interactSpot": {
+        "x": 910,
+        "y": 550
+      },
+      "lookSpot": {
+        "x": 910,
+        "y": 430
       },
       "actions": {
         "lookFlowId": "look-tavern-door",

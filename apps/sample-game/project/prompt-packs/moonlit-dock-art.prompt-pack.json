@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "id": "moonlit-dock-art",
+  "name": "Moonlit Dock Art Direction",
+  "sceneId": "moonlit-dock",
+  "artBrief": "A readable moonlit harbor dock for a classic point-and-click adventure, with clear prop silhouettes and warm tavern light.",
+  "context": {
+    "projectTitle": "The Isle of Echoes",
+    "sceneId": "moonlit-dock",
+    "sceneName": "Moonlit Dock",
+    "sceneSize": {
+      "width": 1280,
+      "height": 720
+    },
+    "artBrief": "A readable moonlit harbor dock for a classic point-and-click adventure, with clear prop silhouettes and warm tavern light.",
+    "locale": "en",
+    "labels": {
+      "hotspot.tavern-entrance": "The Lantern & Gull",
+      "pickup.rusty-hook": "Rusty Hook",
+      "item.rusty-hook": "Rusty Hook"
+    },
+    "hotspots": [
+      {
+        "id": "tavern-entrance",
+        "labelKey": "hotspot.tavern-entrance"
+      }
+    ],
+    "actors": [],
+    "pickups": [
+      {
+        "id": "dock-hook",
+        "itemId": "rusty-hook",
+        "labelKey": "pickup.rusty-hook"
+      }
+    ],
+    "items": [
+      {
+        "id": "rusty-hook",
+        "labelKey": "item.rusty-hook"
+      }
+    ]
+  },
+  "outputs": {
+    "sceneBackgroundPrompt": "Paint a clean 1280x720 moonlit harbor dock background for a classic point-and-click adventure. Keep the tavern entrance readable, leave room for foreground props, use warm lantern light against cool blue moonlight, and avoid embedding inventory objects that should be separate layers.",
+    "propPrompts": [
+      {
+        "id": "rusty-hook",
+        "prompt": "A rusty iron hook prop for a point-and-click inventory pickup, readable silhouette, isolated object, transparent background, matching warm moonlit dock lighting."
+      }
+    ],
+    "characterReferencePrompts": [
+      {
+        "id": "mara",
+        "prompt": "Three-quarter view character reference for Mara, an adventure-game protagonist suited for a moonlit harbor setting, clear foot pivot, readable silhouette, neutral standing pose."
+      }
+    ],
+    "animationNotes": [
+      "Keep character origin at the feet for depth sorting.",
+      "Generate short walk and talk clips from a stable three-quarter character reference before extracting frames."
+    ],
+    "negativePrompt": "blurry, cropped, unreadable silhouettes, extra text, UI elements, embedded watermarks, distorted hands",
+    "styleNotes": [
+      "Readable interactive props",
+      "Warm tavern light contrasted with cool moonlight",
+      "Painterly but clean enough for hotspot authoring"
+    ],
+    "generationTargets": [
+      {
+        "id": "moonlit-dock-background",
+        "intendedUse": "scene-background",
+        "width": 1280,
+        "height": 720,
+        "aspectRatio": "16:9"
+      },
+      {
+        "id": "rusty-hook-prop",
+        "intendedUse": "prop",
+        "transparent": true
+      },
+      {
+        "id": "mara-reference",
+        "intendedUse": "character-reference",
+        "transparent": false
+      }
+    ]
+  },
+  "suggestedActors": [
+    {
+      "id": "rusty-hook",
+      "role": "pickup",
+      "label": "Rusty Hook",
+      "visualPrompt": "A rusty iron hook prop with transparent background, sized for the dock floor near a crate.",
+      "suggestedBounds": {
+        "x": 300,
+        "y": 560,
+        "width": 70,
+        "height": 60
+      },
+      "suggestedInteractSpot": {
+        "x": 335,
+        "y": 610
+      },
+      "suggestedLookSpot": {
+        "x": 335,
+        "y": 560
+      }
+    }
+  ],
+  "provenance": {
+    "provider": "mock",
+    "model": "mock-prompt-pack-v1",
+    "generatedAt": "2026-06-24T12:00:00.000Z",
+    "inputHash": "moonlit-dock-sample-v1"
+  }
+}

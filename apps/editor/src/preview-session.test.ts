@@ -21,6 +21,7 @@ const manifest: ProjectManifest = {
   flows: [{ id: "look-door", path: "flows/look-door.flow.json" }],
   items: [{ id: "rusty-hook", path: "items/rusty-hook.item.json" }],
   assets: [],
+  promptPacks: [],
   locales: [{ locale: "en", path: "locales/en.json" }]
 };
 
@@ -39,6 +40,7 @@ const scene: SceneDocument = {
       { x: 1280, y: 720 }
     ]
   },
+  actors: [],
   pickups: [
     {
       id: "dock-hook",
@@ -115,6 +117,8 @@ const snapshot: EditorProjectSnapshot = {
   localeCount: 1,
   locales: [locale],
   manifest,
+  promptPackCount: 0,
+  promptPacks: [],
   selectedAsset: null,
   sceneCount: 1,
   scenes: [scene],

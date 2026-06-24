@@ -12,9 +12,11 @@ import {
   type LocaleDocument,
   type Layered2DScene,
   type Polygon2,
+  type PromptPackDocument,
   type ProjectBundle,
   type ProjectManifest,
   type Rect,
+  type SceneActor,
   type ScenePickup,
   type SceneDocument,
   type Vector2
@@ -39,13 +41,17 @@ export interface HotspotPatch {
   actions: HotspotActions;
   bounds: Rect;
   cursor?: CursorValue;
+  interactSpot?: Vector2 | null;
   labelKey: string;
+  lookSpot?: Vector2 | null;
 }
 
 export interface PickupPatch {
   bounds: Rect;
+  interactSpot?: Vector2 | null;
   itemId: string;
   labelKey: string;
+  lookSpot?: Vector2 | null;
   pickupFlowId?: string;
 }
 
@@ -82,6 +88,11 @@ export interface FlowPatch {
   name: string;
   nodes: FlowNode[];
   startNodeId: string;
+}
+
+export interface PromptPackUpsertPatch {
+  documentPath?: string;
+  promptPack: PromptPackDocument;
 }
 
 export type FlowReferenceUse =
@@ -210,6 +221,11 @@ export type AssetDeleteCommand = {
   assetId: string;
 };
 
+export type PromptPackUpsertCommand = {
+  type: "prompt-pack/upsert";
+  patch: PromptPackUpsertPatch;
+};
+
 export type EditorProjectCommand =
   | HotspotUpdateCommand
   | HotspotCreateCommand
@@ -230,7 +246,8 @@ export type EditorProjectCommand =
   | ItemDeleteCommand
   | AssetImportCommand
   | AssetRelinkCommand
-  | AssetDeleteCommand;
+  | AssetDeleteCommand
+  | PromptPackUpsertCommand;
 
 async function readJson(filePath: string): Promise<unknown> {
   return JSON.parse(await readFile(filePath, "utf8")) as unknown;
@@ -272,6 +289,154 @@ function validateReferencedFlow(
       })
     );
   }
+}
+
+function validateReferencedItem(
+  bundle: ProjectBundle,
+  diagnostics: ProjectDiagnostic[],
+  itemId: string | undefined,
+  documentId: string,
+  pathValue: string,
+  code: string
+): void {
+  if (!itemId) return;
+  if (!bundle.items[itemId]) {
+    diagnostics.push(
+      createDiagnostic("error", code, `Item "${itemId}" does not exist.`, {
+        documentId,
+        path: pathValue
+      })
+    );
+  }
+}
+
+function validateScenePoint(
+  diagnostics: ProjectDiagnostic[],
+  scene: Layered2DScene,
+  point: Vector2 | undefined,
+  pathValue: string,
+  code: string
+): void {
+  if (!point) return;
+  if (point.x < 0 || point.y < 0 || point.x > scene.size.width || point.y > scene.size.height) {
+    diagnostics.push(
+      createDiagnostic(
+        "error",
+        code,
+        `Scene point ${Math.round(point.x)}, ${Math.round(point.y)} is outside scene "${scene.id}".`,
+        { documentId: scene.id, path: pathValue }
+      )
+    );
+  }
+}
+
+function validateActions(
+  bundle: ProjectBundle,
+  diagnostics: ProjectDiagnostic[],
+  actions: HotspotActions,
+  documentId: string,
+  pathValue: string
+): void {
+  validateReferencedFlow(
+    bundle,
+    diagnostics,
+    actions.lookFlowId,
+    documentId,
+    `${pathValue}/lookFlowId`,
+    "scene.action-look-missing-flow"
+  );
+  validateReferencedFlow(
+    bundle,
+    diagnostics,
+    actions.talkFlowId,
+    documentId,
+    `${pathValue}/talkFlowId`,
+    "scene.action-talk-missing-flow"
+  );
+  validateReferencedFlow(
+    bundle,
+    diagnostics,
+    actions.useFlowId,
+    documentId,
+    `${pathValue}/useFlowId`,
+    "scene.action-use-missing-flow"
+  );
+
+  for (const mapping of actions.useItemFlows) {
+    validateReferencedItem(
+      bundle,
+      diagnostics,
+      mapping.itemId,
+      documentId,
+      `${pathValue}/useItemFlows/${mapping.itemId}`,
+      "scene.action-item-missing"
+    );
+    validateReferencedFlow(
+      bundle,
+      diagnostics,
+      mapping.flowId,
+      documentId,
+      `${pathValue}/useItemFlows/${mapping.itemId}/flowId`,
+      "scene.action-item-flow-missing"
+    );
+  }
+}
+
+function validateActor(
+  bundle: ProjectBundle,
+  diagnostics: ProjectDiagnostic[],
+  scene: Layered2DScene,
+  actor: SceneActor,
+  defaultLocale: ProjectBundle["locales"][string] | undefined
+): void {
+  if (actor.assetId && !bundle.assets[actor.assetId]) {
+    diagnostics.push(
+      createDiagnostic(
+        "error",
+        "scene.actor-asset-missing",
+        `Actor "${actor.id}" references missing asset "${actor.assetId}".`,
+        { documentId: scene.id, path: `scenes/${scene.id}/actors/${actor.id}/assetId` }
+      )
+    );
+  }
+
+  if (defaultLocale && !(actor.labelKey in defaultLocale.strings)) {
+    diagnostics.push(
+      createDiagnostic(
+        "warning",
+        "locale.missing-actor-label",
+        `Missing localized string "${actor.labelKey}" in default locale.`,
+        { documentId: scene.id, path: `scenes/${scene.id}/actors/${actor.id}/labelKey` }
+      )
+    );
+  }
+
+  if (actor.visibleWhen?.type === "item-in-inventory") {
+    validateReferencedItem(
+      bundle,
+      diagnostics,
+      actor.visibleWhen.itemId,
+      scene.id,
+      `scenes/${scene.id}/actors/${actor.id}/visibleWhen/itemId`,
+      "scene.actor-visible-item-missing"
+    );
+  }
+
+  validateScenePoint(
+    diagnostics,
+    scene,
+    actor.interactSpot,
+    `scenes/${scene.id}/actors/${actor.id}/interactSpot`,
+    "scene.actor-interact-spot-outside-scene"
+  );
+  validateScenePoint(
+    diagnostics,
+    scene,
+    actor.lookSpot,
+    `scenes/${scene.id}/actors/${actor.id}/lookSpot`,
+    "scene.actor-look-spot-outside-scene"
+  );
+  validateActions(bundle, diagnostics, actor.actions, scene.id, `scenes/${scene.id}/actors/${actor.id}/actions`);
 }
 
 function isHexColor(value: string): boolean {
@@ -385,6 +550,21 @@ export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[
         `scenes/${scene.id}/hotspots/${hotspot.id}/actions/lookFlowId`,
         "scene.hotspot-look-missing-flow"
       );
+
+      validateScenePoint(
+        diagnostics,
+        scene,
+        hotspot.interactSpot,
+        `scenes/${scene.id}/hotspots/${hotspot.id}/interactSpot`,
+        "scene.hotspot-interact-spot-outside-scene"
+      );
+      validateScenePoint(
+        diagnostics,
+        scene,
+        hotspot.lookSpot,
+        `scenes/${scene.id}/hotspots/${hotspot.id}/lookSpot`,
+        "scene.hotspot-look-spot-outside-scene"
+      );
       validateReferencedFlow(
         bundle,
         diagnostics,
@@ -458,6 +638,50 @@ export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[
           )
         );
       }
+
+      validateScenePoint(
+        diagnostics,
+        scene,
+        pickup.interactSpot,
+        `scenes/${scene.id}/pickups/${pickup.id}/interactSpot`,
+        "scene.pickup-interact-spot-outside-scene"
+      );
+      validateScenePoint(
+        diagnostics,
+        scene,
+        pickup.lookSpot,
+        `scenes/${scene.id}/pickups/${pickup.id}/lookSpot`,
+        "scene.pickup-look-spot-outside-scene"
+      );
+    }
+
+    const actorIds = new Set<string>();
+    for (const actor of scene.actors) {
+      if (actorIds.has(actor.id)) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "scene.actor-duplicate-id",
+            `Scene "${scene.id}" contains duplicate actor "${actor.id}".`,
+            { documentId: scene.id, path: `scenes/${scene.id}/actors/${actor.id}` }
+          )
+        );
+      }
+      actorIds.add(actor.id);
+      validateActor(bundle, diagnostics, scene, actor, defaultLocale);
+    }
+  }
+
+  for (const promptPack of Object.values(bundle.promptPacks)) {
+    if (!bundle.scenes[promptPack.sceneId]) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "prompt-pack.scene-missing",
+          `Prompt pack "${promptPack.id}" references missing scene "${promptPack.sceneId}".`,
+          { documentId: promptPack.id, path: `prompt-packs/${promptPack.id}/sceneId` }
+        )
+      );
     }
   }
 
@@ -520,6 +744,16 @@ export async function loadProjectFromDirectory(projectDirectory: string): Promis
     assets[value.id] = value;
   }
 
+  const promptPacks: Record<string, PromptPackDocument> = {};
+  for (const reference of manifestValue.promptPacks ?? []) {
+    const value = await readJson(path.resolve(directory, reference.path));
+    assertDocument<PromptPackDocument>("promptPack", value);
+    if (value.id !== reference.id) {
+      throw new Error(`Prompt pack reference "${reference.id}" points to document "${value.id}"`);
+    }
+    promptPacks[value.id] = value;
+  }
+
   return {
     directory,
     bundle: {
@@ -528,7 +762,8 @@ export async function loadProjectFromDirectory(projectDirectory: string): Promis
       flows,
       locales,
       items,
-      assets
+      assets,
+      promptPacks
     }
   };
 }
@@ -577,6 +812,14 @@ function assetDocumentPathFor(projectDirectory: string, relativePath: string): s
   return path.resolve(projectDirectory, relativePath);
 }
 
+function promptPackPathFor(project: LoadedProject, promptPackId: string): string {
+  const reference = (project.bundle.manifest.promptPacks ?? []).find((entry) => entry.id === promptPackId);
+  if (!reference) {
+    throw new Error(`Prompt pack "${promptPackId}" is not referenced by the project manifest`);
+  }
+  return path.resolve(project.directory, reference.path);
+}
+
 function projectManifestPath(project: LoadedProject): string {
   return path.join(project.directory, "adventure.project.json");
 }
@@ -591,6 +834,10 @@ function defaultItemDocumentPath(itemId: string): string {
 
 function defaultSceneDocumentPath(sceneId: string): string {
   return `scenes/${sceneId}.scene.json`;
+}
+
+function defaultPromptPackDocumentPath(promptPackId: string): string {
+  return `prompt-packs/${promptPackId}.prompt-pack.json`;
 }
 
 function describeFlowReference(use: FlowReferenceUse): string {
@@ -741,6 +988,20 @@ function patchHotspot(scene: Layered2DScene, hotspotId: string, patch: HotspotPa
     bounds: patch.bounds,
     labelKey: patch.labelKey
   };
+  if ("interactSpot" in patch) {
+    if (patch.interactSpot) {
+      nextHotspot.interactSpot = patch.interactSpot;
+    } else {
+      delete nextHotspot.interactSpot;
+    }
+  }
+  if ("lookSpot" in patch) {
+    if (patch.lookSpot) {
+      nextHotspot.lookSpot = patch.lookSpot;
+    } else {
+      delete nextHotspot.lookSpot;
+    }
+  }
   if (patch.cursor) {
     nextHotspot.cursor = patch.cursor;
   } else {
@@ -801,6 +1062,20 @@ function patchPickup(scene: Layered2DScene, pickupId: string, patch: PickupPatch
     itemId: patch.itemId,
     labelKey: patch.labelKey
   };
+  if ("interactSpot" in patch) {
+    if (patch.interactSpot) {
+      nextPickup.interactSpot = patch.interactSpot;
+    } else {
+      delete nextPickup.interactSpot;
+    }
+  }
+  if ("lookSpot" in patch) {
+    if (patch.lookSpot) {
+      nextPickup.lookSpot = patch.lookSpot;
+    } else {
+      delete nextPickup.lookSpot;
+    }
+  }
   if (patch.pickupFlowId) {
     nextPickup.pickupFlowId = patch.pickupFlowId;
   } else {
@@ -892,6 +1167,27 @@ function patchAsset(asset: AssetDocument, patch: AssetRelinkPatch): AssetDocumen
   return {
     ...asset,
     path: patch.path
+  };
+}
+
+function upsertPromptPackManifestReference(
+  manifest: ProjectManifest,
+  promptPack: PromptPackDocument,
+  documentPath: string
+): ProjectManifest {
+  const promptPacks = [...(manifest.promptPacks ?? [])];
+  const existingIndex = promptPacks.findIndex((entry) => entry.id === promptPack.id);
+  const reference = { id: promptPack.id, path: documentPath };
+
+  if (existingIndex >= 0) {
+    promptPacks[existingIndex] = reference;
+  } else {
+    promptPacks.push(reference);
+  }
+
+  return {
+    ...manifest,
+    promptPacks
   };
 }
 
@@ -1358,6 +1654,26 @@ export async function applyProjectCommand(
         throw error;
       }
     }
+  }
+
+  if (command.type === "prompt-pack/upsert") {
+    const promptPack = command.patch.promptPack;
+    assertDocument<PromptPackDocument>("promptPack", promptPack);
+
+    if (!project.bundle.scenes[promptPack.sceneId]) {
+      throw new Error(`Prompt pack "${promptPack.id}" references missing scene "${promptPack.sceneId}"`);
+    }
+
+    const documentPath =
+      command.patch.documentPath ??
+      (project.bundle.promptPacks[promptPack.id]
+        ? path.relative(project.directory, promptPackPathFor(project, promptPack.id)).replace(/\\/g, "/")
+        : defaultPromptPackDocumentPath(promptPack.id));
+
+    const nextManifest = upsertPromptPackManifestReference(project.bundle.manifest, promptPack, documentPath);
+    assertDocument<ProjectManifest>("project", nextManifest);
+    await writeJson(path.resolve(project.directory, documentPath), promptPack);
+    await writeJson(projectManifestPath(project), nextManifest);
   }
 
   return loadProjectFromDirectory(projectDirectory);

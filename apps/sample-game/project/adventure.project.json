@@ -38,6 +38,12 @@
       "path": "items/rusty-hook.item.json"
     }
   ],
+  "promptPacks": [
+    {
+      "id": "moonlit-dock-art",
+      "path": "prompt-packs/moonlit-dock-art.prompt-pack.json"
+    }
+  ],
   "locales": [
     {
       "locale": "en",

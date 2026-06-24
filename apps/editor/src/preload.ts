@@ -6,6 +6,7 @@ import type {
   ItemDocument,
   Layered2DScene,
   LocaleDocument,
+  PromptPackDocument,
   ProjectBundle,
   ScenePickup,
   ProjectManifest,
@@ -39,6 +40,8 @@ export interface EditorProjectSnapshot {
   localeCount: number;
   locales: LocaleDocument[];
   manifest: ProjectManifest;
+  promptPackCount: number;
+  promptPacks: PromptPackDocument[];
   sceneCount: number;
   scenes: SceneDocument[];
   selectedAsset: AssetDocument | null;

@@ -8,6 +8,7 @@ export type GameCommand =
   | { type: "inventory/clear-selection" }
   | { type: "pickup/collect"; pickupId: string; itemId: string }
   | { type: "character/walk"; x: number; y: number }
+  | { type: "actor/interact"; actorId: string; verb: Verb; itemId: string | null }
   | { type: "hotspot/interact"; hotspotId: string; verb: Verb; itemId: string | null }
   | { type: "flag/set"; key: string; value: FlagValue }
   | { type: "flow/start"; flowId: string }
@@ -20,6 +21,7 @@ export type DomainEvent =
   | { type: "inventory/selection-cleared" }
   | { type: "pickup/collected"; pickupId: string; itemId: string }
   | { type: "character/moved"; x: number; y: number }
+  | { type: "actor/interacted"; actorId: string; verb: Verb; itemId: string | null }
   | { type: "hotspot/interacted"; hotspotId: string; verb: Verb; itemId: string | null }
   | { type: "flag/set"; key: string; value: FlagValue }
   | { type: "flow/started"; flowId: string }
@@ -43,6 +45,15 @@ export function decide(state: WorldState, command: GameCommand): DomainEvent[] {
         : [{ type: "pickup/collected", pickupId: command.pickupId, itemId: command.itemId }];
     case "character/walk":
       return [{ type: "character/moved", x: command.x, y: command.y }];
+    case "actor/interact":
+      return [
+        {
+          type: "actor/interacted",
+          actorId: command.actorId,
+          verb: command.verb,
+          itemId: command.itemId
+        }
+      ];
     case "hotspot/interact":
       return [
         {
@@ -89,6 +100,8 @@ export function applyEvent(state: WorldState, event: DomainEvent): WorldState {
       };
     case "character/moved":
       return { ...state, player: { x: event.x, y: event.y }, sequence };
+    case "actor/interacted":
+      return { ...state, sequence };
     case "hotspot/interacted":
       return { ...state, sequence };
     case "flag/set":

@@ -1,11 +1,15 @@
 import type {
+  ConditionExpression,
   FlowDocument,
   Hotspot,
+  HotspotActions,
   ScenePickup,
   Layered2DScene,
   ProjectBundle,
+  SceneActor,
   Verb,
-  SceneDocument
+  SceneDocument,
+  Vector2
 } from "@pointclick/contracts";
 import {
   createInitialState,
@@ -109,10 +113,44 @@ export class AdventureEngine {
       return this.frame([], null, "Walk there instead of talking to it.");
     }
 
-    const events = this.dispatch({ type: "hotspot/interact", hotspotId, verb, itemId });
-    const flowId = this.resolveHotspotFlow(hotspot, verb, itemId);
+    const events: DomainEvent[] = [];
+    const spotFeedback = this.moveToInteractionSpot(hotspot.interactSpot, events);
+    if (spotFeedback) {
+      return this.frame(events, null, spotFeedback);
+    }
+
+    events.push(...this.dispatch({ type: "hotspot/interact", hotspotId, verb, itemId }));
+    const flowId = this.resolveActionsFlow(hotspot.actions, verb, itemId);
     if (!flowId) {
       return this.frame(events, null, this.unsupportedHotspotFeedback(verb, hotspot));
+    }
+
+    return this.startFlow(flowId, events);
+  }
+
+  interactActor(actorId: string): RuntimeFrame {
+    const actor = this.actor(actorId);
+    const verb = this.world.activeVerb;
+    const itemId = this.world.selectedItemId;
+
+    if (!this.isActorVisible(actor)) {
+      return this.frame([], null, null);
+    }
+
+    if (verb === "walk") {
+      return this.frame([], null, "Walk there instead of using it.");
+    }
+
+    const events: DomainEvent[] = [];
+    const spotFeedback = this.moveToInteractionSpot(actor.interactSpot, events);
+    if (spotFeedback) {
+      return this.frame(events, null, spotFeedback);
+    }
+
+    events.push(...this.dispatch({ type: "actor/interact", actorId, verb, itemId }));
+    const flowId = this.resolveActionsFlow(actor.actions, verb, itemId);
+    if (!flowId) {
+      return this.frame(events, null, this.unsupportedActorFeedback(verb, actor));
     }
 
     return this.startFlow(flowId, events);
@@ -140,6 +178,11 @@ export class AdventureEngine {
     }
 
     const events: DomainEvent[] = [];
+    const spotFeedback = this.moveToInteractionSpot(pickup.interactSpot, events);
+    if (spotFeedback) {
+      return this.frame(events, null, spotFeedback);
+    }
+
     if (verb === "use") {
       events.push(...this.dispatch({ type: "pickup/collect", pickupId: pickup.id, itemId: pickup.itemId }));
     }
@@ -153,6 +196,14 @@ export class AdventureEngine {
     }
 
     return this.frame(events, null, this.localize(pickup.labelKey));
+  }
+
+  visibleActors(): SceneActor[] {
+    const scene = this.currentScene;
+    if (scene.type !== "layered-2d") {
+      return [];
+    }
+    return scene.actors.filter((actor) => this.isActorVisible(actor));
   }
 
   advanceDialogue(): RuntimeFrame {
@@ -238,30 +289,80 @@ export class AdventureEngine {
     return pickup;
   }
 
-  private resolveHotspotFlow(hotspot: Hotspot, verb: Verb, itemId: string | null): string | null {
+  private actor(id: string): SceneActor {
+    const scene = this.currentScene;
+    if (scene.type !== "layered-2d") {
+      throw new Error(`Scene "${scene.id}" does not support actors`);
+    }
+    const actor = scene.actors.find((candidate) => candidate.id === id);
+    if (!actor) throw new Error(`Missing actor "${id}" in scene "${scene.id}"`);
+    return actor;
+  }
+
+  private resolveActionsFlow(actions: HotspotActions, verb: Verb, itemId: string | null): string | null {
     if (verb === "look") {
-      return hotspot.actions.lookFlowId ?? null;
+      return actions.lookFlowId ?? null;
     }
     if (verb === "talk") {
-      return hotspot.actions.talkFlowId ?? null;
+      return actions.talkFlowId ?? null;
     }
     if (verb === "use") {
       if (itemId) {
         return (
-          hotspot.actions.useItemFlows.find((entry) => entry.itemId === itemId)?.flowId ??
-          hotspot.actions.useFlowId ??
+          actions.useItemFlows.find((entry) => entry.itemId === itemId)?.flowId ??
+          actions.useFlowId ??
           null
         );
       }
-      return hotspot.actions.useFlowId ?? null;
+      return actions.useFlowId ?? null;
     }
     return null;
+  }
+
+  private moveToInteractionSpot(spot: Vector2 | undefined, events: DomainEvent[]): string | null {
+    if (!spot) return null;
+    const scene = this.currentScene;
+    if (scene.type !== "layered-2d") return null;
+
+    const resolution = resolveWalkTarget(scene.walkArea, this.world.player, spot);
+    if (!resolution) {
+      return "No path found.";
+    }
+
+    events.push(
+      ...this.dispatch({
+        type: "character/walk",
+        x: resolution.goal.x,
+        y: resolution.goal.y
+      })
+    );
+    return null;
+  }
+
+  private isActorVisible(actor: SceneActor): boolean {
+    if (!actor.visibleWhen) return true;
+    return this.evaluateCondition(actor.visibleWhen);
+  }
+
+  private evaluateCondition(condition: ConditionExpression): boolean {
+    if (condition.type === "flag-equals") {
+      return this.world.flags[condition.key] === condition.value;
+    }
+    return this.world.inventory.includes(condition.itemId);
   }
 
   private unsupportedHotspotFeedback(verb: Verb, hotspot: Hotspot): string {
     const label = this.localize(hotspot.labelKey);
     if (verb === "look") return `Nothing new stands out about ${label}.`;
     if (verb === "talk") return `${label} is not feeling conversational.`;
+    if (verb === "use") return `That does not seem useful on ${label}.`;
+    return "Nothing happens.";
+  }
+
+  private unsupportedActorFeedback(verb: Verb, actor: SceneActor): string {
+    const label = this.localize(actor.labelKey);
+    if (verb === "look") return `Nothing new stands out about ${label}.`;
+    if (verb === "talk") return `${label} has nothing to say.`;
     if (verb === "use") return `That does not seem useful on ${label}.`;
     return "Nothing happens.";
   }

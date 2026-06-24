@@ -18,6 +18,7 @@ describe("loadProjectFromDirectory", () => {
     expect(loaded.bundle.manifest.title).toBe("The Isle of Echoes");
     expect(Object.keys(loaded.bundle.scenes)).toContain("moonlit-dock");
     expect(loaded.bundle.scenes["moonlit-dock"]?.type).toBe("layered-2d");
+    expect(Object.keys(loaded.bundle.promptPacks)).toContain("moonlit-dock-art");
   });
 
   it("persists hotspot edits back to the scene document", async () => {
@@ -221,6 +222,7 @@ describe("loadProjectFromDirectory", () => {
     const updated = await applyProjectCommand(projectRoot, {
       type: "scene/create",
       scene: {
+        actors: [],
         background: "#1b2c3d",
         hotspots: [],
         id: "harbor-street",
@@ -271,6 +273,7 @@ describe("loadProjectFromDirectory", () => {
     await applyProjectCommand(projectRoot, {
       type: "scene/create",
       scene: {
+        actors: [],
         background: "#1b2c3d",
         hotspots: [],
         id: "harbor-street",
@@ -320,6 +323,7 @@ describe("loadProjectFromDirectory", () => {
     await applyProjectCommand(projectRoot, {
       type: "scene/create",
       scene: {
+        actors: [],
         background: "#1b2c3d",
         hotspots: [],
         id: "harbor-street",
@@ -937,6 +941,96 @@ describe("loadProjectFromDirectory", () => {
 
     expect(diagnostics.some((item) => item.code === "scene.pickup-item-missing")).toBe(true);
     expect(diagnostics.some((item) => item.code === "scene.hotspot-look-missing-flow")).toBe(true);
+  });
+
+  it("reports semantic diagnostics for missing actor and prompt pack references", async () => {
+    const loaded = await loadProjectFromDirectory(
+      path.resolve(import.meta.dirname, "../../../apps/sample-game/project")
+    );
+    const scene = loaded.bundle.scenes["moonlit-dock"];
+    expect(scene?.type).toBe("layered-2d");
+    if (!scene || scene.type !== "layered-2d") {
+      throw new Error("Expected layered 2D scene");
+    }
+
+    const diagnostics = validateProjectBundle({
+      ...loaded.bundle,
+      scenes: {
+        ...loaded.bundle.scenes,
+        "moonlit-dock": {
+          ...scene,
+          actors: [
+            {
+              actions: { useItemFlows: [] },
+              assetId: "missing-asset",
+              bounds: { x: 10, y: 20, width: 30, height: 40 },
+              depth: 4,
+              id: "loose-prop",
+              interactSpot: { x: 5000, y: 5000 },
+              labelKey: "actor.loose-prop",
+              role: "prop",
+              visibleWhen: { type: "item-in-inventory", itemId: "missing-item" }
+            }
+          ]
+        }
+      },
+      promptPacks: {
+        ...loaded.bundle.promptPacks,
+        "broken-pack": {
+          ...loaded.bundle.promptPacks["moonlit-dock-art"]!,
+          id: "broken-pack",
+          sceneId: "missing-scene"
+        }
+      }
+    });
+
+    expect(diagnostics.some((item) => item.code === "scene.actor-asset-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "scene.actor-interact-spot-outside-scene")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "scene.actor-visible-item-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "prompt-pack.scene-missing")).toBe(true);
+  });
+
+  it("upserts a prompt pack document and manifest entry", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+
+    const source = (await loadProjectFromDirectory(projectRoot)).bundle.promptPacks["moonlit-dock-art"];
+    if (!source) {
+      throw new Error("Expected sample prompt pack");
+    }
+
+    const updated = await applyProjectCommand(projectRoot, {
+      type: "prompt-pack/upsert",
+      patch: {
+        documentPath: "prompt-packs/harbor-style.prompt-pack.json",
+        promptPack: {
+          ...source,
+          id: "harbor-style",
+          name: "Harbor Style Exploration"
+        }
+      }
+    });
+
+    expect(updated.bundle.promptPacks["harbor-style"]?.name).toBe("Harbor Style Exploration");
+
+    const manifest = JSON.parse(
+      await readFile(path.join(projectRoot, "adventure.project.json"), "utf8")
+    ) as { promptPacks?: Array<{ id: string; path: string }> };
+    expect(manifest.promptPacks).toContainEqual({
+      id: "harbor-style",
+      path: "prompt-packs/harbor-style.prompt-pack.json"
+    });
+
+    const promptPackFile = JSON.parse(
+      await readFile(path.join(projectRoot, "prompt-packs", "harbor-style.prompt-pack.json"), "utf8")
+    ) as { id: string; name: string };
+    expect(promptPackFile).toMatchObject({
+      id: "harbor-style",
+      name: "Harbor Style Exploration"
+    });
   });
 
   it("registers imported assets in the project manifest and asset documents", async () => {

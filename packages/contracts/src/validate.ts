@@ -7,6 +7,7 @@ import {
   ItemDocumentSchema,
   Layered2DSceneSchema,
   LocaleDocumentSchema,
+  PromptPackDocumentSchema,
   ProjectManifestSchema,
   SceneDocumentSchema
 } from "./schemas";
@@ -21,7 +22,8 @@ const validators = {
   flow: ajv.compile(FlowDocumentSchema),
   locale: ajv.compile(LocaleDocumentSchema),
   item: ajv.compile(ItemDocumentSchema),
-  asset: ajv.compile(AssetDocumentSchema)
+  asset: ajv.compile(AssetDocumentSchema),
+  promptPack: ajv.compile(PromptPackDocumentSchema)
 } satisfies Record<string, ValidateFunction>;
 
 export type DocumentKind = keyof typeof validators;

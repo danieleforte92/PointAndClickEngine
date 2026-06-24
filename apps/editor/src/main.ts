@@ -10,6 +10,7 @@ import type {
   ItemDocument,
   Layered2DScene,
   LocaleDocument,
+  PromptPackDocument,
   ScenePickup,
   ProjectBundle
 } from "@pointclick/contracts";
@@ -355,6 +356,7 @@ async function summarizeProject(projectDirectory: string, bundle: ProjectBundle)
   const activePickup: ScenePickup | null = activeScene?.pickups[0] ?? null;
   const activeItem: ItemDocument | null = Object.values(bundle.items)[0] ?? null;
   const activeAsset: AssetDocument | null = Object.values(bundle.assets)[0] ?? null;
+  const promptPacks: PromptPackDocument[] = Object.values(bundle.promptPacks);
 
   return {
     activeAssetId: activeAsset?.id ?? null,
@@ -375,6 +377,8 @@ async function summarizeProject(projectDirectory: string, bundle: ProjectBundle)
     localeCount: Object.keys(bundle.locales).length,
     locales: Object.values(bundle.locales),
     manifest: bundle.manifest,
+    promptPackCount: promptPacks.length,
+    promptPacks,
     sceneCount: Object.keys(bundle.scenes).length,
     scenes: Object.values(bundle.scenes),
     selectedAsset: activeAsset,
