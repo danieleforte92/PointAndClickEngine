@@ -217,6 +217,10 @@ function formatEvent(
       );
       return `hotspot ${event.verb}: ${localize(bundle, hotspot?.labelKey ?? "", hotspot?.id ?? event.hotspotId)}`;
     }
+    case "actor/interacted": {
+      const actor = scene.actors.find((entry) => entry.id === event.actorId);
+      return `actor ${event.verb}: ${localize(bundle, actor?.labelKey ?? "", actor?.id ?? event.actorId)}`;
+    }
     case "flag/set":
       return `flag set: ${event.key} = ${String(event.value)}`;
     case "flow/started":
@@ -328,6 +332,15 @@ export function PlayerApp() {
           frameRef.current = nextFrame;
           renderer.renderPlayer(nextFrame.state.player);
           renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
+          renderer.renderVisibleActors(engine.visibleActors().map((actor) => actor.id));
+          setFrame(nextFrame);
+        },
+        onActor: (actorId) => {
+          const nextFrame = engine.interactActor(actorId);
+          frameRef.current = nextFrame;
+          renderer.renderPlayer(nextFrame.state.player);
+          renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
+          renderer.renderVisibleActors(engine.visibleActors().map((actor) => actor.id));
           setFrame(nextFrame);
         },
         onHotspot: (hotspotId) => {
@@ -335,6 +348,7 @@ export function PlayerApp() {
           frameRef.current = nextFrame;
           renderer.renderPlayer(nextFrame.state.player);
           renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
+          renderer.renderVisibleActors(engine.visibleActors().map((actor) => actor.id));
           setFrame(nextFrame);
         },
         onPickup: (pickupId) => {
@@ -342,10 +356,11 @@ export function PlayerApp() {
           frameRef.current = nextFrame;
           renderer.renderPlayer(nextFrame.state.player);
           renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
+          renderer.renderVisibleActors(engine.visibleActors().map((actor) => actor.id));
           setFrame(nextFrame);
         },
       },
-      assetBaseUrl ? { assetBaseUrl } : {},
+      { assets: bundle.assets, ...(assetBaseUrl ? { assetBaseUrl } : {}) },
     );
     rendererRef.current = renderer;
 
@@ -354,6 +369,7 @@ export function PlayerApp() {
       if (!disposed && nextFrame) {
         renderer.renderPlayer(nextFrame.state.player);
         renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
+        renderer.renderVisibleActors(engine.visibleActors().map((actor) => actor.id));
       }
     });
 
@@ -365,10 +381,11 @@ export function PlayerApp() {
   }, [assetBaseUrl, engine, rendererReady, scene]);
 
   useEffect(() => {
-    if (!frame) return;
+    if (!frame || !engine) return;
     rendererRef.current?.renderPlayer(frame.state.player);
     rendererRef.current?.renderCollectedPickups(frame.state.collectedPickups);
-  }, [frame]);
+    rendererRef.current?.renderVisibleActors(engine.visibleActors().map((actor) => actor.id));
+  }, [engine, frame]);
 
   const advanceDialogue = () => {
     const nextFrame = engine?.advanceDialogue();
@@ -379,6 +396,7 @@ export function PlayerApp() {
     rendererRef.current?.renderCollectedPickups(
       nextFrame.state.collectedPickups,
     );
+    rendererRef.current?.renderVisibleActors(engine.visibleActors().map((actor) => actor.id));
     setFrame(nextFrame);
   };
 
@@ -417,6 +435,7 @@ export function PlayerApp() {
         rendererRef.current?.renderCollectedPickups(
           nextFrame.state.collectedPickups,
         );
+        rendererRef.current?.renderVisibleActors(engine.visibleActors().map((actor) => actor.id));
         setFrame(nextFrame);
         return;
       }

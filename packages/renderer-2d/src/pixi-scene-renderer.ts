@@ -1,13 +1,15 @@
-import type { Layered2DScene, Vector2 } from "@pointclick/contracts";
-import { Application, Container, Graphics } from "pixi.js";
+import type { AssetDocument, Layered2DScene, SceneActor, Vector2 } from "@pointclick/contracts";
+import { Application, Container, Graphics, Sprite } from "pixi.js";
 
 export interface SceneInteractionHandlers {
   onWalk(position: Vector2): void;
+  onActor(actorId: string): void;
   onHotspot(hotspotId: string): void;
   onPickup(pickupId: string): void;
 }
 
 export interface SceneRenderOptions {
+  assets?: Record<string, AssetDocument>;
   assetBaseUrl?: string;
 }
 
@@ -21,6 +23,7 @@ function isHexColor(value: string): boolean {
 
 export class PixiSceneRenderer {
   private readonly app = new Application();
+  private readonly actorTargets = new Map<string, Container>();
   private readonly player = new Container();
   private readonly pickupTargets = new Map<string, Graphics>();
   private pendingPlayerPosition: Vector2 = { x: 0, y: 0 };
@@ -105,6 +108,12 @@ export class PixiSceneRenderer {
       this.app.stage.addChild(target);
     }
 
+    for (const actor of this.scene.actors) {
+      const target = this.createActorTarget(actor);
+      this.actorTargets.set(actor.id, target);
+      this.app.stage.addChild(target);
+    }
+
     for (const pickup of this.scene.pickups) {
       const target = new Graphics()
         .roundRect(
@@ -151,6 +160,15 @@ export class PixiSceneRenderer {
     }
   }
 
+  renderVisibleActors(visibleActorIds: string[]): void {
+    const visibleActors = new Set(visibleActorIds);
+    for (const [actorId, target] of this.actorTargets) {
+      const visible = visibleActors.has(actorId);
+      target.visible = visible;
+      target.eventMode = visible ? "static" : "none";
+    }
+  }
+
   renderPlayer(position: Vector2): void {
     this.pendingPlayerPosition = { ...position };
     if (!this.mounted) return;
@@ -161,5 +179,39 @@ export class PixiSceneRenderer {
     if (!this.mounted) return;
     this.app.destroy(true, { children: true });
     this.mounted = false;
+  }
+
+  private createActorTarget(actor: SceneActor): Container {
+    const container = new Container();
+    container.position.set(actor.bounds.x, actor.bounds.y);
+    container.zIndex = actor.depth;
+    container.eventMode = "static";
+    container.cursor = "pointer";
+    container.on("pointertap", (event) => {
+      event.stopPropagation();
+      this.handlers.onActor(actor.id);
+    });
+
+    const asset = actor.assetId ? this.options.assets?.[actor.assetId] : null;
+    if (asset) {
+      const assetUrl = new URL(asset.path, this.options.assetBaseUrl ?? window.location.href).toString();
+      const sprite = Sprite.from(assetUrl);
+      sprite.width = actor.bounds.width;
+      sprite.height = actor.bounds.height;
+      container.addChild(sprite);
+    } else {
+      const debugShape = new Graphics()
+        .roundRect(0, 0, actor.bounds.width, actor.bounds.height, 8)
+        .fill({ color: 0x66d9ef, alpha: actor.role === "decoration" ? 0.08 : 0.18 })
+        .stroke({ color: 0x66d9ef, alpha: 0.72, width: 2 });
+      container.addChild(debugShape);
+    }
+
+    const hitArea = new Graphics()
+      .rect(0, 0, actor.bounds.width, actor.bounds.height)
+      .fill({ color: 0xffffff, alpha: 0.001 });
+    container.addChild(hitArea);
+
+    return container;
   }
 }
