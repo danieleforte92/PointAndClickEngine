@@ -76,7 +76,8 @@ import {
 import { buildDraftProjectBundle } from "../preview-session";
 import {
   buildPromptPackContext,
-  mockPromptPackProvider,
+  promptProviderDescriptors,
+  type PromptProviderId,
   type PromptProviderJob
 } from "../prompt-pack-studio";
 import type { EditorProjectSnapshot } from "../preload";
@@ -769,6 +770,13 @@ export function EditorApp() {
     "Readable 2D point-and-click adventure art, hand-painted shapes, clear interactable silhouettes, restrained palette."
   );
   const [promptPackJob, setPromptPackJob] = useState<PromptProviderJob | null>(null);
+  const [promptPackGenerationState, setPromptPackGenerationState] = useState<"idle" | "running">("idle");
+  const [promptProviderId, setPromptProviderId] = useState<PromptProviderId>("mock");
+  const [openAiApiKey, setOpenAiApiKey] = useState("");
+  const [openAiBaseUrl, setOpenAiBaseUrl] = useState("https://api.openai.com/v1");
+  const [openAiModel, setOpenAiModel] = useState(
+    promptProviderDescriptors.find((provider) => provider.id === "openai")?.defaultModel ?? "gpt-5.2"
+  );
   const [selectedPromptPackId, setSelectedPromptPackId] = useState<string | null>(null);
   const [validationRunState, setValidationRunState] = useState<EditorValidationRunState>("idle");
   const [validationReport, setValidationReport] = useState<EditorValidationReport | null>(null);
@@ -819,6 +827,8 @@ export function EditorApp() {
     project?.promptPacks[0] ??
     null;
   const promptPackCandidate = promptPackJob?.candidates[0] ?? null;
+  const selectedPromptProvider =
+    promptProviderDescriptors.find((provider) => provider.id === promptProviderId) ?? promptProviderDescriptors[0]!;
 
   const currentSceneDraft = selectedScene
     ? session.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene)
@@ -2432,25 +2442,37 @@ export function EditorApp() {
     }
   };
 
-  const generateMockPromptPack = () => {
+  const generatePromptPack = async () => {
     if (!project || !promptPackScene) return;
 
+    setPromptPackGenerationState("running");
+    setStatus(
+      promptProviderId === "openai"
+        ? `Generating prompt pack with OpenAI ${openAiModel || selectedPromptProvider.defaultModel}...`
+        : "Generating deterministic mock prompt pack..."
+    );
     try {
-      const job = mockPromptPackProvider.generate({
+      const job = await window.pointClick.generatePromptPack({
         bundle: buildDraftProjectBundle(project, history.present),
+        providerId: promptProviderId,
         sceneId: promptPackScene.id,
-        artBrief: promptPackBrief
+        artBrief: promptPackBrief,
+        ...(openAiApiKey.trim() ? { openAiApiKey: openAiApiKey.trim() } : {}),
+        ...(openAiBaseUrl.trim() ? { openAiBaseUrl: openAiBaseUrl.trim() } : {}),
+        ...(openAiModel.trim() ? { openAiModel: openAiModel.trim() } : {})
       });
       const candidate = job.candidates[0] ?? null;
       setPromptPackJob(job);
       setSelectedPromptPackId(candidate?.promptPack.id ?? null);
       setStatus(
         candidate
-          ? `Generated ${candidate.promptPack.id} with ${candidate.promptPack.outputs.generationTargets.length} target(s)`
-          : "Mock provider returned no prompt pack candidates"
+          ? `Generated ${candidate.promptPack.id} with ${selectedPromptProvider.label}`
+          : `${selectedPromptProvider.label} returned no prompt pack candidates`
       );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Prompt pack could not be generated");
+    } finally {
+      setPromptPackGenerationState("idle");
     }
   };
 
@@ -4320,6 +4342,225 @@ export function EditorApp() {
                 </div>
               </section>
             </div>
+          ) : workspace === "ai" ? (
+            <div className="workspace-overview build-workspace ai-workspace">
+              <section className="overview-card prompt-studio-card">
+                <span className="overview-label">AI Prompt Pack Studio</span>
+                <strong>{promptPackScene ? `${promptPackScene.name} brief` : "No layered scene"}</strong>
+                <p>{selectedPromptProvider.detail}</p>
+                <div className="prompt-studio-controls">
+                  <label className="prompt-studio-field">
+                    Provider
+                    <select
+                      value={promptProviderId}
+                      onChange={(event) => setPromptProviderId(event.target.value as PromptProviderId)}
+                    >
+                      {promptProviderDescriptors.map((provider) => (
+                        <option key={`ai-provider-${provider.id}`} value={provider.id}>
+                          {provider.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {promptProviderId === "openai" ? (
+                    <>
+                      <label className="prompt-studio-field">
+                        OpenAI API key
+                        <input
+                          placeholder="Uses OPENAI_API_KEY if empty"
+                          type="password"
+                          value={openAiApiKey}
+                          onChange={(event) => setOpenAiApiKey(event.target.value)}
+                        />
+                      </label>
+                      <label className="prompt-studio-field">
+                        Model
+                        <input
+                          value={openAiModel}
+                          onChange={(event) => setOpenAiModel(event.target.value)}
+                        />
+                      </label>
+                      <label className="prompt-studio-field">
+                        Base URL
+                        <input
+                          value={openAiBaseUrl}
+                          onChange={(event) => setOpenAiBaseUrl(event.target.value)}
+                        />
+                      </label>
+                    </>
+                  ) : null}
+                  <label className="prompt-studio-field">
+                    Scene
+                    <select
+                      disabled={!project || layeredScenes.length === 0}
+                      value={promptPackScene?.id ?? ""}
+                      onChange={(event) => setPromptPackSceneId(event.target.value)}
+                    >
+                      {layeredScenes.map((scene) => (
+                        <option key={`ai-scene-${scene.id}`} value={scene.id}>
+                          {scene.name} ({scene.id})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="prompt-studio-field">
+                    Art brief
+                    <textarea
+                      value={promptPackBrief}
+                      onChange={(event) => setPromptPackBrief(event.target.value)}
+                    />
+                  </label>
+                </div>
+                <div className="build-actions">
+                  <button
+                    className="play-action"
+                    disabled={!project || !promptPackScene || promptPackGenerationState === "running"}
+                    type="button"
+                    onClick={generatePromptPack}
+                  >
+                    {promptPackGenerationState === "running" ? "Generating..." : "Generate Prompt Pack"}
+                  </button>
+                  <button
+                    className="secondary-action"
+                    disabled={!promptPackCandidate}
+                    type="button"
+                    onClick={saveApprovedPromptPack}
+                  >
+                    Save Approved Pack
+                  </button>
+                </div>
+              </section>
+              <section className="overview-card">
+                <span className="overview-label">Provider boundary</span>
+                <strong>{selectedPromptProvider.label}</strong>
+                <p>
+                  {promptProviderId === "openai"
+                    ? "OpenAI calls run through the Electron main process. API keys are not saved to project files."
+                    : "Mock generation is offline, deterministic, and safe for open-source contributors."}
+                </p>
+                <div className="diagnostic-list">
+                  <div className="diagnostic-item">
+                    <div>
+                      <strong>ChatGPT Plus</strong>
+                      <p>Plus/Codex subscriptions do not replace API platform billing for app calls.</p>
+                    </div>
+                  </div>
+                  <div className="diagnostic-item">
+                    <div>
+                      <strong>Project mutation</strong>
+                      <p>Generation never writes files until you approve and save the pack.</p>
+                    </div>
+                  </div>
+                </div>
+              </section>
+              <section className="overview-card">
+                <span className="overview-label">Extracted context</span>
+                <strong>
+                  {promptPackContext
+                    ? `${promptPackContext.hotspots.length} hotspot(s), ${promptPackContext.pickups.length} pickup(s), ${promptPackContext.actors.length} actor(s)`
+                    : "No context"}
+                </strong>
+                <p>
+                  {promptPackContext
+                    ? `${promptPackContext.sceneSize.width} x ${promptPackContext.sceneSize.height} - ${promptPackContext.locale}`
+                    : "Choose a layered scene to inspect AI prompt context."}
+                </p>
+                {promptPackContext ? (
+                  <div className="prompt-chip-list">
+                    {Object.entries(promptPackContext.labels).map(([key, value]) => (
+                      <span className="prompt-chip" key={`ai-context-${key}`} title={key}>
+                        {value}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </section>
+              <section className="overview-card">
+                <span className="overview-label">Saved prompt packs</span>
+                <strong>{project?.promptPackCount ?? 0} pack(s)</strong>
+                <p>
+                  {selectedPromptPack
+                    ? `${selectedPromptPack.id} targets ${selectedPromptPack.sceneId}`
+                    : "Approved packs will be written under project prompt-packs."}
+                </p>
+                {selectedPromptPack ? (
+                  <div className="diagnostic-list">
+                    <div className="diagnostic-item">
+                      <div>
+                        <strong>{selectedPromptPack.name}</strong>
+                        <p>{selectedPromptPack.provenance.provider} - {selectedPromptPack.provenance.model}</p>
+                      </div>
+                      <span className="capability-badge good">
+                        {selectedPromptPack.outputs.generationTargets.length} target(s)
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
+              </section>
+              <section className="overview-card prompt-output-card">
+                <span className="overview-label">Candidate output</span>
+                <strong>{promptPackCandidate?.promptPack.id ?? "No candidate generated"}</strong>
+                <p>{promptPackCandidate?.summary ?? "Generate a prompt pack to review provider output."}</p>
+                {promptPackCandidate ? (
+                  <div className="prompt-output-list">
+                    <div className="prompt-output-item">
+                      <strong>Background</strong>
+                      <p>{promptPackCandidate.promptPack.outputs.sceneBackgroundPrompt}</p>
+                    </div>
+                    {promptPackCandidate.promptPack.outputs.propPrompts.map((prompt) => (
+                      <div className="prompt-output-item" key={`ai-prop-${prompt.id}`}>
+                        <strong>Prop: {prompt.id}</strong>
+                        <p>{prompt.prompt}</p>
+                      </div>
+                    ))}
+                    {promptPackCandidate.promptPack.outputs.characterReferencePrompts.map((prompt) => (
+                      <div className="prompt-output-item" key={`ai-character-${prompt.id}`}>
+                        <strong>Character: {prompt.id}</strong>
+                        <p>{prompt.prompt}</p>
+                      </div>
+                    ))}
+                    <div className="prompt-output-item">
+                      <strong>Animation notes</strong>
+                      <p>{promptPackCandidate.promptPack.outputs.animationNotes.join(" ")}</p>
+                    </div>
+                    <div className="prompt-output-item">
+                      <strong>Style notes</strong>
+                      <p>{promptPackCandidate.promptPack.outputs.styleNotes.join(" ")}</p>
+                    </div>
+                    <div className="prompt-output-item">
+                      <strong>Negative prompt</strong>
+                      <p>{promptPackCandidate.promptPack.outputs.negativePrompt}</p>
+                    </div>
+                    <div className="prompt-output-item">
+                      <strong>Generation targets</strong>
+                      <p>
+                        {promptPackCandidate.promptPack.outputs.generationTargets
+                          .map((target) => `${target.id}:${target.intendedUse}`)
+                          .join(", ")}
+                      </p>
+                    </div>
+                    <div className="prompt-output-item">
+                      <strong>Suggested actors</strong>
+                      <p>
+                        {promptPackCandidate.promptPack.suggestedActors.length
+                          ? promptPackCandidate.promptPack.suggestedActors
+                              .map((actor) => `${actor.id}:${actor.role}`)
+                              .join(", ")
+                          : "No actor suggestions for this scene."}
+                      </p>
+                    </div>
+                    <div className="prompt-output-item">
+                      <strong>Provenance</strong>
+                      <p>
+                        {promptPackCandidate.promptPack.provenance.provider} /{" "}
+                        {promptPackCandidate.promptPack.provenance.model} /{" "}
+                        {promptPackCandidate.promptPack.provenance.inputHash}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+              </section>
+            </div>
           ) : workspace === "assets" ? (
             <div className="workspace-overview build-workspace">
               <section className="overview-card">
@@ -4406,9 +4647,42 @@ export function EditorApp() {
               </section>
               <section className="overview-card prompt-studio-card">
                 <span className="overview-label">Prompt Pack Studio</span>
-                <strong>{promptPackScene ? `${promptPackScene.name} mock brief` : "No layered scene"}</strong>
-                <p>Generate a deterministic art pack from the current draft scene context.</p>
+                <strong>{promptPackScene ? `${promptPackScene.name} AI brief` : "No layered scene"}</strong>
+                <p>Generate a prompt pack from the current draft scene context.</p>
                 <div className="prompt-studio-controls">
+                  <label className="prompt-studio-field">
+                    Provider
+                    <select
+                      value={promptProviderId}
+                      onChange={(event) => setPromptProviderId(event.target.value as PromptProviderId)}
+                    >
+                      {promptProviderDescriptors.map((provider) => (
+                        <option key={provider.id} value={provider.id}>
+                          {provider.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {promptProviderId === "openai" ? (
+                    <>
+                      <label className="prompt-studio-field">
+                        OpenAI API key
+                        <input
+                          placeholder="Uses OPENAI_API_KEY if empty"
+                          type="password"
+                          value={openAiApiKey}
+                          onChange={(event) => setOpenAiApiKey(event.target.value)}
+                        />
+                      </label>
+                      <label className="prompt-studio-field">
+                        Model
+                        <input
+                          value={openAiModel}
+                          onChange={(event) => setOpenAiModel(event.target.value)}
+                        />
+                      </label>
+                    </>
+                  ) : null}
                   <label className="prompt-studio-field">
                     Scene
                     <select
@@ -4434,11 +4708,11 @@ export function EditorApp() {
                 <div className="build-actions">
                   <button
                     className="play-action"
-                    disabled={!project || !promptPackScene}
+                    disabled={!project || !promptPackScene || promptPackGenerationState === "running"}
                     type="button"
-                    onClick={generateMockPromptPack}
+                    onClick={generatePromptPack}
                   >
-                    Generate Mock Pack
+                    {promptPackGenerationState === "running" ? "Generating..." : "Generate Prompt Pack"}
                   </button>
                   <button
                     className="secondary-action"
@@ -4897,6 +5171,8 @@ export function EditorApp() {
                 ? "Status"
                 : workspace === "assets"
                   ? "Library"
+                  : workspace === "ai"
+                    ? "AI"
                   : workspace === "player"
                     ? "Player"
                   : workspace === "build"
@@ -4962,6 +5238,22 @@ export function EditorApp() {
                   {selectedScene && dirtyState.sceneIds.has(selectedScene.id)
                     ? "Scene player settings have unapplied draft changes."
                     : "Player settings match the saved scene."}
+                </p>
+              </div>
+            ) : workspace === "ai" ? (
+              <div className="workspace-placeholder compact">
+                <span className={`capability-badge ${promptProviderId === "openai" ? "warn" : "good"}`}>
+                  AI
+                </span>
+                <strong>{selectedPromptProvider.label}</strong>
+                <p>{selectedPromptProvider.detail}</p>
+                <p className="inspector-copy">Scene: {promptPackScene?.id ?? "none"}</p>
+                <p className="inspector-copy">Candidate: {promptPackCandidate?.promptPack.id ?? "none"}</p>
+                <p className="inspector-copy">Saved packs: {project?.promptPackCount ?? 0}</p>
+                <p className="inspector-copy">
+                  {promptProviderId === "openai"
+                    ? "OpenAI requires an API platform key; ChatGPT Plus billing is separate."
+                    : "Mock output is deterministic and does not require network access."}
                 </p>
               </div>
             ) : workspace === "assets" ? (

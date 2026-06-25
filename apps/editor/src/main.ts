@@ -17,7 +17,9 @@ import type {
   ProjectBundle
 } from "@pointclick/contracts";
 import type { EditorRecoverySnapshot } from "./editor-session";
+import { generateOpenAIPromptPack } from "./openai-prompt-provider";
 import type { EditorPreviewRequest } from "./preload";
+import { mockPromptPackProvider, type GeneratePromptPackRequest, type PromptProviderId } from "./prompt-pack-studio";
 import { createValidationReport } from "./validation-report";
 import {
   applyProjectCommand,
@@ -535,6 +537,25 @@ async function createEditorProjectFromStarter(browserWindow: BrowserWindow) {
   return summarizeProject(loaded.directory, loaded.bundle);
 }
 
+async function generatePromptPack(
+  request: GeneratePromptPackRequest & {
+    providerId: PromptProviderId;
+    openAiApiKey?: string;
+    openAiBaseUrl?: string;
+    openAiModel?: string;
+  }
+) {
+  if (request.providerId === "mock") {
+    return mockPromptPackProvider.generate(request);
+  }
+
+  return generateOpenAIPromptPack(request, {
+    ...(request.openAiApiKey ? { apiKey: request.openAiApiKey } : {}),
+    ...(request.openAiBaseUrl ? { baseUrl: request.openAiBaseUrl } : {}),
+    ...(request.openAiModel ? { model: request.openAiModel } : {})
+  });
+}
+
 app.whenReady().then(() => {
   if (app.isPackaged) {
     return startBundledPlayerServer();
@@ -576,6 +597,9 @@ app.whenReady().then(() => {
       throw new Error("Unable to resolve editor window");
     }
     return importProjectAssets(browserWindow);
+  });
+  ipcMain.handle("ai:prompt-pack", async (_event, request) => {
+    return generatePromptPack(request);
   });
   ipcMain.handle("project:command", async (_event, command: EditorProjectCommand) => {
     return applyEditorCommand(command);

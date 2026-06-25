@@ -1159,6 +1159,7 @@ button {
 }
 
 .prompt-studio-field select,
+.prompt-studio-field input,
 .prompt-studio-field textarea {
   width: 100%;
   margin-top: 7px;
@@ -1174,6 +1175,15 @@ button {
 .prompt-studio-field select {
   height: 32px;
   padding: 0 8px;
+}
+
+.prompt-studio-field input {
+  height: 32px;
+  padding: 0 8px;
+}
+
+.ai-workspace .prompt-studio-card {
+  border-color: #4a6471;
 }
 
 .prompt-studio-field textarea {

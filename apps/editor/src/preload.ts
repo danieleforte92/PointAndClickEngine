@@ -15,6 +15,11 @@ import type {
   SceneDocument
 } from "@pointclick/contracts";
 import type { EditorRecoverySnapshot } from "./editor-session";
+import type {
+  GeneratePromptPackRequest,
+  PromptProviderId,
+  PromptProviderJob
+} from "./prompt-pack-studio";
 import type { EditorProjectCommand, ProjectDiagnostic } from "@pointclick/project-io";
 import type { EditorValidationReport } from "./validation-report";
 
@@ -66,6 +71,14 @@ export interface PointClickEditorApi {
   createBlankProject(): Promise<EditorProjectSnapshot | null>;
   createProjectFromStarter(): Promise<EditorProjectSnapshot | null>;
   importAssets(): Promise<EditorProjectSnapshot | null>;
+  generatePromptPack(
+    request: GeneratePromptPackRequest & {
+      providerId: PromptProviderId;
+      openAiApiKey?: string;
+      openAiBaseUrl?: string;
+      openAiModel?: string;
+    }
+  ): Promise<PromptProviderJob>;
   loadProject(projectDirectory?: string): Promise<EditorProjectSnapshot>;
   loadRecovery(projectDirectory: string): Promise<EditorRecoverySnapshot | null>;
   openPreview(request?: EditorPreviewRequest): Promise<void>;
@@ -81,6 +94,7 @@ const api: PointClickEditorApi = {
   clearRecovery: (projectDirectory) => ipcRenderer.invoke("recovery:clear", projectDirectory),
   createBlankProject: () => ipcRenderer.invoke("project:create-blank"),
   createProjectFromStarter: () => ipcRenderer.invoke("project:create-from-starter"),
+  generatePromptPack: (request) => ipcRenderer.invoke("ai:prompt-pack", request),
   importAssets: () => ipcRenderer.invoke("project:import-assets"),
   loadProject: (projectDirectory) => ipcRenderer.invoke("project:load", projectDirectory),
   loadRecovery: (projectDirectory) => ipcRenderer.invoke("recovery:load", projectDirectory),

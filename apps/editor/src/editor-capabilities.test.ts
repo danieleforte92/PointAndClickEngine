@@ -9,11 +9,14 @@ import {
 describe("editor capabilities", () => {
   it("marks implemented workspaces as usable instead of planned placeholders", () => {
     const assets = workspaceCapabilities.find((capability) => capability.workspace === "assets");
+    const ai = workspaceCapabilities.find((capability) => capability.workspace === "ai");
     const build = workspaceCapabilities.find((capability) => capability.workspace === "build");
     const player = workspaceCapabilities.find((capability) => capability.workspace === "player");
 
     expect(assets?.status).toBe("beta");
     expect(assets?.summary).toContain("import");
+    expect(ai?.status).toBe("beta");
+    expect(ai?.summary).toContain("prompt packs");
     expect(player?.status).toBe("beta");
     expect(player?.summary).toContain("playable character");
     expect(build?.status).toBe("beta");

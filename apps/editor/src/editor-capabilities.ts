@@ -55,6 +55,15 @@ export const workspaceCapabilities: EditorCapability[] = [
       "The asset library is wired for import and scene usage today; provenance, versioning, and AI generation remain future milestones."
   },
   {
+    id: "ai",
+    label: "AI",
+    status: "beta",
+    workspace: "ai",
+    summary: "Generate and review provider-backed prompt packs.",
+    detail:
+      "AI authoring supports deterministic mock output and optional OpenAI Responses API configuration for prompt-pack drafts."
+  },
+  {
     id: "build",
     label: "Build",
     status: "beta",

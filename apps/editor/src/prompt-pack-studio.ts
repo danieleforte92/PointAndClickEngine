@@ -17,6 +17,16 @@ export interface GeneratePromptPackRequest {
   generatedAt?: string;
 }
 
+export type PromptProviderId = "mock" | "openai";
+
+export interface PromptProviderDescriptor {
+  id: PromptProviderId;
+  label: string;
+  status: "available" | "requires-config";
+  defaultModel: string;
+  detail: string;
+}
+
 export interface PromptPackCandidate {
   promptPack: PromptPackDocument;
   summary: string;
@@ -24,7 +34,7 @@ export interface PromptPackCandidate {
 
 export interface PromptProviderJob {
   id: string;
-  provider: "mock";
+  provider: PromptProviderId;
   status: "completed";
   candidates: PromptPackCandidate[];
 }
@@ -38,6 +48,23 @@ const defaultArtBrief =
   "Readable 2D point-and-click adventure art, hand-painted shapes, clear interactable silhouettes, restrained palette.";
 const defaultNegativePrompt =
   "photorealism, unreadable silhouettes, cluttered UI text, warped hands, extra limbs, heavy blur, low contrast";
+
+export const promptProviderDescriptors: PromptProviderDescriptor[] = [
+  {
+    id: "mock",
+    label: "Mock deterministic",
+    status: "available",
+    defaultModel: mockModel,
+    detail: "Offline deterministic provider for Creator Alpha fixtures and contributors without API keys."
+  },
+  {
+    id: "openai",
+    label: "OpenAI Responses API",
+    status: "requires-config",
+    defaultModel: "gpt-5.2",
+    detail: "Uses an OpenAI API key or OPENAI_API_KEY to draft prompt-pack copy through the Responses API."
+  }
+];
 
 function isLayeredScene(scene: ProjectBundle["scenes"][string] | undefined): scene is Layered2DScene {
   return scene?.type === "layered-2d";
@@ -56,7 +83,7 @@ function sentenceList(values: string[], fallback: string) {
   return values.length ? values.join(", ") : fallback;
 }
 
-function stableHash(value: unknown) {
+export function stableHash(value: unknown) {
   const text = JSON.stringify(value);
   let hash = 2166136261;
   for (let index = 0; index < text.length; index += 1) {
@@ -221,35 +248,61 @@ function buildSuggestedActors(scene: Layered2DScene, context: PromptPackContext)
   });
 }
 
+export function createPromptPackDocument(
+  request: GeneratePromptPackRequest,
+  provenance: {
+    provider: PromptProviderId;
+    model: string;
+    jobId: string;
+    seed?: string | number;
+  },
+  outputsOverride?: Omit<PromptPackOutputs, "generationTargets">
+): PromptPackDocument {
+  const scene = request.bundle.scenes[request.sceneId];
+  if (!isLayeredScene(scene)) {
+    throw new Error(`Prompt Pack Studio requires a layered-2d scene, got "${request.sceneId}"`);
+  }
+
+  const context = buildPromptPackContext(request.bundle, request.sceneId, request.artBrief);
+  const inputHash = stableHash(context);
+  const generatedAt = request.generatedAt ?? "2026-01-01T00:00:00.000Z";
+  const deterministicOutputs = buildOutputs(scene, context);
+
+  return {
+    schemaVersion: 1,
+    id: promptPackId(scene.id),
+    name: `${scene.name} ${provenance.provider === "mock" ? "Mock" : "OpenAI"} Prompt Pack`,
+    sceneId: scene.id,
+    artBrief: context.artBrief,
+    context,
+    outputs: {
+      ...deterministicOutputs,
+      ...outputsOverride,
+      generationTargets: deterministicOutputs.generationTargets
+    },
+    suggestedActors: buildSuggestedActors(scene, context),
+    provenance: {
+      provider: provenance.provider,
+      model: provenance.model,
+      generatedAt,
+      inputHash,
+      jobId: provenance.jobId,
+      seed: provenance.seed ?? inputHash
+    }
+  };
+}
+
 export const mockPromptPackProvider: PromptProvider = {
   generate(request) {
-    const scene = request.bundle.scenes[request.sceneId];
-    if (!isLayeredScene(scene)) {
-      throw new Error(`Prompt Pack Studio requires a layered-2d scene, got "${request.sceneId}"`);
-    }
-
     const context = buildPromptPackContext(request.bundle, request.sceneId, request.artBrief);
     const inputHash = stableHash(context);
-    const generatedAt = request.generatedAt ?? "2026-01-01T00:00:00.000Z";
     const jobId = `mock-${inputHash}`;
-    const promptPack: PromptPackDocument = {
-      schemaVersion: 1,
-      id: promptPackId(scene.id),
-      name: `${scene.name} Mock Prompt Pack`,
-      sceneId: scene.id,
-      artBrief: context.artBrief,
-      context,
-      outputs: buildOutputs(scene, context),
-      suggestedActors: buildSuggestedActors(scene, context),
-      provenance: {
-        provider: "mock",
-        model: mockModel,
-        generatedAt,
-        inputHash,
-        jobId,
-        seed: inputHash
-      }
-    };
+    const promptPack = createPromptPackDocument(request, {
+      provider: "mock",
+      model: mockModel,
+      jobId,
+      seed: inputHash
+    });
 
     return {
       id: jobId,
