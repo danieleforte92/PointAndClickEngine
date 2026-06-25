@@ -61,6 +61,7 @@ export interface ScenePatch {
   background: string;
   name: string;
   playerStart: Vector2;
+  size: { height: number; width: number };
   walkArea: Polygon2;
 }
 
@@ -1069,6 +1070,7 @@ function patchScene(scene: Layered2DScene, patch: ScenePatch): Layered2DScene {
     background: patch.background,
     name: patch.name,
     playerStart: patch.playerStart,
+    size: patch.size,
     walkArea: patch.walkArea
   };
 }

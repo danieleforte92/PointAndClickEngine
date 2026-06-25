@@ -45,7 +45,7 @@ export class PixiSceneRenderer {
       host.style.backgroundImage = `url("${assetUrl}")`;
       host.style.backgroundPosition = "center";
       host.style.backgroundRepeat = "no-repeat";
-      host.style.backgroundSize = "cover";
+      host.style.backgroundSize = "100% 100%";
     }
 
     await this.app.init({

@@ -282,6 +282,10 @@ describe("loadProjectFromDirectory", () => {
           x: 490,
           y: 575
         },
+        size: {
+          width: 1440,
+          height: 810
+        },
         walkArea: {
           points: [
             { x: 90, y: 460 },
@@ -309,6 +313,10 @@ describe("loadProjectFromDirectory", () => {
         x: 490,
         y: 575
       },
+      size: {
+        width: 1440,
+        height: 810
+      },
       walkArea: {
         points: [
           { x: 90, y: 460 },
@@ -325,9 +333,11 @@ describe("loadProjectFromDirectory", () => {
     const sceneFile = JSON.parse(await readFile(scenePath, "utf8")) as {
       background: string;
       name: string;
+      size: { height: number; width: number };
     };
     expect(sceneFile.background).toBe("#204060");
     expect(sceneFile.name).toBe("Moonlit Dock Revised");
+    expect(sceneFile.size).toEqual({ width: 1440, height: 810 });
   });
 
   it("creates a new scene document and manifest entry on disk", async () => {
@@ -1250,6 +1260,7 @@ describe("loadProjectFromDirectory", () => {
         background: "assets/imported/dock-sky.png",
         name: sourceScene.name,
         playerStart: sourceScene.playerStart,
+        size: sourceScene.size,
         walkArea: sourceScene.walkArea
       },
       sceneId: "moonlit-dock"
@@ -1356,6 +1367,7 @@ describe("loadProjectFromDirectory", () => {
         background: "assets/imported/dock-sky.png",
         name: sourceScene.name,
         playerStart: sourceScene.playerStart,
+        size: sourceScene.size,
         walkArea: sourceScene.walkArea
       },
       sceneId: "moonlit-dock"

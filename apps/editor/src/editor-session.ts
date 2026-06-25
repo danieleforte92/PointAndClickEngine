@@ -81,9 +81,11 @@ export interface ItemDraft {
 
 export interface SceneDraft {
   background: string;
+  height: string;
   name: string;
   playerStartX: string;
   playerStartY: string;
+  width: string;
   walkAreaPoints: Array<{ x: string; y: string }>;
 }
 
@@ -278,9 +280,11 @@ export function createItemDraft(item: ItemDocument | null): ItemDraft {
 export function createSceneDraft(scene: Layered2DScene | null): SceneDraft {
   return {
     background: scene?.background ?? "",
+    height: scene ? String(scene.size.height) : "",
     name: scene?.name ?? "",
     playerStartX: scene ? String(scene.playerStart.x) : "",
     playerStartY: scene ? String(scene.playerStart.y) : "",
+    width: scene ? String(scene.size.width) : "",
     walkAreaPoints:
       scene?.walkArea.points.map((point) => ({
         x: String(point.x),

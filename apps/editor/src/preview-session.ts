@@ -65,6 +65,8 @@ function applySceneDrafts(
 
     const playerStartX = parseNumber(draft.playerStartX);
     const playerStartY = parseNumber(draft.playerStartY);
+    const width = parsePositiveNumber(draft.width);
+    const height = parsePositiveNumber(draft.height);
 
     nextScenes[sceneId] = {
       ...scene,
@@ -74,6 +76,7 @@ function applySceneDrafts(
         playerStartX === null || playerStartY === null
           ? scene.playerStart
           : { x: playerStartX, y: playerStartY },
+      size: width === null || height === null ? scene.size : { width, height },
       walkArea: walkAreaPoints.length >= 3 ? { points: walkAreaPoints } : scene.walkArea
     };
   }

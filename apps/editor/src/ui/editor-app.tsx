@@ -156,12 +156,11 @@ function sceneBackgroundStyle(background: string, assetBase = "") {
       : `file:///${normalizedBase}${background}`
     : background;
   return {
-    actors: [],
     background: "#24384a",
     backgroundImage: `url("${assetUrl}")`,
     backgroundPosition: "center",
     backgroundRepeat: "no-repeat",
-    backgroundSize: "cover"
+    backgroundSize: "100% 100%"
   };
 }
 
@@ -303,9 +302,6 @@ function nextSceneId(snapshot: EditorProjectSnapshot): string {
 function createDefaultSceneDocument(snapshot: EditorProjectSnapshot, sceneId: string): Layered2DScene {
   const width = snapshot.manifest.viewport.width;
   const height = snapshot.manifest.viewport.height;
-  const insetX = Math.max(40, Math.floor(width * 0.08));
-  const insetTop = Math.max(80, Math.floor(height * 0.55));
-  const insetBottom = Math.max(40, Math.floor(height * 0.06));
 
   return {
     actors: [],
@@ -324,10 +320,10 @@ function createDefaultSceneDocument(snapshot: EditorProjectSnapshot, sceneId: st
     type: "layered-2d",
     walkArea: {
       points: [
-        { x: insetX, y: insetTop },
-        { x: width - insetX, y: insetTop },
-        { x: width - insetX, y: height - insetBottom },
-        { x: insetX, y: height - insetBottom }
+        { x: 0, y: 0 },
+        { x: width, y: 0 },
+        { x: width, y: height },
+        { x: 0, y: height }
       ]
     }
   };
@@ -864,10 +860,22 @@ export function EditorApp() {
   );
   const canUndo = history.past.length > 0;
   const canRedo = history.future.length > 0;
-  const sceneLabel = selectedScene
-    ? `${selectedScene.size.width} x ${selectedScene.size.height}`
-    : "No scene";
   const localeLabel = project?.manifest.defaultLocale ?? "n/a";
+  const draftSceneWidth = parsePositiveNumber(currentSceneDraft.width);
+  const draftSceneHeight = parsePositiveNumber(currentSceneDraft.height);
+  const previewSceneSize = useMemo(
+    () =>
+      selectedScene
+        ? {
+            width: draftSceneWidth ?? selectedScene.size.width,
+            height: draftSceneHeight ?? selectedScene.size.height
+          }
+        : { width: 1280, height: 720 },
+    [draftSceneHeight, draftSceneWidth, selectedScene]
+  );
+  const sceneLabel = selectedScene
+    ? `${previewSceneSize.width} x ${previewSceneSize.height}`
+    : "No scene";
   const draftWalkArea = parseWalkAreaDraft(currentSceneDraft.walkAreaPoints);
   const previewWalkArea = draftWalkArea ?? selectedScene?.walkArea ?? null;
   const previewWalkAreaPoints = previewWalkArea
@@ -880,8 +888,13 @@ export function EditorApp() {
     if (x === null || y === null) {
       return selectedScene.playerStart;
     }
-    return clampScenePoint({ x, y }, selectedScene.size);
-  }, [currentSceneDraft.playerStartX, currentSceneDraft.playerStartY, selectedScene]);
+    return clampScenePoint({ x, y }, previewSceneSize);
+  }, [
+    currentSceneDraft.playerStartX,
+    currentSceneDraft.playerStartY,
+    previewSceneSize,
+    selectedScene
+  ]);
   const previewHotspots = useMemo(() => {
     if (!selectedScene || !selectedHotspot) {
       return selectedScene?.hotspots ?? [];
@@ -920,7 +933,7 @@ export function EditorApp() {
     const bounds = moveSceneRect(
       { x, y, width, height },
       { x: 0, y: 0 },
-      selectedScene.size
+      previewSceneSize
     );
 
     return selectedScene.pickups.map((pickup) =>
@@ -936,7 +949,7 @@ export function EditorApp() {
           }
         : pickup
     );
-  }, [currentPickupDraft, selectedPickup, selectedScene]);
+  }, [currentPickupDraft, previewSceneSize, selectedPickup, selectedScene]);
   const workspaceCapability = workspaceCapabilities.find((item) => item.workspace === workspace) ?? workspaceCapabilities[0]!;
   const previewRequest = project
     ? {
@@ -1133,12 +1146,12 @@ export function EditorApp() {
 
     if (currentHotspotDraft.interactSpotEnabled && !interactSpot) {
       blockingIssues.push("Interact spot must use valid X/Y numbers.");
-    } else if (selectedScene && !scenePointIsInside(interactSpot, selectedScene.size)) {
+    } else if (selectedScene && !scenePointIsInside(interactSpot, previewSceneSize)) {
       blockingIssues.push("Interact spot is outside the scene.");
     }
     if (currentHotspotDraft.lookSpotEnabled && !lookSpot) {
       blockingIssues.push("Look spot must use valid X/Y numbers.");
-    } else if (selectedScene && !scenePointIsInside(lookSpot, selectedScene.size)) {
+    } else if (selectedScene && !scenePointIsInside(lookSpot, previewSceneSize)) {
       blockingIssues.push("Look spot is outside the scene.");
     }
 
@@ -1233,12 +1246,12 @@ export function EditorApp() {
 
     if (currentActorDraft.interactSpotEnabled && !interactSpot) {
       blockingIssues.push("Interact spot must use valid X/Y numbers.");
-    } else if (selectedScene && !scenePointIsInside(interactSpot, selectedScene.size)) {
+    } else if (selectedScene && !scenePointIsInside(interactSpot, previewSceneSize)) {
       blockingIssues.push("Interact spot is outside the scene.");
     }
     if (currentActorDraft.lookSpotEnabled && !lookSpot) {
       blockingIssues.push("Look spot must use valid X/Y numbers.");
-    } else if (selectedScene && !scenePointIsInside(lookSpot, selectedScene.size)) {
+    } else if (selectedScene && !scenePointIsInside(lookSpot, previewSceneSize)) {
       blockingIssues.push("Look spot is outside the scene.");
     }
 
@@ -1356,7 +1369,7 @@ export function EditorApp() {
             x: parseNumber(currentHotspotDraft.interactSpotX) ?? Number.NaN,
             y: parseNumber(currentHotspotDraft.interactSpotY) ?? Number.NaN
           },
-          selectedScene.size
+          previewSceneSize
         )));
   const hotspotLookSpotInvalid =
     currentHotspotDraft.lookSpotEnabled &&
@@ -1368,7 +1381,7 @@ export function EditorApp() {
             x: parseNumber(currentHotspotDraft.lookSpotX) ?? Number.NaN,
             y: parseNumber(currentHotspotDraft.lookSpotY) ?? Number.NaN
           },
-          selectedScene.size
+          previewSceneSize
         )));
   const hotspotOverrideIssues = currentHotspotDraft.useItemFlows.map((entry) => {
     const itemId = entry.itemId.trim();
@@ -1514,10 +1527,10 @@ export function EditorApp() {
 
     return clampScenePoint(
       {
-        x: ((clientX - rect.left) / rect.width) * selectedScene.size.width,
-        y: ((clientY - rect.top) / rect.height) * selectedScene.size.height
+        x: ((clientX - rect.left) / rect.width) * previewSceneSize.width,
+        y: ((clientY - rect.top) / rect.height) * previewSceneSize.height
       },
-      selectedScene.size
+      previewSceneSize
     );
   };
 
@@ -2003,7 +2016,7 @@ export function EditorApp() {
 
       if (viewportInteraction.kind === "player-start") {
         setSceneDraftPlayerStart(
-          moveScenePoint(viewportInteraction.startPosition, delta, selectedScene.size)
+          moveScenePoint(viewportInteraction.startPosition, delta, previewSceneSize)
         );
         return;
       }
@@ -2011,7 +2024,7 @@ export function EditorApp() {
       if (viewportInteraction.kind === "walk-area-point") {
         setWalkAreaPointDraft(
           viewportInteraction.pointIndex,
-          moveScenePoint(viewportInteraction.startPosition, delta, selectedScene.size)
+          moveScenePoint(viewportInteraction.startPosition, delta, previewSceneSize)
         );
         return;
       }
@@ -2019,7 +2032,7 @@ export function EditorApp() {
       if (viewportInteraction.kind === "actor-interact-spot") {
         setActorDraftSpot(
           "interact",
-          moveScenePoint(viewportInteraction.startPosition, delta, selectedScene.size)
+          moveScenePoint(viewportInteraction.startPosition, delta, previewSceneSize)
         );
         return;
       }
@@ -2027,7 +2040,7 @@ export function EditorApp() {
       if (viewportInteraction.kind === "actor-look-spot") {
         setActorDraftSpot(
           "look",
-          moveScenePoint(viewportInteraction.startPosition, delta, selectedScene.size)
+          moveScenePoint(viewportInteraction.startPosition, delta, previewSceneSize)
         );
         return;
       }
@@ -2035,7 +2048,7 @@ export function EditorApp() {
       if (viewportInteraction.kind === "hotspot-interact-spot") {
         setHotspotDraftSpot(
           "interact",
-          moveScenePoint(viewportInteraction.startPosition, delta, selectedScene.size)
+          moveScenePoint(viewportInteraction.startPosition, delta, previewSceneSize)
         );
         return;
       }
@@ -2043,7 +2056,7 @@ export function EditorApp() {
       if (viewportInteraction.kind === "hotspot-look-spot") {
         setHotspotDraftSpot(
           "look",
-          moveScenePoint(viewportInteraction.startPosition, delta, selectedScene.size)
+          moveScenePoint(viewportInteraction.startPosition, delta, previewSceneSize)
         );
         return;
       }
@@ -2055,11 +2068,11 @@ export function EditorApp() {
       ) {
         const nextRect =
           viewportInteraction.mode === "move"
-            ? moveSceneRect(viewportInteraction.startRect, delta, selectedScene.size)
+            ? moveSceneRect(viewportInteraction.startRect, delta, previewSceneSize)
             : resizeSceneRectFromBottomRight(
                 viewportInteraction.startRect,
                 delta,
-                selectedScene.size
+                previewSceneSize
               );
 
         if (viewportInteraction.kind === "hotspot") {
@@ -2102,7 +2115,7 @@ export function EditorApp() {
       window.removeEventListener("pointerup", finishInteraction);
       window.removeEventListener("pointercancel", finishInteraction);
     };
-  }, [selectedScene, viewportInteraction]);
+  }, [previewSceneSize, selectedScene, viewportInteraction]);
 
   const restoreRecovery = () => {
     if (!project || !pendingRecovery) return;
@@ -2168,6 +2181,7 @@ export function EditorApp() {
           background: selectedAsset.path,
           name: selectedScene.name,
           playerStart: selectedScene.playerStart,
+          size: selectedScene.size,
           walkArea: selectedScene.walkArea
         },
         sceneId: selectedScene.id
@@ -3094,6 +3108,8 @@ export function EditorApp() {
 
     const playerStartX = parseNumber(currentSceneDraft.playerStartX);
     const playerStartY = parseNumber(currentSceneDraft.playerStartY);
+    const sceneWidth = parsePositiveNumber(currentSceneDraft.width);
+    const sceneHeight = parsePositiveNumber(currentSceneDraft.height);
     const name = currentSceneDraft.name.trim();
     const background = currentSceneDraft.background.trim();
     const walkArea = parseWalkAreaDraft(currentSceneDraft.walkAreaPoints);
@@ -3112,6 +3128,10 @@ export function EditorApp() {
     }
     if (playerStartX === null || playerStartY === null) {
       setStatus("Scene coordinates must be valid numbers");
+      return;
+    }
+    if (sceneWidth === null || sceneHeight === null) {
+      setStatus("Scene resolution must use positive numbers");
       return;
     }
     if (currentSceneDraft.walkAreaPoints.length < 3) {
@@ -3137,6 +3157,10 @@ export function EditorApp() {
           playerStart: {
             x: playerStartX,
             y: playerStartY
+          },
+          size: {
+            height: sceneHeight,
+            width: sceneWidth
           },
           walkArea
         },
@@ -3860,7 +3884,10 @@ export function EditorApp() {
               ref={viewportRef}
               style={
                 selectedScene
-                  ? sceneBackgroundStyle(previewSceneBackground, project?.directory ?? "")
+                  ? {
+                      ...sceneBackgroundStyle(previewSceneBackground, project?.directory ?? ""),
+                      aspectRatio: `${previewSceneSize.width} / ${previewSceneSize.height}`
+                    }
                   : { background: "#24384a" }
               }
             >
@@ -3916,10 +3943,10 @@ export function EditorApp() {
                     key={shape.id}
                     style={{
                       background: shape.fill,
-                      height: `${(shape.bounds.height / selectedScene.size.height) * 100}%`,
-                      left: `${(shape.bounds.x / selectedScene.size.width) * 100}%`,
-                      top: `${(shape.bounds.y / selectedScene.size.height) * 100}%`,
-                      width: `${(shape.bounds.width / selectedScene.size.width) * 100}%`,
+                      height: `${(shape.bounds.height / previewSceneSize.height) * 100}%`,
+                      left: `${(shape.bounds.x / previewSceneSize.width) * 100}%`,
+                      top: `${(shape.bounds.y / previewSceneSize.height) * 100}%`,
+                      width: `${(shape.bounds.width / previewSceneSize.width) * 100}%`,
                       zIndex: shape.depth
                     }}
                   />
@@ -3927,7 +3954,7 @@ export function EditorApp() {
                 {previewWalkArea ? (
                   <svg
                     className="walk-region"
-                    viewBox={`0 0 ${selectedScene.size.width} ${selectedScene.size.height}`}
+                    viewBox={`0 0 ${previewSceneSize.width} ${previewSceneSize.height}`}
                     preserveAspectRatio="none"
                   >
                     <polygon className="walk-region-fill" points={previewWalkAreaPoints} />
@@ -3978,10 +4005,10 @@ export function EditorApp() {
                     onClick={() => selectActor(actor)}
                     onPointerDown={(event) => startActorInteraction("move", actor, event)}
                     style={{
-                      height: `${(actor.bounds.height / selectedScene.size.height) * 100}%`,
-                      left: `${(actor.bounds.x / selectedScene.size.width) * 100}%`,
-                      top: `${(actor.bounds.y / selectedScene.size.height) * 100}%`,
-                      width: `${(actor.bounds.width / selectedScene.size.width) * 100}%`,
+                      height: `${(actor.bounds.height / previewSceneSize.height) * 100}%`,
+                      left: `${(actor.bounds.x / previewSceneSize.width) * 100}%`,
+                      top: `${(actor.bounds.y / previewSceneSize.height) * 100}%`,
+                      width: `${(actor.bounds.width / previewSceneSize.width) * 100}%`,
                       zIndex: actor.depth
                     }}
                     title={
@@ -4016,8 +4043,8 @@ export function EditorApp() {
                     className="viewport-spot actor-interact-spot"
                     type="button"
                     style={{
-                      left: `${(previewSelectedActor.interactSpot.x / selectedScene.size.width) * 100}%`,
-                      top: `${(previewSelectedActor.interactSpot.y / selectedScene.size.height) * 100}%`
+                      left: `${(previewSelectedActor.interactSpot.x / previewSceneSize.width) * 100}%`,
+                      top: `${(previewSelectedActor.interactSpot.y / previewSceneSize.height) * 100}%`
                     }}
                     title="Actor interact spot"
                     onPointerDown={(event) =>
@@ -4032,8 +4059,8 @@ export function EditorApp() {
                     className="viewport-spot actor-look-spot"
                     type="button"
                     style={{
-                      left: `${(previewSelectedActor.lookSpot.x / selectedScene.size.width) * 100}%`,
-                      top: `${(previewSelectedActor.lookSpot.y / selectedScene.size.height) * 100}%`
+                      left: `${(previewSelectedActor.lookSpot.x / previewSceneSize.width) * 100}%`,
+                      top: `${(previewSelectedActor.lookSpot.y / previewSceneSize.height) * 100}%`
                     }}
                     title="Actor look spot"
                     onPointerDown={(event) =>
@@ -4047,8 +4074,8 @@ export function EditorApp() {
                   className="character"
                   onPointerDown={startPlayerStartInteraction}
                     style={{
-                      left: `${((previewPlayerStart ?? selectedScene.playerStart).x / selectedScene.size.width) * 100}%`,
-                      top: `${((previewPlayerStart ?? selectedScene.playerStart).y / selectedScene.size.height) * 100}%`
+                      left: `${((previewPlayerStart ?? selectedScene.playerStart).x / previewSceneSize.width) * 100}%`,
+                      top: `${((previewPlayerStart ?? selectedScene.playerStart).y / previewSceneSize.height) * 100}%`
                     }}
                     title={
                       activeSceneTool === "player-start"
@@ -4069,10 +4096,10 @@ export function EditorApp() {
                     onClick={() => selectHotspot(hotspot)}
                     onPointerDown={(event) => startHotspotInteraction("move", hotspot, event)}
                     style={{
-                      height: `${(hotspot.bounds.height / selectedScene.size.height) * 100}%`,
-                      left: `${(hotspot.bounds.x / selectedScene.size.width) * 100}%`,
-                      top: `${(hotspot.bounds.y / selectedScene.size.height) * 100}%`,
-                      width: `${(hotspot.bounds.width / selectedScene.size.width) * 100}%`
+                      height: `${(hotspot.bounds.height / previewSceneSize.height) * 100}%`,
+                      left: `${(hotspot.bounds.x / previewSceneSize.width) * 100}%`,
+                      top: `${(hotspot.bounds.y / previewSceneSize.height) * 100}%`,
+                      width: `${(hotspot.bounds.width / previewSceneSize.width) * 100}%`
                     }}
                     title={
                       hotspotIssues?.hasIssues
@@ -4106,8 +4133,8 @@ export function EditorApp() {
                     className="viewport-spot hotspot-interact-spot"
                     type="button"
                     style={{
-                      left: `${(previewSelectedHotspot.interactSpot.x / selectedScene.size.width) * 100}%`,
-                      top: `${(previewSelectedHotspot.interactSpot.y / selectedScene.size.height) * 100}%`
+                      left: `${(previewSelectedHotspot.interactSpot.x / previewSceneSize.width) * 100}%`,
+                      top: `${(previewSelectedHotspot.interactSpot.y / previewSceneSize.height) * 100}%`
                     }}
                     title="Hotspot interact spot"
                     onPointerDown={(event) =>
@@ -4122,8 +4149,8 @@ export function EditorApp() {
                     className="viewport-spot hotspot-look-spot"
                     type="button"
                     style={{
-                      left: `${(previewSelectedHotspot.lookSpot.x / selectedScene.size.width) * 100}%`,
-                      top: `${(previewSelectedHotspot.lookSpot.y / selectedScene.size.height) * 100}%`
+                      left: `${(previewSelectedHotspot.lookSpot.x / previewSceneSize.width) * 100}%`,
+                      top: `${(previewSelectedHotspot.lookSpot.y / previewSceneSize.height) * 100}%`
                     }}
                     title="Hotspot look spot"
                     onPointerDown={(event) =>
@@ -4144,10 +4171,10 @@ export function EditorApp() {
                     onClick={() => selectPickup(pickup)}
                     onPointerDown={(event) => startPickupInteraction("move", pickup, event)}
                     style={{
-                      height: `${(pickup.bounds.height / selectedScene.size.height) * 100}%`,
-                      left: `${(pickup.bounds.x / selectedScene.size.width) * 100}%`,
-                      top: `${(pickup.bounds.y / selectedScene.size.height) * 100}%`,
-                      width: `${(pickup.bounds.width / selectedScene.size.width) * 100}%`
+                      height: `${(pickup.bounds.height / previewSceneSize.height) * 100}%`,
+                      left: `${(pickup.bounds.x / previewSceneSize.width) * 100}%`,
+                      top: `${(pickup.bounds.y / previewSceneSize.height) * 100}%`,
+                      width: `${(pickup.bounds.width / previewSceneSize.width) * 100}%`
                     }}
                     title={
                       pickupIssues?.hasIssues
@@ -5208,6 +5235,21 @@ export function EditorApp() {
                   Use `#RRGGBB` for color backgrounds or a registered asset path such as
                   `assets/imported/example.png`.
                 </p>
+                <div className="field-group">
+                  <span>Scene resolution</span>
+                  <div className="four-fields">
+                    <input
+                      aria-label="Scene width"
+                      value={currentSceneDraft.width}
+                      onChange={(event) => updateSceneDraft("width", event.target.value)}
+                    />
+                    <input
+                      aria-label="Scene height"
+                      value={currentSceneDraft.height}
+                      onChange={(event) => updateSceneDraft("height", event.target.value)}
+                    />
+                  </div>
+                </div>
                 <div className="field-group">
                   <span>Player start</span>
                   <div className="four-fields">

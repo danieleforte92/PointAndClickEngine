@@ -441,7 +441,6 @@ button {
   align-self: center;
   justify-self: center;
   width: min(92%, 1050px);
-  aspect-ratio: 16 / 9;
   overflow: hidden;
   border: 1px solid #3a4e5a;
   border-radius: 3px 16px 3px 16px;

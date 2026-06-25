@@ -150,9 +150,11 @@ describe("buildDraftProjectBundle", () => {
     const session = initializeEditorSession(snapshot);
     session.sceneDrafts[scene.id] = {
       background: "#654321",
+      height: "810",
       name: "Moonlit Dock Revised",
       playerStartX: "480",
       playerStartY: "575",
+      width: "1440",
       walkAreaPoints: [
         { x: "0", y: "480" },
         { x: "1280", y: "480" },
@@ -253,7 +255,8 @@ describe("buildDraftProjectBundle", () => {
     expect(nextScene).toMatchObject({
       background: "#654321",
       name: "Moonlit Dock Revised",
-      playerStart: { x: 480, y: 575 }
+      playerStart: { x: 480, y: 575 },
+      size: { width: 1440, height: 810 }
     });
     expect(nextHotspot).toMatchObject({
       labelKey: "hotspot.tavern-door.updated",
