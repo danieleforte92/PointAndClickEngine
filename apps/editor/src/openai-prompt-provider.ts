@@ -1,4 +1,3 @@
-import type { PromptPackOutputs } from "@pointclick/contracts";
 import {
   buildPromptPackContext,
   createPromptPackDocument,
@@ -6,6 +5,7 @@ import {
   type GeneratePromptPackRequest,
   type PromptProviderJob
 } from "./prompt-pack-studio";
+import { normalizePromptPackOutputs } from "./prompt-pack-output-normalizer";
 
 export interface OpenAIPromptProviderConfig {
   apiKey?: string;
@@ -94,14 +94,6 @@ function extractOutputText(payload: OpenAIResponsesPayload): string {
   throw new Error("OpenAI response did not include text output");
 }
 
-function parseOutputs(text: string): Omit<PromptPackOutputs, "generationTargets"> {
-  const value = JSON.parse(text) as Omit<PromptPackOutputs, "generationTargets">;
-  if (!value.sceneBackgroundPrompt || !Array.isArray(value.propPrompts)) {
-    throw new Error("OpenAI response did not match prompt-pack output shape");
-  }
-  return value;
-}
-
 export async function generateOpenAIPromptPack(
   request: GeneratePromptPackRequest,
   config: OpenAIPromptProviderConfig,
@@ -159,7 +151,7 @@ export async function generateOpenAIPromptPack(
   }
 
   const payload = (await response.json()) as OpenAIResponsesPayload;
-  const outputs = parseOutputs(extractOutputText(payload));
+  const outputs = normalizePromptPackOutputs(extractOutputText(payload), "OpenAI");
   const jobId = payload.id ?? `openai-${inputHash}`;
   const promptPack = createPromptPackDocument(
     {

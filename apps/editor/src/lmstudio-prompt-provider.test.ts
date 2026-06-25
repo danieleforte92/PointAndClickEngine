@@ -100,6 +100,66 @@ const bundle: ProjectBundle = {
 };
 
 describe("generateLMStudioPromptPack", () => {
+  it("normalizes Responses API output with string notes", async () => {
+    const fetchImpl = (async (url: string) => {
+      expect(url).toBe("http://localhost:1234/v1/responses");
+      return {
+        ok: true,
+        json: async () => ({
+          id: "resp_local",
+          output: [
+            {
+              content: [
+                {
+                  type: "output_text",
+                  text: JSON.stringify({
+                    sceneBackgroundPrompt: "A damp, dimly lit cavern interior.",
+                    propPrompts: [
+                      {
+                        id: "stone_archway",
+                        prompt: "Large, weathered stone archway partially overgrown with luminous blue moss."
+                      }
+                    ],
+                    characterReferencePrompts: [],
+                    animationNotes: [
+                      "Ensure all interactable objects have clear, distinct silhouettes for point-and-click interaction."
+                    ],
+                    negativePrompt:
+                      "Cartoonish, overly saturated colors, modern elements, visible seams or digital artifacts, text overlays",
+                    styleNotes:
+                      "Hand-painted 2D aesthetic. Restrained, earthy color palette dominated by cool grays."
+                  })
+                }
+              ]
+            }
+          ]
+        })
+      } as Response;
+    }) as typeof fetch;
+
+    const job = await generateLMStudioPromptPack(
+      {
+        bundle,
+        sceneId: scene.id,
+        artBrief: "Cavern scene.",
+        generatedAt: "2026-06-25T19:40:09.000Z"
+      },
+      {
+        baseUrl: "http://localhost:1234/v1",
+        model: "local-model"
+      },
+      {
+        fetchImpl,
+        now: () => "2026-06-25T19:40:09.000Z"
+      }
+    );
+
+    expect(job.candidates[0]?.promptPack.outputs.styleNotes).toEqual([
+      "Hand-painted 2D aesthetic. Restrained, earthy color palette dominated by cool grays."
+    ]);
+    expect(job.candidates[0]?.promptPack.outputs.styleNotes.join(" ")).toContain("Hand-painted");
+  });
+
   it("falls back to chat completions and assembles a local prompt pack", async () => {
     const urls: string[] = [];
     const fetchImpl = (async (url: string, init?: RequestInit) => {

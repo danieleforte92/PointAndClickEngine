@@ -815,6 +815,14 @@ function dimensionsForGenerationTarget(target: PromptPackGenerationTarget) {
   };
 }
 
+function textList(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string").join(" ")
+    : typeof value === "string"
+      ? value
+      : "";
+}
+
 export function EditorApp() {
   const [workspace, setWorkspace] = useState<Workspace>("overview");
   const [status, setStatus] = useState("Loading project...");
@@ -4847,11 +4855,11 @@ export function EditorApp() {
                     ))}
                     <div className="prompt-output-item">
                       <strong>Animation notes</strong>
-                      <p>{promptPackCandidate.promptPack.outputs.animationNotes.join(" ")}</p>
+                      <p>{textList(promptPackCandidate.promptPack.outputs.animationNotes)}</p>
                     </div>
                     <div className="prompt-output-item">
                       <strong>Style notes</strong>
-                      <p>{promptPackCandidate.promptPack.outputs.styleNotes.join(" ")}</p>
+                      <p>{textList(promptPackCandidate.promptPack.outputs.styleNotes)}</p>
                     </div>
                     <div className="prompt-output-item">
                       <strong>Negative prompt</strong>
@@ -5114,7 +5122,7 @@ export function EditorApp() {
                     ))}
                     <div className="prompt-output-item">
                       <strong>Animation notes</strong>
-                      <p>{promptPackCandidate.promptPack.outputs.animationNotes.join(" ")}</p>
+                      <p>{textList(promptPackCandidate.promptPack.outputs.animationNotes)}</p>
                     </div>
                     <div className="prompt-output-item">
                       <strong>Negative prompt</strong>

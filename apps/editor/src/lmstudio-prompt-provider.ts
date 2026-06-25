@@ -1,4 +1,3 @@
-import type { PromptPackOutputs } from "@pointclick/contracts";
 import {
   buildPromptPackContext,
   createPromptPackDocument,
@@ -6,6 +5,7 @@ import {
   type GeneratePromptPackRequest,
   type PromptProviderJob
 } from "./prompt-pack-studio";
+import { normalizePromptPackOutputs } from "./prompt-pack-output-normalizer";
 
 export interface LMStudioPromptProviderConfig {
   apiKey?: string;
@@ -60,19 +60,6 @@ function extractChatText(payload: LocalChatPayload): string {
     throw new Error("LM Studio chat response did not include message content");
   }
   return content;
-}
-
-function parseOutputs(text: string): Omit<PromptPackOutputs, "generationTargets"> {
-  const trimmed = text.trim();
-  const jsonText =
-    trimmed.startsWith("```")
-      ? trimmed.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim()
-      : trimmed;
-  const value = JSON.parse(jsonText) as Omit<PromptPackOutputs, "generationTargets">;
-  if (!value.sceneBackgroundPrompt || !Array.isArray(value.propPrompts)) {
-    throw new Error("LM Studio response did not match prompt-pack output shape");
-  }
-  return value;
 }
 
 function buildPromptPackInstruction(context: unknown) {
@@ -169,7 +156,7 @@ export async function generateLMStudioPromptPack(
     throw new Error(`LM Studio provider failed (${responsesResult.status}): ${await readError(responsesResult)}`);
   }
 
-  const outputs = parseOutputs(outputText);
+  const outputs = normalizePromptPackOutputs(outputText, "LM Studio");
   const promptPack = createPromptPackDocument(
     {
       ...request,
