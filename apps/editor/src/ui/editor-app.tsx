@@ -6,6 +6,8 @@ import type {
   ItemDocument,
   Layered2DScene,
   LocaleDocument,
+  PromptPackDocument,
+  PromptPackGenerationTarget,
   Rect,
   SceneActor,
   SceneActorRole,
@@ -756,6 +758,63 @@ function focusEditorField(element: HTMLInputElement | HTMLSelectElement | null) 
   element.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
+function buildGuidedArtBrief(
+  baseBrief: string,
+  guidedAnswers: {
+    gameplayFocus: string;
+    mood: string;
+    palette: string;
+    setting: string;
+    style: string;
+  }
+) {
+  const rawAnswers: Array<[string, string]> = [
+    ["Mood", guidedAnswers.mood],
+    ["Setting", guidedAnswers.setting],
+    ["Visual style", guidedAnswers.style],
+    ["Palette", guidedAnswers.palette],
+    ["Gameplay emphasis", guidedAnswers.gameplayFocus]
+  ];
+  const answers = rawAnswers.filter((entry): entry is [string, string] => entry[1].trim().length > 0);
+
+  if (answers.length === 0) return baseBrief;
+
+  return [
+    baseBrief.trim(),
+    "Guided scene answers:",
+    ...answers.map(([label, value]) => `- ${label}: ${value.trim()}`)
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function promptForGenerationTarget(promptPack: PromptPackDocument, target: PromptPackGenerationTarget) {
+  if (target.intendedUse === "scene-background") {
+    return promptPack.outputs.sceneBackgroundPrompt;
+  }
+
+  if (target.intendedUse === "character-reference" || target.intendedUse === "animation-reference") {
+    return (
+      promptPack.outputs.characterReferencePrompts.find((prompt) => prompt.id === target.id)?.prompt ??
+      promptPack.outputs.characterReferencePrompts.find((prompt) => target.id.startsWith(prompt.id))?.prompt ??
+      promptPack.outputs.sceneBackgroundPrompt
+    );
+  }
+
+  return (
+    promptPack.outputs.propPrompts.find((prompt) => prompt.id === target.id)?.prompt ??
+    promptPack.outputs.sceneBackgroundPrompt
+  );
+}
+
+function dimensionsForGenerationTarget(target: PromptPackGenerationTarget) {
+  const fallback = target.intendedUse === "scene-background" ? 1024 : 512;
+  return {
+    height: Math.max(64, Math.min(2048, target.height ?? fallback)),
+    width: Math.max(64, Math.min(2048, target.width ?? fallback))
+  };
+}
+
 export function EditorApp() {
   const [workspace, setWorkspace] = useState<Workspace>("overview");
   const [status, setStatus] = useState("Loading project...");
@@ -777,6 +836,21 @@ export function EditorApp() {
   const [openAiModel, setOpenAiModel] = useState(
     promptProviderDescriptors.find((provider) => provider.id === "openai")?.defaultModel ?? "gpt-5.2"
   );
+  const [lmStudioApiKey, setLmStudioApiKey] = useState("");
+  const [lmStudioBaseUrl, setLmStudioBaseUrl] = useState("http://localhost:1234/v1");
+  const [lmStudioModel, setLmStudioModel] = useState(
+    promptProviderDescriptors.find((provider) => provider.id === "lmstudio")?.defaultModel ?? "local-model"
+  );
+  const [guidedSceneMood, setGuidedSceneMood] = useState("");
+  const [guidedSceneSetting, setGuidedSceneSetting] = useState("");
+  const [guidedSceneStyle, setGuidedSceneStyle] = useState("");
+  const [guidedScenePalette, setGuidedScenePalette] = useState("");
+  const [guidedSceneGameplayFocus, setGuidedSceneGameplayFocus] = useState("");
+  const [comfyUiBaseUrl, setComfyUiBaseUrl] = useState("http://127.0.0.1:8188");
+  const [comfyUiCheckpoint, setComfyUiCheckpoint] = useState("");
+  const [comfyUiSeed, setComfyUiSeed] = useState("");
+  const [selectedGenerationTargetId, setSelectedGenerationTargetId] = useState("");
+  const [imageGenerationState, setImageGenerationState] = useState<"idle" | "running">("idle");
   const [selectedPromptPackId, setSelectedPromptPackId] = useState<string | null>(null);
   const [validationRunState, setValidationRunState] = useState<EditorValidationRunState>("idle");
   const [validationReport, setValidationReport] = useState<EditorValidationReport | null>(null);
@@ -827,6 +901,7 @@ export function EditorApp() {
     project?.promptPacks[0] ??
     null;
   const promptPackCandidate = promptPackJob?.candidates[0] ?? null;
+  const activeImagePromptPack = promptPackCandidate?.promptPack ?? selectedPromptPack;
   const selectedPromptProvider =
     promptProviderDescriptors.find((provider) => provider.id === promptProviderId) ?? promptProviderDescriptors[0]!;
 
@@ -995,18 +1070,48 @@ export function EditorApp() {
         sceneId: selectedScene?.id ?? project.activeSceneId
       }
     : undefined;
+  const guidedPromptPackBrief = useMemo(
+    () =>
+      buildGuidedArtBrief(promptPackBrief, {
+        gameplayFocus: guidedSceneGameplayFocus,
+        mood: guidedSceneMood,
+        palette: guidedScenePalette,
+        setting: guidedSceneSetting,
+        style: guidedSceneStyle
+      }),
+    [
+      guidedSceneGameplayFocus,
+      guidedSceneMood,
+      guidedScenePalette,
+      guidedSceneSetting,
+      guidedSceneStyle,
+      promptPackBrief
+    ]
+  );
   const promptPackContext = useMemo(() => {
     if (!project || !promptPackScene) return null;
     try {
       return buildPromptPackContext(
         buildDraftProjectBundle(project, history.present),
         promptPackScene.id,
-        promptPackBrief
+        guidedPromptPackBrief
       );
     } catch {
       return null;
     }
-  }, [history.present, project, promptPackBrief, promptPackScene?.id]);
+  }, [guidedPromptPackBrief, history.present, project, promptPackScene?.id]);
+  const imageGenerationTargets = activeImagePromptPack?.outputs.generationTargets ?? [];
+  const selectedGenerationTarget =
+    imageGenerationTargets.find((target) => target.id === selectedGenerationTargetId) ??
+    imageGenerationTargets[0] ??
+    null;
+  const selectedGenerationPrompt =
+    activeImagePromptPack && selectedGenerationTarget
+      ? promptForGenerationTarget(activeImagePromptPack, selectedGenerationTarget)
+      : "";
+  const selectedGenerationDimensions = selectedGenerationTarget
+    ? dimensionsForGenerationTarget(selectedGenerationTarget)
+    : { height: 512, width: 512 };
   const projectHealth = project ? healthSummary(project.diagnostics, dirtyState.count) : null;
   const currentValidationReport =
     validationReport ??
@@ -1079,6 +1184,17 @@ export function EditorApp() {
     }
     return [...paths];
   }, [assetPathById, previewActors, previewPlayerAssetPath, previewSceneBackground]);
+
+  useEffect(() => {
+    if (imageGenerationTargets.length === 0) {
+      if (selectedGenerationTargetId) setSelectedGenerationTargetId("");
+      return;
+    }
+
+    if (!imageGenerationTargets.some((target) => target.id === selectedGenerationTargetId)) {
+      setSelectedGenerationTargetId(imageGenerationTargets[0]?.id ?? "");
+    }
+  }, [imageGenerationTargets, selectedGenerationTargetId]);
 
   useEffect(() => {
     if (!project) return;
@@ -2449,14 +2565,19 @@ export function EditorApp() {
     setStatus(
       promptProviderId === "openai"
         ? `Generating prompt pack with OpenAI ${openAiModel || selectedPromptProvider.defaultModel}...`
-        : "Generating deterministic mock prompt pack..."
+        : promptProviderId === "lmstudio"
+          ? `Generating prompt pack with LM Studio ${lmStudioModel || selectedPromptProvider.defaultModel}...`
+          : "Generating deterministic mock prompt pack..."
     );
     try {
       const job = await window.pointClick.generatePromptPack({
         bundle: buildDraftProjectBundle(project, history.present),
         providerId: promptProviderId,
         sceneId: promptPackScene.id,
-        artBrief: promptPackBrief,
+        artBrief: guidedPromptPackBrief,
+        ...(lmStudioApiKey.trim() ? { lmStudioApiKey: lmStudioApiKey.trim() } : {}),
+        ...(lmStudioBaseUrl.trim() ? { lmStudioBaseUrl: lmStudioBaseUrl.trim() } : {}),
+        ...(lmStudioModel.trim() ? { lmStudioModel: lmStudioModel.trim() } : {}),
         ...(openAiApiKey.trim() ? { openAiApiKey: openAiApiKey.trim() } : {}),
         ...(openAiBaseUrl.trim() ? { openAiBaseUrl: openAiBaseUrl.trim() } : {}),
         ...(openAiModel.trim() ? { openAiModel: openAiModel.trim() } : {})
@@ -2491,6 +2612,47 @@ export function EditorApp() {
       setStatus(`Saved prompt pack ${promptPack.id}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Prompt pack could not be saved");
+    }
+  };
+
+  const generateImageAsset = async () => {
+    if (!project || !activeImagePromptPack || !selectedGenerationTarget) return;
+
+    const checkpointName = comfyUiCheckpoint.trim();
+    if (!checkpointName) {
+      setStatus("ComfyUI needs a checkpoint filename, for example the exact .safetensors file shown in ComfyUI.");
+      return;
+    }
+
+    const seedText = comfyUiSeed.trim();
+    const parsedSeed = seedText ? Number(seedText) : null;
+    if (parsedSeed !== null && (!Number.isFinite(parsedSeed) || parsedSeed < 0)) {
+      setStatus("ComfyUI seed must be a positive number or empty for random.");
+      return;
+    }
+
+    setImageGenerationState("running");
+    setStatus(`Generating ${selectedGenerationTarget.id} with ComfyUI...`);
+    try {
+      const imageRequest = {
+        checkpointName,
+        height: selectedGenerationDimensions.height,
+        negativePrompt: activeImagePromptPack.outputs.negativePrompt,
+        prompt: selectedGenerationPrompt,
+        providerId: "comfyui" as const,
+        targetId: selectedGenerationTarget.id,
+        width: selectedGenerationDimensions.width,
+        ...(comfyUiBaseUrl.trim() ? { baseUrl: comfyUiBaseUrl.trim() } : {}),
+        ...(parsedSeed !== null ? { seed: parsedSeed } : {})
+      };
+      const job = await window.pointClick.generateImageAsset(imageRequest);
+      setProject(job.snapshot);
+      setSelectedAssetId(job.assetId);
+      setStatus(`Generated ${job.assetId} from ${job.targetId} with ComfyUI seed ${job.seed}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Image asset could not be generated");
+    } finally {
+      setImageGenerationState("idle");
     }
   };
 
@@ -4389,6 +4551,34 @@ export function EditorApp() {
                       </label>
                     </>
                   ) : null}
+                  {promptProviderId === "lmstudio" ? (
+                    <>
+                      <label className="prompt-studio-field">
+                        LM Studio base URL
+                        <input
+                          value={lmStudioBaseUrl}
+                          onChange={(event) => setLmStudioBaseUrl(event.target.value)}
+                        />
+                      </label>
+                      <label className="prompt-studio-field">
+                        Model
+                        <input
+                          placeholder="Use the model id shown by LM Studio"
+                          value={lmStudioModel}
+                          onChange={(event) => setLmStudioModel(event.target.value)}
+                        />
+                      </label>
+                      <label className="prompt-studio-field">
+                        API key
+                        <input
+                          placeholder="Optional; LM Studio usually accepts any value"
+                          type="password"
+                          value={lmStudioApiKey}
+                          onChange={(event) => setLmStudioApiKey(event.target.value)}
+                        />
+                      </label>
+                    </>
+                  ) : null}
                   <label className="prompt-studio-field">
                     Scene
                     <select
@@ -4408,6 +4598,46 @@ export function EditorApp() {
                     <textarea
                       value={promptPackBrief}
                       onChange={(event) => setPromptPackBrief(event.target.value)}
+                    />
+                  </label>
+                  <label className="prompt-studio-field">
+                    Mood
+                    <input
+                      placeholder="e.g. lonely, comic, eerie, cozy"
+                      value={guidedSceneMood}
+                      onChange={(event) => setGuidedSceneMood(event.target.value)}
+                    />
+                  </label>
+                  <label className="prompt-studio-field">
+                    Setting details
+                    <input
+                      placeholder="e.g. rain-soaked pier, abandoned lab"
+                      value={guidedSceneSetting}
+                      onChange={(event) => setGuidedSceneSetting(event.target.value)}
+                    />
+                  </label>
+                  <label className="prompt-studio-field">
+                    Visual style
+                    <input
+                      placeholder="e.g. hand-painted 90s adventure, clean pixel art"
+                      value={guidedSceneStyle}
+                      onChange={(event) => setGuidedSceneStyle(event.target.value)}
+                    />
+                  </label>
+                  <label className="prompt-studio-field">
+                    Palette
+                    <input
+                      placeholder="e.g. teal shadows, warm lantern accents"
+                      value={guidedScenePalette}
+                      onChange={(event) => setGuidedScenePalette(event.target.value)}
+                    />
+                  </label>
+                  <label className="prompt-studio-field">
+                    Gameplay emphasis
+                    <textarea
+                      placeholder="Objects, exits, clues, readable silhouettes, or puzzle-critical details to preserve."
+                      value={guidedSceneGameplayFocus}
+                      onChange={(event) => setGuidedSceneGameplayFocus(event.target.value)}
                     />
                   </label>
                 </div>
@@ -4436,7 +4666,9 @@ export function EditorApp() {
                 <p>
                   {promptProviderId === "openai"
                     ? "OpenAI calls run through the Electron main process. API keys are not saved to project files."
-                    : "Mock generation is offline, deterministic, and safe for open-source contributors."}
+                    : promptProviderId === "lmstudio"
+                      ? "LM Studio calls run against your local OpenAI-compatible server. Local URLs and keys are not saved to project files."
+                      : "Mock generation is offline, deterministic, and safe for open-source contributors."}
                 </p>
                 <div className="diagnostic-list">
                   <div className="diagnostic-item">
@@ -4495,6 +4727,82 @@ export function EditorApp() {
                       </span>
                     </div>
                   </div>
+                ) : null}
+              </section>
+              <section className="overview-card prompt-studio-card">
+                <span className="overview-label">ComfyUI Image Generation</span>
+                <strong>
+                  {activeImagePromptPack
+                    ? `${activeImagePromptPack.id} target`
+                    : "Generate or save a prompt pack first"}
+                </strong>
+                <p>
+                  Uses a local ComfyUI text-to-image workflow, imports the PNG into `assets/imported`,
+                  and registers it as a project image asset.
+                </p>
+                <div className="prompt-studio-controls">
+                  <label className="prompt-studio-field">
+                    ComfyUI base URL
+                    <input
+                      value={comfyUiBaseUrl}
+                      onChange={(event) => setComfyUiBaseUrl(event.target.value)}
+                    />
+                  </label>
+                  <label className="prompt-studio-field">
+                    Checkpoint filename
+                    <input
+                      placeholder="Exact .safetensors checkpoint name from ComfyUI"
+                      value={comfyUiCheckpoint}
+                      onChange={(event) => setComfyUiCheckpoint(event.target.value)}
+                    />
+                  </label>
+                  <label className="prompt-studio-field">
+                    Target
+                    <select
+                      disabled={imageGenerationTargets.length === 0}
+                      value={selectedGenerationTarget?.id ?? ""}
+                      onChange={(event) => setSelectedGenerationTargetId(event.target.value)}
+                    >
+                      {imageGenerationTargets.map((target) => (
+                        <option key={`comfy-target-${target.id}`} value={target.id}>
+                          {target.id} ({target.intendedUse})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="prompt-studio-field">
+                    Seed
+                    <input
+                      placeholder="Empty for random"
+                      value={comfyUiSeed}
+                      onChange={(event) => setComfyUiSeed(event.target.value)}
+                    />
+                  </label>
+                  <label className="prompt-studio-field">
+                    Prompt preview
+                    <textarea readOnly value={selectedGenerationPrompt} />
+                  </label>
+                </div>
+                <div className="build-actions">
+                  <button
+                    className="play-action"
+                    disabled={
+                      !project ||
+                      !activeImagePromptPack ||
+                      !selectedGenerationTarget ||
+                      imageGenerationState === "running"
+                    }
+                    type="button"
+                    onClick={generateImageAsset}
+                  >
+                    {imageGenerationState === "running" ? "Generating..." : "Generate And Import Asset"}
+                  </button>
+                </div>
+                {selectedGenerationTarget ? (
+                  <p>
+                    {selectedGenerationDimensions.width} x {selectedGenerationDimensions.height} /{" "}
+                    {selectedGenerationTarget.transparent ? "transparent target" : "opaque target"}
+                  </p>
                 ) : null}
               </section>
               <section className="overview-card prompt-output-card">
@@ -4679,6 +4987,24 @@ export function EditorApp() {
                         <input
                           value={openAiModel}
                           onChange={(event) => setOpenAiModel(event.target.value)}
+                        />
+                      </label>
+                    </>
+                  ) : null}
+                  {promptProviderId === "lmstudio" ? (
+                    <>
+                      <label className="prompt-studio-field">
+                        LM Studio base URL
+                        <input
+                          value={lmStudioBaseUrl}
+                          onChange={(event) => setLmStudioBaseUrl(event.target.value)}
+                        />
+                      </label>
+                      <label className="prompt-studio-field">
+                        Model
+                        <input
+                          value={lmStudioModel}
+                          onChange={(event) => setLmStudioModel(event.target.value)}
                         />
                       </label>
                     </>

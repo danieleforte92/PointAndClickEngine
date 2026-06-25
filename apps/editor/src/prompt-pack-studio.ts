@@ -17,7 +17,7 @@ export interface GeneratePromptPackRequest {
   generatedAt?: string;
 }
 
-export type PromptProviderId = "mock" | "openai";
+export type PromptProviderId = "mock" | "openai" | "lmstudio";
 
 export interface PromptProviderDescriptor {
   id: PromptProviderId;
@@ -63,6 +63,13 @@ export const promptProviderDescriptors: PromptProviderDescriptor[] = [
     status: "requires-config",
     defaultModel: "gpt-5.2",
     detail: "Uses an OpenAI API key or OPENAI_API_KEY to draft prompt-pack copy through the Responses API."
+  },
+  {
+    id: "lmstudio",
+    label: "LM Studio local",
+    status: "requires-config",
+    defaultModel: "local-model",
+    detail: "Uses LM Studio's OpenAI-compatible local server to draft prompt packs without cloud keys."
   }
 ];
 
@@ -95,6 +102,12 @@ export function stableHash(value: unknown) {
 
 function promptPackId(sceneId: string) {
   return `mock-${sceneId}-art`;
+}
+
+function providerLabel(provider: PromptProviderId) {
+  if (provider === "mock") return "Mock";
+  if (provider === "openai") return "OpenAI";
+  return "LM Studio";
 }
 
 function targetForPickup(pickup: ScenePickup): PromptPackGenerationTarget {
@@ -271,7 +284,7 @@ export function createPromptPackDocument(
   return {
     schemaVersion: 1,
     id: promptPackId(scene.id),
-    name: `${scene.name} ${provenance.provider === "mock" ? "Mock" : "OpenAI"} Prompt Pack`,
+    name: `${scene.name} ${providerLabel(provenance.provider)} Prompt Pack`,
     sceneId: scene.id,
     artBrief: context.artBrief,
     context,

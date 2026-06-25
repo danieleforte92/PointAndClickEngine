@@ -17,6 +17,9 @@ import type {
   ProjectBundle
 } from "@pointclick/contracts";
 import type { EditorRecoverySnapshot } from "./editor-session";
+import { generateComfyUIImage } from "./comfyui-image-provider";
+import type { GenerateImageAssetRequest } from "./image-generation";
+import { generateLMStudioPromptPack } from "./lmstudio-prompt-provider";
 import { generateOpenAIPromptPack } from "./openai-prompt-provider";
 import type { EditorPreviewRequest } from "./preload";
 import { mockPromptPackProvider, type GeneratePromptPackRequest, type PromptProviderId } from "./prompt-pack-studio";
@@ -540,6 +543,9 @@ async function createEditorProjectFromStarter(browserWindow: BrowserWindow) {
 async function generatePromptPack(
   request: GeneratePromptPackRequest & {
     providerId: PromptProviderId;
+    lmStudioApiKey?: string;
+    lmStudioBaseUrl?: string;
+    lmStudioModel?: string;
     openAiApiKey?: string;
     openAiBaseUrl?: string;
     openAiModel?: string;
@@ -549,11 +555,85 @@ async function generatePromptPack(
     return mockPromptPackProvider.generate(request);
   }
 
+  if (request.providerId === "lmstudio") {
+    return generateLMStudioPromptPack(request, {
+      ...(request.lmStudioApiKey ? { apiKey: request.lmStudioApiKey } : {}),
+      ...(request.lmStudioBaseUrl ? { baseUrl: request.lmStudioBaseUrl } : {}),
+      ...(request.lmStudioModel ? { model: request.lmStudioModel } : {})
+    });
+  }
+
   return generateOpenAIPromptPack(request, {
     ...(request.openAiApiKey ? { apiKey: request.openAiApiKey } : {}),
     ...(request.openAiBaseUrl ? { baseUrl: request.openAiBaseUrl } : {}),
     ...(request.openAiModel ? { model: request.openAiModel } : {})
   });
+}
+
+async function generateImageAsset(request: GenerateImageAssetRequest) {
+  if (request.providerId !== "comfyui") {
+    throw new Error(`Unsupported image provider "${request.providerId}"`);
+  }
+
+  const projectDirectory = currentProjectPath();
+  const result = await generateComfyUIImage(
+    {
+      height: request.height,
+      prompt: request.prompt,
+      targetId: request.targetId,
+      width: request.width,
+      ...(request.negativePrompt ? { negativePrompt: request.negativePrompt } : {}),
+      ...(request.seed !== undefined ? { seed: request.seed } : {})
+    },
+    {
+      checkpointName: request.checkpointName,
+      ...(request.baseUrl ? { baseUrl: request.baseUrl } : {})
+    }
+  );
+
+  const importedAssetsDirectory = path.join(projectDirectory, "assets", "imported");
+  await mkdir(importedAssetsDirectory, { recursive: true });
+
+  const safeFilename = `${slugifyAssetId(request.targetId)}-${result.promptId.slice(0, 8)}.png`;
+  const targetPath = await uniquePath(path.join(importedAssetsDirectory, safeFilename));
+  await writeFile(targetPath, Buffer.from(result.bytes));
+
+  const existing = await loadProjectFromDirectory(projectDirectory);
+  const existingAssetIds = new Set(Object.keys(existing.bundle.assets));
+  const baseAssetId = slugifyAssetId(path.basename(targetPath, path.extname(targetPath)));
+  let assetId = baseAssetId;
+  let counter = 1;
+  while (existingAssetIds.has(assetId)) {
+    assetId = `${baseAssetId}-${counter}`;
+    counter += 1;
+  }
+
+  const relativeFilePath = path.relative(projectDirectory, targetPath).replace(/\\/g, "/");
+  const loaded = await applyProjectCommand(projectDirectory, {
+    type: "asset/import",
+    assets: [
+      {
+        documentPath: `assets/${assetId}.asset.json`,
+        filePath: relativeFilePath,
+        id: assetId,
+        kind: "image",
+        source: "imported"
+      }
+    ]
+  });
+  loadedProjectDirectory = loaded.directory;
+
+  return {
+    assetId,
+    assetPath: relativeFilePath,
+    model: result.model,
+    promptId: result.promptId,
+    provider: "comfyui" as const,
+    seed: result.seed,
+    snapshot: summarizeProject(loaded.directory, loaded.bundle),
+    status: "completed" as const,
+    targetId: result.targetId
+  };
 }
 
 app.whenReady().then(() => {
@@ -600,6 +680,9 @@ app.whenReady().then(() => {
   });
   ipcMain.handle("ai:prompt-pack", async (_event, request) => {
     return generatePromptPack(request);
+  });
+  ipcMain.handle("ai:image-asset", async (_event, request) => {
+    return generateImageAsset(request);
   });
   ipcMain.handle("project:command", async (_event, command: EditorProjectCommand) => {
     return applyEditorCommand(command);

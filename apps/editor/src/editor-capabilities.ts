@@ -59,9 +59,9 @@ export const workspaceCapabilities: EditorCapability[] = [
     label: "AI",
     status: "beta",
     workspace: "ai",
-    summary: "Generate and review provider-backed prompt packs.",
+    summary: "Generate prompt packs and local image assets.",
     detail:
-      "AI authoring supports deterministic mock output and optional OpenAI Responses API configuration for prompt-pack drafts."
+      "AI authoring supports mock, OpenAI, and LM Studio prompt-pack drafts plus ComfyUI image generation and asset import."
   },
   {
     id: "build",
