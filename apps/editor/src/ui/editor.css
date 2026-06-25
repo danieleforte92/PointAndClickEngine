@@ -1257,6 +1257,64 @@ button {
   gap: 8px;
 }
 
+.character-gym-preview-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #30434e;
+  border-radius: 4px;
+  background: #101922;
+}
+
+.character-gym-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.character-gym-preview-header strong {
+  margin-top: 4px;
+  font-size: 0.86rem;
+}
+
+.character-gym-preview-stage {
+  display: grid;
+  min-height: 144px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid #263844;
+  border-radius: 4px 12px 4px 12px;
+  background-color: #17232c;
+  background-image:
+    linear-gradient(45deg, rgba(142, 165, 175, 0.1) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(142, 165, 175, 0.1) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(142, 165, 175, 0.1) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(142, 165, 175, 0.1) 75%);
+  background-position:
+    0 0,
+    0 8px,
+    8px -8px,
+    -8px 0;
+  background-size: 16px 16px;
+}
+
+.character-gym-preview-sprite {
+  width: min(132px, 62%);
+  image-rendering: pixelated;
+  background-repeat: no-repeat;
+  filter: drop-shadow(0 18px 16px rgba(0, 0, 0, 0.34));
+}
+
+.character-gym-preview-empty {
+  color: #708995;
+  font-family: "Courier New", monospace;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .clip-editor-row {
   display: grid;
   grid-template-columns: minmax(90px, 0.8fr) minmax(150px, 1.4fr) minmax(64px, 0.5fr) auto auto;
@@ -1266,6 +1324,11 @@ button {
   border: 1px solid #30434e;
   border-radius: 4px;
   background: #101922;
+}
+
+.clip-editor-row.is-previewing {
+  border-color: #627a85;
+  box-shadow: inset 3px 0 0 #9fb6bd;
 }
 
 .clip-loop-field {
@@ -1313,6 +1376,38 @@ button {
   font-size: 0.62rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.target-mode-pill {
+  max-width: 100%;
+  padding: 5px 8px;
+  overflow: hidden;
+  color: #8ea5af;
+  border: 1px solid #3a4d57;
+  border-radius: 999px;
+  background: #121d25;
+  font-family: "Courier New", monospace;
+  font-size: 0.6rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.target-mode-pill.good {
+  color: #a9d6b5;
+  border-color: #375c45;
+}
+
+.target-mode-pill.warn {
+  color: #d9a561;
+  border-color: #604b2d;
+}
+
+.target-mode-pill.info {
+  color: #9fc9dd;
+  border-color: #395a6b;
 }
 
 .prompt-output-card {

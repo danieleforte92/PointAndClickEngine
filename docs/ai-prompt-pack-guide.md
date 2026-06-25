@@ -112,9 +112,10 @@ message in the editor before changing ComfyUI itself.
 
 ### Transparent And Chroma Asset Workflows
 
-Creator Alpha prioritizes workflow-based transparency. The editor can request a
-transparent target, but the final alpha channel depends on the exported ComfyUI
-workflow.
+Creator Alpha prioritizes workflow-based transparency. The editor labels the
+selected target as opaque, alpha-workflow, or chroma-workflow before queueing a
+job. It can request a transparent or chroma target, but the final alpha channel
+depends on the exported ComfyUI workflow.
 
 Recommended workflow families:
 
@@ -131,6 +132,10 @@ If a workflow saves an RGB PNG without alpha, the imported asset is still valid,
 but it is not a transparent-ready prop or character. Use the prompt preview and
 workflow name to make this limitation visible before relying on the asset for
 runtime composition.
+
+The editor imports ComfyUI output as-is in this release slice. Local chroma-key
+post-processing is intentionally left as a later option for workflows that
+produce clean flat-color backgrounds but do not save alpha.
 
 Keep ComfyUI and LM Studio bound to localhost for this workflow. Do not expose
 either local server to a public network without authentication and firewalling.

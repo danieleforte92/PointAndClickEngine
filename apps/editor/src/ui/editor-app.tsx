@@ -84,6 +84,12 @@ import {
   type PromptProviderJob
 } from "../prompt-pack-studio";
 import {
+  animationPreviewIssue,
+  buildAnimationClipPreviewState,
+  chooseAnimationPreviewClip,
+  describeImageTargetWorkflow
+} from "../character-gym-preview";
+import {
   buildGuidedArtBrief,
   comfyOutputPresetById,
   comfyOutputPresets,
@@ -901,6 +907,8 @@ export function EditorApp() {
   const [pendingRecovery, setPendingRecovery] = useState<EditorRecoverySnapshot | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [selectedAnimationPackId, setSelectedAnimationPackId] = useState<string | null>(null);
+  const [selectedAnimationClipPreviewId, setSelectedAnimationClipPreviewId] = useState<string | null>(null);
+  const [animationPreviewElapsedMs, setAnimationPreviewElapsedMs] = useState(0);
   const [animationPackDraft, setAnimationPackDraft] = useState<AnimationPackDraft>(
     createAnimationPackDraft(null)
   );
@@ -1227,6 +1235,17 @@ export function EditorApp() {
     selectedComfyOutputPreset.id === "target_default"
       ? targetGenerationDimensions
       : { height: selectedComfyOutputPreset.height, width: selectedComfyOutputPreset.width };
+  const selectedImageTargetWorkflow = describeImageTargetWorkflow(
+    selectedGenerationTarget,
+    selectedComfyOutputPreset,
+    selectedGenerationPrompt
+  );
+  const selectedImageTargetWorkflowTone =
+    selectedImageTargetWorkflow.mode === "chroma"
+      ? "info"
+      : selectedImageTargetWorkflow.mode === "transparent"
+        ? "warn"
+        : "good";
   const projectHealth = project ? healthSummary(project.diagnostics, dirtyState.count) : null;
   const currentValidationReport =
     validationReport ??
@@ -1255,6 +1274,25 @@ export function EditorApp() {
     () => new Map((project?.assets ?? []).map((asset) => [asset.id, asset.path])),
     [project]
   );
+  const animationPreviewClip = chooseAnimationPreviewClip(
+    animationPackDraft.clips,
+    selectedAnimationClipPreviewId
+  );
+  const animationPreviewAssetPath = animationPackDraft.assetId.trim()
+    ? assetPathById.get(animationPackDraft.assetId.trim())
+    : undefined;
+  const animationPreviewAssetUrl = animationPreviewAssetPath
+    ? assetPreviewUrls[animationPreviewAssetPath]
+    : undefined;
+  const animationPreviewState = buildAnimationClipPreviewState(
+    animationPackDraft,
+    animationPreviewClip,
+    animationPreviewElapsedMs
+  );
+  const animationPreviewStatus =
+    animationPreviewIssue(animationPackDraft, animationPreviewClip, animationPreviewAssetUrl) ??
+    animationPreviewState?.status ??
+    "Clip preview is ready.";
   const previewPlayerConfig = useMemo(() => {
     const defaults = createScenePlayerConfig(selectedScene?.player);
     const scaleFar = parsePositiveNumber(currentSceneDraft.playerScaleFar);
@@ -1293,12 +1331,15 @@ export function EditorApp() {
     if (previewPlayerAssetPath) {
       paths.add(previewPlayerAssetPath);
     }
+    if (animationPreviewAssetPath) {
+      paths.add(animationPreviewAssetPath);
+    }
     for (const actor of previewActors) {
       const assetPath = actor.assetId ? assetPathById.get(actor.assetId) : null;
       if (assetPath) paths.add(assetPath);
     }
     return [...paths];
-  }, [assetPathById, previewActors, previewPlayerAssetPath, previewSceneBackground]);
+  }, [animationPreviewAssetPath, assetPathById, previewActors, previewPlayerAssetPath, previewSceneBackground]);
 
   useEffect(() => {
     if (imageGenerationTargets.length === 0) {
@@ -1336,6 +1377,29 @@ export function EditorApp() {
       cancelled = true;
     };
   }, [assetPreviewUrls, previewAssetPaths, project]);
+
+  useEffect(() => {
+    if (workspace !== "assets" || !animationPreviewClip) {
+      setAnimationPreviewElapsedMs(0);
+      return;
+    }
+
+    const startedAt = performance.now();
+    setAnimationPreviewElapsedMs(0);
+    const interval = window.setInterval(() => {
+      setAnimationPreviewElapsedMs(performance.now() - startedAt);
+    }, 100);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [
+    animationPreviewClip?.fps,
+    animationPreviewClip?.frames,
+    animationPreviewClip?.id,
+    animationPreviewClip?.loop,
+    workspace
+  ]);
 
   const defaultLocaleDocument = useMemo(
     () =>
@@ -2986,7 +3050,7 @@ export function EditorApp() {
     }
 
     setImageGenerationState("running");
-    const queuedStatus = `Queueing ${selectedGenerationTarget.id} with ComfyUI. Krea workflows can take several minutes.`;
+    const queuedStatus = `Queueing ${selectedGenerationTarget.id} with ComfyUI (${selectedImageTargetWorkflow.label}). Krea workflows can take several minutes.`;
     setComfyUiGenerationStatus(queuedStatus);
     setStatus(queuedStatus);
     try {
@@ -5290,10 +5354,15 @@ export function EditorApp() {
                 </div>
                 {selectedGenerationTarget ? (
                   <>
-                    <p>
-                      {selectedGenerationDimensions.width} x {selectedGenerationDimensions.height} /{" "}
-                      {selectedGenerationTarget.transparent ? "transparent target" : "opaque target"}
-                    </p>
+                    <div className="prompt-chip-list">
+                      <span className={`target-mode-pill ${selectedImageTargetWorkflowTone}`}>
+                        {selectedImageTargetWorkflow.label}
+                      </span>
+                      <span className="prompt-chip">
+                        {selectedGenerationDimensions.width} x {selectedGenerationDimensions.height}
+                      </span>
+                    </div>
+                    <p>{selectedImageTargetWorkflow.detail}</p>
                     <p>{selectedComfyOutputPreset.useCase}</p>
                     <p>
                       Custom workflow mode patches checkpoint, size, seed, save prefix, and prompt text. If no
@@ -5564,14 +5633,52 @@ export function EditorApp() {
                       </select>
                     </label>
                   </div>
+                  <div className="character-gym-preview-panel">
+                    <div className="character-gym-preview-header">
+                      <div>
+                        <span className="overview-label">Clip preview</span>
+                        <strong>{animationPreviewClip?.id ?? "No clip"}</strong>
+                      </div>
+                      <span className={`target-mode-pill ${animationPreviewState ? "good" : "warn"}`}>
+                        {animationPreviewState ? `Frame ${animationPreviewState.frame.frame}` : "Draft check"}
+                      </span>
+                    </div>
+                    <div className="character-gym-preview-stage">
+                      {animationPreviewAssetUrl && animationPreviewState ? (
+                        <div
+                          aria-label={`${animationPreviewClip?.id ?? "clip"} animation preview`}
+                          className="character-gym-preview-sprite"
+                          role="img"
+                          style={{
+                            aspectRatio: `${animationPreviewState.width} / ${animationPreviewState.height}`,
+                            backgroundImage: `url("${animationPreviewAssetUrl}")`,
+                            backgroundPosition: animationPreviewState.backgroundPosition,
+                            backgroundSize: animationPreviewState.backgroundSize
+                          }}
+                        />
+                      ) : (
+                        <div className="character-gym-preview-empty">No frame</div>
+                      )}
+                    </div>
+                    <p>{animationPreviewStatus}</p>
+                  </div>
                   <div className="clip-editor-list">
                     {animationPackDraft.clips.map((clip, index) => (
-                      <div className="clip-editor-row" key={`clip-${index}-${clip.id}`}>
+                      <div
+                        className={`clip-editor-row ${
+                          animationPreviewClip === clip ? "is-previewing" : ""
+                        }`}
+                        key={`clip-${index}-${clip.id}`}
+                        onFocusCapture={() => setSelectedAnimationClipPreviewId(clip.id)}
+                      >
                         <label className="prompt-studio-field">
                           Clip
                           <input
                             value={clip.id}
-                            onChange={(event) => updateAnimationClipDraft(index, { id: event.target.value })}
+                            onChange={(event) => {
+                              setSelectedAnimationClipPreviewId(event.target.value);
+                              updateAnimationClipDraft(index, { id: event.target.value });
+                            }}
                           />
                         </label>
                         <label className="prompt-studio-field">
@@ -5579,21 +5686,30 @@ export function EditorApp() {
                           <input
                             placeholder="0, 1, 2"
                             value={clip.frames}
-                            onChange={(event) => updateAnimationClipDraft(index, { frames: event.target.value })}
+                            onChange={(event) => {
+                              setSelectedAnimationClipPreviewId(clip.id);
+                              updateAnimationClipDraft(index, { frames: event.target.value });
+                            }}
                           />
                         </label>
                         <label className="prompt-studio-field">
                           FPS
                           <input
                             value={clip.fps}
-                            onChange={(event) => updateAnimationClipDraft(index, { fps: event.target.value })}
+                            onChange={(event) => {
+                              setSelectedAnimationClipPreviewId(clip.id);
+                              updateAnimationClipDraft(index, { fps: event.target.value });
+                            }}
                           />
                         </label>
                         <label className="checkbox-field clip-loop-field">
                           <input
                             checked={clip.loop}
                             type="checkbox"
-                            onChange={(event) => updateAnimationClipDraft(index, { loop: event.target.checked })}
+                            onChange={(event) => {
+                              setSelectedAnimationClipPreviewId(clip.id);
+                              updateAnimationClipDraft(index, { loop: event.target.checked });
+                            }}
                           />
                           Loop
                         </label>
