@@ -9,6 +9,9 @@ Show the smallest complete loop that proves the product direction:
 
 `scene -> hotspot -> inventory -> item use -> flow -> state update -> transition`
 
+The sample also demonstrates player animation-pack assignment, an animated NPC
+actor fallback path, prompt-pack provenance, and saved-project validation.
+
 ## Recording Pass
 
 1. Start the player and wait for the dock scene to appear.
@@ -53,4 +56,8 @@ before saving the image, so the checked-in screenshot stays presentation-ready.
 - The same deterministic runtime powers the web player and editor preview.
 - The loop is intentionally tiny, but it already shows verbs, pickups,
   inventory state, flow execution, and state mutation.
+- The editor can change player asset/animation settings and preview draft scene
+  changes before they are saved.
+- AI support is authoring-only: prompt packs and ComfyUI imports become reviewed
+  project documents and assets.
 - The sample is meant to be recorded in one take without extra explanation.

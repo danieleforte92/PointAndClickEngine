@@ -51,6 +51,10 @@ Scenes can assign an animation pack to `player.animationPackId` or
 `actors[].animationPackId`. The renderer uses `idle` and `walk` when present and
 falls back to static assets or debug shapes when a pack cannot load.
 
+Creator Alpha's editor exposes player assignment today. The full Character Gym
+sprite editor is the next UX milestone for editing frame grids, foot origins,
+clip frame lists, and preview loops without manual JSON edits.
+
 ## Flow Transitions
 
 Flows can change scenes with a `change-scene` node:

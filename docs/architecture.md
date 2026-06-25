@@ -72,5 +72,10 @@ assets and clip metadata, but simulation state stores only IDs, positions,
 flags, inventory, and event sequence.
 
 Prompt packs are authoring documents, not runtime dependencies. Creator Alpha
-ships a deterministic mock-provider path and saved prompt-pack provenance so
-contributors can inspect the AI direction without paid provider keys.
+ships a deterministic mock-provider path, local LM Studio support, local ComfyUI
+image generation, and saved prompt-pack provenance so contributors can inspect
+the AI direction without paid provider keys.
+
+The editor imports generated images as normal asset documents. Transparency,
+chroma removal, and alpha output are treated as ComfyUI workflow capabilities,
+not runtime assumptions.

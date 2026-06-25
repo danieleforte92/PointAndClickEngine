@@ -154,10 +154,14 @@ describe("generateLMStudioPromptPack", () => {
       }
     );
 
-    expect(job.candidates[0]?.promptPack.outputs.styleNotes).toEqual([
-      "Hand-painted 2D aesthetic. Restrained, earthy color palette dominated by cool grays."
-    ]);
+    expect(job.candidates[0]?.promptPack.outputs.styleNotes).toEqual(
+      expect.arrayContaining([
+        "Hand-painted 2D aesthetic. Restrained, earthy color palette dominated by cool grays.",
+        "Art direction source: Cavern scene."
+      ])
+    );
     expect(job.candidates[0]?.promptPack.outputs.styleNotes.join(" ")).toContain("Hand-painted");
+    expect(job.candidates[0]?.promptPack.outputs.negativePrompt).toContain("photorealistic");
   });
 
   it("falls back to chat completions and assembles a local prompt pack", async () => {

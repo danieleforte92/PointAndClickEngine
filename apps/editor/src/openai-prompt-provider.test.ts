@@ -153,8 +153,9 @@ describe("generateOpenAIPromptPack", () => {
     });
     expect(job.provider).toBe("openai");
     expect(job.candidates[0]?.promptPack.outputs.sceneBackgroundPrompt).toBe(
-      "A crisp moonlit harbor background."
+      "A crisp moonlit harbor background. Art direction: Coastal noir."
     );
+    expect(job.candidates[0]?.promptPack.outputs.negativePrompt).toContain("photorealistic");
     expect(job.candidates[0]?.promptPack.outputs.generationTargets.map((target) => target.id)).toContain(
       "moonlit-dock-background"
     );

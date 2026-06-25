@@ -22,16 +22,23 @@ validated project that can be previewed in the editor or web player.
 3. Use the Scene workspace to adjust the starter scene name, player start, walk
    area, and one hotspot. Save each inspector change with **Apply changes**.
 
-4. Use the Narrative workspace to create or edit a flow. For a second scene,
+4. Use the Player workspace to choose a player asset or animation pack, adjust
+   walk speed, and tune near/far scale for depth.
+
+5. Use the Narrative workspace to create or edit a flow. For a second scene,
    add a `change-scene` node and choose the target scene.
 
-5. Use the Assets workspace to import image files. Assign an imported asset as a
+6. Use the Assets workspace to import image files. Assign an imported asset as a
    background or actor asset from the Scene inspector.
 
-6. Preview with **Play from here**. The preview uses unsaved drafts when launched
+7. Optional: use the AI workspace to generate a deterministic mock prompt pack.
+   If LM Studio or ComfyUI are running locally, configure those providers to
+   draft prompts or generate an imported image asset.
+
+8. Preview with **Play from here**. The preview uses unsaved drafts when launched
    from the editor.
 
-7. Validate the saved project:
+9. Validate the saved project:
 
    ```powershell
    pnpm validate:starter

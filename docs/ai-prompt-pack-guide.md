@@ -39,9 +39,14 @@ Open the **AI** workspace in the editor.
 Generation does not mutate project files. The editor writes a prompt-pack JSON
 document only after **Save Approved Pack**.
 
-The AI workspace also includes guided scene questions for mood, setting, visual
-style, palette, and gameplay emphasis. These answers are folded into the saved
-art brief so local and cloud providers receive the same structured context.
+The AI workspace includes composable presets for visual style, mood, setting,
+palette, gameplay emphasis, output target, and negative prompt guidance. The
+default Creator Alpha direction is original-IP comic adventure art with strong
+negative guidance against photorealism, logos, readable text, watermarks, and
+existing franchise characters.
+
+Preset blocks and custom answers are folded into the saved art brief so local
+and cloud providers receive the same structured context.
 
 ## Local Prompt Drafting With LM Studio
 
@@ -66,7 +71,7 @@ a time and import the resulting PNG into the project asset library.
 3. Set the base URL to `http://127.0.0.1:8188`.
 4. Enter the exact checkpoint filename visible in ComfyUI, including extension,
    or provide a ComfyUI workflow API JSON path.
-5. Choose a generation target from the active prompt pack.
+5. Choose an output preset and generation target from the active prompt pack.
 6. Optionally set a seed.
 7. Set a timeout long enough for the workflow. Krea/Qwen workflows can take many
    minutes on 8GB GPUs.
@@ -104,6 +109,28 @@ When the request is accepted, the editor status card should report that the job
 was queued. The ComfyUI web UI should then show an active or completed job in
 its queue/history. If no job appears, check the workflow path and the status
 message in the editor before changing ComfyUI itself.
+
+### Transparent And Chroma Asset Workflows
+
+Creator Alpha prioritizes workflow-based transparency. The editor can request a
+transparent target, but the final alpha channel depends on the exported ComfyUI
+workflow.
+
+Recommended workflow families:
+
+- **Room background**: opaque 16:9 background, no characters, no UI, no readable
+  text, clear walkable lower half.
+- **Prop sheet chroma**: isolated props on a flat blue or green chroma
+  background, clean margins, no overlapping objects.
+- **Character full body chroma**: full-body character, neutral pose, cropped
+  neither head nor feet, flat chroma background.
+- **Background removal / alpha output**: generate on chroma, remove the chroma
+  background inside ComfyUI, and save a PNG with alpha.
+
+If a workflow saves an RGB PNG without alpha, the imported asset is still valid,
+but it is not a transparent-ready prop or character. Use the prompt preview and
+workflow name to make this limitation visible before relying on the asset for
+runtime composition.
 
 Keep ComfyUI and LM Studio bound to localhost for this workflow. Do not expose
 either local server to a public network without authentication and firewalling.

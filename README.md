@@ -1,83 +1,110 @@
 # Point & Click Engine
 
-Open-core TypeScript engine and visual editor for classic and modern point-and-click
-adventures. The repository currently implements the first playable foundation:
-
-- open, validated project documents;
-- deterministic command/event game state;
-- a small narrative Flow VM;
-- a PixiJS layered-2D renderer;
-- a web player with a playable two-scene sample;
-- an Electron/React editor shell;
-- mock-only AI prompt pack documents;
-- MVP animation pack documents for sprite clips;
-- isolated Electron and external-browser preview paths;
-- unit, schema, E2E, typecheck, and packaging verification.
-
-The sample game, **The Isle of Echoes**, supports walking, activating hotspots,
-collecting inventory, using an item, changing scenes, and completing localized
-dialogue flows.
-
-## Why This Exists
-
-Point & Click Engine is aimed at teams who want classic adventure-game structure
-without hiding the project behind opaque binaries or editor-only state. The
-project keeps the source of truth in Git-friendly documents, runs on a
-deterministic command/event core, and layers visual authoring on top so the
-engine, editor, and sample game can evolve together.
-
-## Build In Public
-
-The project is being reorganized so each milestone produces something easy to
-share publicly: a GIF, short demo video, screenshot set, technical post, or
-playable slice. The current content-driven roadmap lives in
-[docs/content-driven-roadmap.md](docs/content-driven-roadmap.md), and media for
-future posts can live under `docs/assets/`.
+Open-source TypeScript engine and editor for building 2D point-and-click
+adventures with Git-friendly project files, deterministic runtime state, and
+local-first AI asset workflows.
 
 ![Current sample player demo](docs/assets/sample-player-demo.png)
 
-## AI-Assisted, Human-Directed
+## What You Can Try Today
 
-AI is planned here as a focused assistant for authors, not a magic "generate a
-whole game" button. The intended uses are narrow, reviewable tasks such as
-puzzle drafts, dialogue drafts, validation explanations, NPC profiles, and
-asset prompt generation while keeping design direction and final editorial
-control in human hands.
+- Open the Electron editor and create, open, or start from a starter project.
+- Edit layered 2D scenes, hotspots, pickups, actors, player start, and walk areas.
+- Author linear dialogue and scene-transition flows.
+- Import image assets and assign them to scenes, actors, or the player.
+- Configure player asset, animation pack, scale-by-depth, and walk speed.
+- Run the sample adventure in the web player or editor preview.
+- Generate prompt packs with the deterministic mock provider, LM Studio, or OpenAI.
+- Generate and import image assets from a local ComfyUI API workflow.
+- Validate project documents from the CLI and CI.
+
+The current public sample is **The Isle of Echoes**, a compact two-scene
+adventure that demonstrates walking, hotspots, inventory, item use, dialogue,
+scene transition, prompt-pack provenance, and MVP spritesheet animation.
+
+## Why This Exists
+
+Classic adventure tools often hide too much state inside editor binaries.
+Point & Click Engine keeps game content in readable JSON documents, runs gameplay
+through deterministic commands and events, and treats the editor as a visual
+authoring layer over the same contracts used by the player.
+
+That makes projects easier to diff, validate, test, review, and eventually
+extend with custom tooling.
 
 ## Requirements
 
-- Node.js 22.17 or newer; Node.js 24 LTS is recommended.
+- Node.js 22.17 or newer. Node.js 24 LTS is recommended.
 - pnpm 9.6.
+- Windows is the primary Creator Alpha packaging target.
 
-## Start
+Optional local AI tools:
+
+- LM Studio for local prompt-pack drafting.
+- ComfyUI for local image generation and transparent/chroma asset workflows.
+
+## Quick Start
 
 ```powershell
 pnpm install --force
 pnpm dev
 ```
 
-`pnpm dev` starts the player at `http://127.0.0.1:5173` and the Electron editor.
-Use **Play from here** for the isolated Electron preview or **Browser** for the
-system browser.
+`pnpm dev` starts:
 
-## Sample Game
+- the web player at `http://127.0.0.1:5173`;
+- the Electron editor.
 
-The current sample is intentionally small, but it already demonstrates the
-core point-and-click loop end to end:
+In the editor, start with one of these paths:
 
-`scene -> hotspot -> inventory -> item use -> flow -> state update -> transition`
+1. **Create Blank Project** for a clean new project.
+2. **Create From Starter** for a minimal editable project.
+3. **Open Project** and choose `apps/sample-game/project` to inspect the sample.
 
-In **The Isle of Echoes**, the player can walk the dock, inspect the tavern
-door, collect the rusty hook, use it on the tavern entrance, enter the tavern,
-and see the world state update through the same deterministic runtime used by
-the editor preview and web player.
+Use **Play from here** for the isolated Electron preview or **Browser** to open
+the player in your system browser.
+
+## Try This First
+
+1. Open `apps/sample-game/project`.
+2. In **Scene**, move a hotspot, pickup, player start, or walk-area point.
+3. In **Player**, choose the player asset or animation pack and adjust walk speed.
+4. In **AI**, generate a mock prompt pack, then review the background, prop,
+   character, and animation prompts.
+5. If ComfyUI is running, choose a workflow API JSON and generate/import one
+   image asset.
+6. Open **Build** and run validation.
+7. Preview the sample and play the dock-to-tavern loop.
+
+## AI Is Local-First And Reviewable
+
+Creator Alpha does not require paid provider keys.
+
+- **Mock deterministic** works offline and is the default open-source path.
+- **LM Studio local** can draft prompt packs through a local OpenAI-compatible
+  server.
+- **ComfyUI local** can generate image assets from exported API workflows.
+- **OpenAI** is optional and requires an API platform key; ChatGPT subscriptions
+  do not replace API billing.
+
+AI output is treated as draft authoring material. Prompt packs are saved only
+after approval, image generation imports normal asset documents, and provider
+provenance stays visible.
 
 ## Verify
 
 ```powershell
+pnpm check
+```
+
+The release gate runs unit tests, typecheck, sample validation, starter
+validation, and package builds.
+
+Useful focused commands:
+
+```powershell
 pnpm test
 pnpm test:e2e
-pnpm typecheck
 pnpm validate:sample
 pnpm validate:starter
 pnpm build
@@ -89,15 +116,16 @@ The packaged Windows editor is written to:
 apps/editor/out/PointClickStudio-win32-x64/
 ```
 
-Its player bundle is embedded and served from an ephemeral loopback HTTP server,
-so packaged preview does not require a development server or an installed browser.
+Packaged preview embeds the player bundle and serves it from an ephemeral
+loopback HTTP server, so preview does not require a development server.
 
-## Repository
+## Repository Tour
 
 ```text
 apps/editor            Electron/React authoring shell
 apps/player-web        Web player and preview target
-apps/sample-game       Open project documents for the sample adventure
+apps/sample-game       Public sample adventure project
+apps/starter-game      Minimal clean starter project
 packages/contracts     JSON Schema-compatible public documents
 packages/core          Deterministic commands, events, state, and RNG
 packages/flows         Narrative flow execution
@@ -106,8 +134,24 @@ packages/renderer-2d   PixiJS layered scene renderer
 packages/cli           Project validation commands
 ```
 
-See [Architecture](docs/architecture.md), [Project Format](docs/project-format.md),
-the [Authoring Tutorial](docs/authoring-tutorial.md),
-[AI Prompt Pack Guide](docs/ai-prompt-pack-guide.md),
-[Character Gym Guide](docs/character-gym-guide.md), the technical
-[Roadmap](docs/roadmap.md), and the [Content-Driven Roadmap](docs/content-driven-roadmap.md).
+## Current Limitations
+
+- Creator Alpha focuses on 2D layered scenes; hybrid 3D is schema-planned only.
+- Flow authoring is structured but not a full graph editor yet.
+- Character Gym has runtime and document support, but the full sprite editor UX
+  is still being completed.
+- Transparent PNG generation depends on the selected ComfyUI workflow.
+- Hosted web demo and marketing site are not required for the first public
+  release.
+
+## Docs
+
+- [Roadmap](docs/roadmap.md)
+- [Architecture](docs/architecture.md)
+- [Project Format](docs/project-format.md)
+- [Authoring Tutorial](docs/authoring-tutorial.md)
+- [AI Prompt Pack Guide](docs/ai-prompt-pack-guide.md)
+- [Character Gym Guide](docs/character-gym-guide.md)
+- [Sample Demo Checklist](docs/sample-demo-checklist.md)
+- [Release Checklist](docs/release-checklist.md)
+- [Troubleshooting](docs/troubleshooting.md)

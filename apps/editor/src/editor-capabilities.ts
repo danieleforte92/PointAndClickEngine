@@ -52,7 +52,7 @@ export const workspaceCapabilities: EditorCapability[] = [
     workspace: "assets",
     summary: "Project asset import, health, usage, and scene background assignment.",
     detail:
-      "The asset library is wired for import and scene usage today; provenance, versioning, and AI generation remain future milestones."
+      "The asset library is wired for import, scene usage, generated image imports, health, and usage review today; provenance and versioning remain later milestones."
   },
   {
     id: "ai",

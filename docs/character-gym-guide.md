@@ -1,6 +1,8 @@
 # Character Gym Guide
 
 Character Gym is the MVP workflow for reusable spritesheet animation packs.
+Creator Alpha already has runtime and document support for packs; the roadmap
+now treats the full sprite editor UI as a release-critical UX milestone.
 
 ## Pack Shape
 
@@ -17,8 +19,8 @@ can be saved for future tooling.
 
 ## Assign A Pack
 
-Add the pack to `animationPacks` in `adventure.project.json`, then assign it in a
-scene:
+Add the pack to `animationPacks` in `adventure.project.json`, then assign it in
+a scene or through the editor's Player/Actor controls:
 
 ```json
 "player": {
@@ -38,3 +40,27 @@ Actors can use the same field:
 The renderer uses `walk` while the player interpolates and returns to `idle` at
 the destination. If a pack or asset is missing, validation reports an error and
 the renderer falls back to visible debug shapes where possible.
+
+## Editor MVP Target
+
+The Creator Alpha editor should expose these controls without manual JSON edits:
+
+- select spritesheet asset;
+- set frame width/height and grid columns/rows;
+- set foot origin and default facing;
+- edit `idle`, `walk`, and `talk` clips with frame lists, fps, and loop flag;
+- preview the selected clip;
+- assign the pack to the current scene player or selected actor.
+
+## AI Asset Studio Connection
+
+Use prompt-pack targets to generate source material for Character Gym:
+
+- **Character Full Body Chroma** for a clean base design;
+- **Character Turnaround** for consistent proportions;
+- **Walk Cycle Reference** for animation planning;
+- **Dialogue Portrait Sheet** for future portrait support.
+
+For sprite work, prefer ComfyUI workflows that output chroma or transparent PNGs.
+If the workflow does not preserve alpha, import the result as a reference asset
+and keep the animation pack tied to a cleaned spritesheet.

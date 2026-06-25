@@ -1,72 +1,110 @@
-# Roadmap
+# Creator Alpha Roadmap
 
-## Current Baseline
+Creator Alpha is the first public open-source release target for Point & Click
+Engine. The goal is not feature breadth. The goal is a coherent product loop:
+clone the repo, run the editor, inspect the sample, create or open a project,
+author a small scene, generate reviewable AI art direction, validate, and preview.
 
-Completed or already usable in the current codebase:
+## Baseline Already Usable
 
-- monorepo, strict TypeScript, pnpm, Vitest, Playwright, and packaged Electron;
-- project, scene, flow, locale, item, and asset schemas with CLI validation;
-- deterministic commands, events, replay, and seeded RNG;
-- layered 2D runtime with polygon walk areas and pathfinding;
-- light classic verbs, inventory, pickups, and item-specific hotspot actions;
-- web player, sample game, isolated Electron preview, browser preview, and packaged preview;
-- editor project loading for arbitrary folders;
-- inspector persistence for scenes, hotspots, pickups, items, locales, and linear flows;
-- editor undo/redo, dirty drafts, and autosave recovery;
-- build workspace validation for saved project content;
-- asset library import, health display, usage display, and scene background assignment.
+- Git-friendly project documents with schema and semantic validation.
+- Deterministic command/event runtime, seeded RNG, replayable state, and Flow VM.
+- Layered 2D Pixi renderer with polygon walk areas, pickups, inventory, verbs,
+  scene transitions, and scale-by-depth player movement.
+- Web player, Electron editor, isolated preview, browser preview, and packaged
+  Windows preview.
+- Editor project creation/opening, undo/redo, autosave recovery, scene tools,
+  narrative editing, asset import, validation, prompt packs, and local image
+  generation.
+- Sample adventure with two scenes, player animation pack, actor animation pack,
+  item use, dialogue, transition, and prompt-pack provenance.
 
-## Next Milestone: Authoring Autonomy
+## Milestone 1 - Public Repository Readiness
 
-Goal: finish the jump from "structured inspector on top of JSON" to "I can build a small adventure entirely inside the editor."
+Make the repo understandable to a first-time visitor.
 
-- done now:
-  - create and remove scenes, hotspots, pickups, items, and flows from the editor;
-  - scene background assignment from the asset workspace;
-  - flow and item references in hotspot and pickup inspectors moved from free text to guided pickers.
-- next up:
-  - add create and remove actions for locale keys and asset records from the editor;
-  - replace remaining free-text references with pickers or autocomplete where possible;
-  - surface reference-aware validation inline in the inspector before save;
-  - add direct viewport tools for hotspot bounds, pickup bounds, player start, and walk area polygons;
-  - add asset maintenance actions: rename, relink, replace, delete unused;
-  - split the editor surface into smaller scene, narrative, assets, and build modules while keeping one shared draft session.
+- Keep `starter-game` minimal and free of generated experiments.
+- Keep `sample-game` intentional, valid, and presentation-ready.
+- Maintain one public roadmap and remove stale duplicate planning documents.
+- Keep `README.md` focused on product promise, quick start, what works, what is
+  limited, and what to try first.
+- Maintain `pnpm check` as the release gate.
+- Add release checklist and troubleshooting notes for local provider workflows.
 
-### Suggested Implementation Order
+Done when a clean checkout can be installed, validated, built, and explained
+from the README without private context.
 
-1. Inline authoring safety:
-   locale key CRUD, missing-reference badges, picker defaults, and inspector guardrails.
-2. Visual scene tools:
-   drag-resize hotspots and pickups, move player start, and edit walk polygons in the viewport.
-3. Asset maintenance:
-   replace, relink, rename, and delete-unused actions with validation feedback.
-4. Editor modularization:
-   extract scene, narrative, asset, and build panels into focused modules without changing behavior.
+## Milestone 2 - Editor UX Completion
 
-Done when a small multi-room adventure can be authored without manual file edits.
+Make the editor feel like a product rather than a JSON inspector.
 
-## Next Milestone: Narrative And Puzzle Authoring
+- First-run actions: create blank project, create from starter, open project.
+- Scene authoring: direct viewport editing for hotspots, pickups, actors, player
+  start, and walk areas.
+- Player authoring: asset, animation pack, start position, walk speed,
+  scale-near/far, and immediate preview.
+- Actor/hotspot authoring: guided asset/animation/flow references and inline
+  validation when references are missing.
+- Build workspace: saved-project validation, preview readiness, and clear error
+  feedback.
 
-- extend the flow model with choices, conditions, flow calls, scene transitions, and timeline cues;
-- build a real graph editor on top of the flow document model;
-- add validation for dead branches, missing references, and puzzle logic gaps;
-- add a puzzle dependency view that connects items, hotspots, flags, and flows.
+Done when the sample can be modified and previewed without editing JSON by hand.
 
-## Next Milestone: Production And Playtest
+## Milestone 3 - AI Asset Studio
 
-- add save slots, checkpoints, migration coverage, and recovery hardening;
-- add debug and playtest tools: event log, world state inspector, inventory and flag inspection, jump-to-scene helpers;
-- add audio cues, ambience, subtitle timing, and localization diagnostics;
-- add export gates for validation, missing assets, and preview readiness.
+Turn AI support into a bounded authoring workflow.
 
-## Later Milestones
+- Prompt-pack presets for visual style, mood, setting, palette, gameplay
+  emphasis, targets, and negative prompts.
+- Provider paths: deterministic mock, LM Studio local, optional OpenAI, and
+  ComfyUI local image generation.
+- ComfyUI workflow support for room backgrounds, prop sheets, character sheets,
+  chroma-key generation, and transparent PNG output where the workflow supports
+  alpha.
+- Clear status for queueing, timeout, import success, and workflow limitations.
+- Imported generations become normal project assets under `assets/imported`.
 
-1. AI Asset Studio with provider adapters, provenance, immutable versions, masks,
-   layer extraction, character identity packs, and TTS drafts.
-2. Hybrid 3D scene support with GLB/glTF, camera rigs, navmesh, lighting,
-   collision proxies, sprites, and billboards.
-3. Desktop and web export workflows, accessibility, profiling, plugin SDK,
-   private alpha, and the complete 30-60 minute sample adventure.
+Done when a creator can generate a prompt pack, generate one asset locally,
+import it, assign it, validate, and preview.
+
+## Milestone 4 - Character Gym MVP
+
+Make player and actor animation authorable, not just loadable.
+
+- Sprite editor UI for selecting a spritesheet asset.
+- Frame size, grid, foot origin, default facing, clip fps, loop flag, and clip
+  frame lists.
+- Required clips: `idle`, `walk`, and `talk`; extra clips allowed for future use.
+- Preview loop for each clip.
+- Assign animation pack to player or actor from editor UI.
+- Renderer fallback remains visible when assets or packs are missing.
+
+Done when the sample player and one actor can be edited, previewed, assigned,
+validated, and played from the editor.
+
+## Milestone 5 - Creator Alpha Release
+
+Ship the first public GitHub release.
+
+- Tag `creator-alpha`.
+- Include release notes, screenshot/GIF, quick start, known limitations, and
+  "what to try first".
+- Verify Windows package output.
+- Keep hosted demo and marketing site out of the critical path.
+
+Done when a technical creator can clone the repo, run it, understand the data
+model, try the sample, create a small project, and see the AI/animation direction
+without paid provider keys.
+
+## Later
+
+- Flow graph editor with choices, conditions, calls, timeline cues, and puzzle
+  dependency view.
+- Save slots, checkpoints, debug world-state overlay, localization diagnostics,
+  and audio tools.
+- Web export, accessibility pass, profiling, plugin SDK, hosted demo, and public
+  website.
+- Hybrid 3D scene support.
 
 Cloud collaboration, runtime LLMs, mobile export, integrated 3D modeling, and
-generative music remain outside the first public release.
+generative music are outside Creator Alpha.
