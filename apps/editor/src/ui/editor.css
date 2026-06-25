@@ -479,6 +479,63 @@ button {
   line-height: 1.35;
 }
 
+.viewport-quick-actions {
+  position: absolute;
+  z-index: 1000;
+  right: 14px;
+  top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(480px, calc(100% - 28px));
+  padding: 7px;
+  border: 1px solid rgba(182, 218, 228, 0.18);
+  border-radius: 10px 3px 10px 3px;
+  background: rgba(7, 16, 25, 0.74);
+  backdrop-filter: blur(12px);
+}
+
+.viewport-quick-actions button,
+.viewport-quick-actions select,
+.viewport-color-control {
+  min-height: 26px;
+  color: #dce7e9;
+  border: 1px solid rgba(182, 218, 228, 0.18);
+  border-radius: 3px;
+  background: rgba(22, 33, 41, 0.86);
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
+.viewport-quick-actions button {
+  padding: 0 8px;
+  cursor: pointer;
+}
+
+.viewport-quick-actions select {
+  max-width: 150px;
+  padding: 0 7px;
+}
+
+.viewport-color-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+}
+
+.viewport-color-control span {
+  color: #ddb06f;
+}
+
+.viewport-color-control input {
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
 .scene-shape,
 .walk-region,
 .character,

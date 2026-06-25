@@ -369,19 +369,29 @@ function nextActorId(scene: Layered2DScene): string {
 function createDefaultHotspot(scene: Layered2DScene, hotspotId: string): Hotspot {
   const width = Math.max(80, Math.floor(scene.size.width * 0.12));
   const height = Math.max(80, Math.floor(scene.size.height * 0.14));
+  const x = Math.floor(scene.size.width / 2 - width / 2);
+  const y = Math.floor(scene.size.height * 0.45 - height / 2);
   return {
     actions: {
       useItemFlows: []
     },
     bounds: {
-      x: Math.floor(scene.size.width / 2 - width / 2),
-      y: Math.floor(scene.size.height * 0.45 - height / 2),
+      x,
+      y,
       width,
       height
     },
     cursor: "look",
     id: hotspotId,
-    labelKey: `hotspot.${hotspotId}`
+    interactSpot: {
+      x: Math.floor(x + width / 2),
+      y: Math.floor(y + height + 24)
+    },
+    labelKey: `hotspot.${hotspotId}`,
+    lookSpot: {
+      x: Math.floor(x + width / 2),
+      y: Math.floor(y)
+    }
   };
 }
 
@@ -832,6 +842,10 @@ export function EditorApp() {
     () => (project ? project.items.map((item) => item.id) : []),
     [project]
   );
+  const imageAssets = useMemo(
+    () => (project ? project.assets.filter((asset) => asset.kind === "image") : []),
+    [project]
+  );
   const dirtyState = useMemo(
     () =>
       project
@@ -947,6 +961,10 @@ export function EditorApp() {
   const canEditViewportScene = workspace === "scene" && !!selectedScene;
   const selectedSceneToolLabel = sceneToolLabel(activeSceneTool);
   const selectedSceneToolHint = sceneToolHint(activeSceneTool);
+  const previewSceneBackground = selectedScene
+    ? currentSceneDraft.background.trim() || selectedScene.background
+    : "";
+  const previewSceneColor = isHexColor(previewSceneBackground) ? previewSceneBackground : "#24384a";
   const defaultLocaleDocument = useMemo(
     () =>
       project?.locales.find((locale) => locale.locale === project.manifest.defaultLocale) ?? null,
@@ -2308,6 +2326,7 @@ export function EditorApp() {
       });
       setProject(snapshot);
       setWorkspace("scene");
+      setActiveSceneTool("walk-area");
       updateSessionSelection((current) => ({
         ...current,
         activeActorId: null,
@@ -2370,6 +2389,7 @@ export function EditorApp() {
       });
       setProject(snapshot);
       setWorkspace("scene");
+      setActiveSceneTool("hotspot");
       updateSessionSelection((current) => ({
         ...current,
         activeActorId: null,
@@ -2461,6 +2481,7 @@ export function EditorApp() {
       });
       setProject(snapshot);
       setWorkspace("scene");
+      setActiveSceneTool("pickup");
       updateSessionSelection((current) => ({
         ...current,
         activeActorId: null,
@@ -2647,6 +2668,8 @@ export function EditorApp() {
   };
 
   const selectScene = (sceneId: string) => {
+    setWorkspace("scene");
+    setActiveSceneTool("walk-area");
     updateSessionSelection((current) => ({
       ...current,
       activeActorId: null,
@@ -2660,6 +2683,8 @@ export function EditorApp() {
   };
 
   const selectHotspot = (hotspot: Hotspot) => {
+    setWorkspace("scene");
+    setActiveSceneTool("hotspot");
     updateSessionSelection((current) => ({
       ...current,
       activeActorId: null,
@@ -2672,6 +2697,8 @@ export function EditorApp() {
   };
 
   const selectPickup = (pickup: ScenePickup) => {
+    setWorkspace("scene");
+    setActiveSceneTool("pickup");
     updateSessionSelection((current) => ({
       ...current,
       activeActorId: null,
@@ -2684,6 +2711,8 @@ export function EditorApp() {
   };
 
   const selectActor = (actor: SceneActor) => {
+    setWorkspace("scene");
+    setActiveSceneTool("actor");
     updateSessionSelection((current) => ({
       ...current,
       activeActorId: actor.id,
@@ -3831,7 +3860,7 @@ export function EditorApp() {
               ref={viewportRef}
               style={
                 selectedScene
-                  ? sceneBackgroundStyle(selectedScene.background, project?.directory ?? "")
+                  ? sceneBackgroundStyle(previewSceneBackground, project?.directory ?? "")
                   : { background: "#24384a" }
               }
             >
@@ -3839,6 +3868,44 @@ export function EditorApp() {
                 <div className="viewport-instruction">
                   <strong>{selectedSceneToolLabel}</strong>
                   <span>{selectedSceneToolHint}</span>
+                </div>
+              ) : null}
+              {selectedScene && workspace === "scene" ? (
+                <div className="viewport-quick-actions">
+                  <label className="viewport-color-control" title="Set color background draft">
+                    <span>BG</span>
+                    <input
+                      aria-label="Scene background color"
+                      type="color"
+                      value={previewSceneColor}
+                      onChange={(event) => updateSceneDraft("background", event.target.value)}
+                    />
+                  </label>
+                  <select
+                    aria-label="Scene background asset"
+                    value={imageAssets.some((asset) => asset.path === previewSceneBackground) ? previewSceneBackground : ""}
+                    onChange={(event) => {
+                      if (event.target.value) {
+                        updateSceneDraft("background", event.target.value);
+                      }
+                    }}
+                  >
+                    <option value="">Image background</option>
+                    {imageAssets.map((asset) => (
+                      <option key={`viewport-bg-${asset.id}`} value={asset.path}>
+                        {asset.id}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" onClick={() => setActiveSceneTool("walk-area")}>
+                    Walk
+                  </button>
+                  <button type="button" onClick={createHotspot}>
+                    + Hotspot
+                  </button>
+                  <button type="button" onClick={createActor}>
+                    + Actor
+                  </button>
                 </div>
               ) : null}
               {selectedScene ? (
