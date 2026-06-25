@@ -65,6 +65,7 @@ export interface PointClickEditorApi {
   openPreview(request?: EditorPreviewRequest): Promise<void>;
   openInBrowser(request?: EditorPreviewRequest): Promise<void>;
   pickProject(): Promise<EditorProjectSnapshot | null>;
+  resolveAssetUrl(assetPath: string): Promise<string>;
   runValidation(): Promise<EditorValidationReport>;
   saveRecovery(snapshot: EditorRecoverySnapshot): Promise<void>;
 }
@@ -78,6 +79,7 @@ const api: PointClickEditorApi = {
   openPreview: (request) => ipcRenderer.invoke("preview:open", request),
   openInBrowser: (request) => ipcRenderer.invoke("preview:browser", request),
   pickProject: () => ipcRenderer.invoke("project:pick"),
+  resolveAssetUrl: (assetPath) => ipcRenderer.invoke("project:asset-url", assetPath),
   runValidation: () => ipcRenderer.invoke("project:validate"),
   saveRecovery: (snapshot) => ipcRenderer.invoke("recovery:save", snapshot)
 };

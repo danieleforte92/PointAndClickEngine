@@ -31,7 +31,7 @@ let previewWindow: BrowserWindow | null = null;
 let playerServer: Server | null = null;
 let previewBundleServer: Server | null = null;
 let playerUrl = process.env.POINTCLICK_PLAYER_URL ?? "http://127.0.0.1:5173";
-let loadedProjectDirectory = path.resolve(__dirname, "../../../sample-game/project");
+let loadedProjectDirectory = path.resolve(__dirname, "../../../starter-game/project");
 const previewSessions = new Map<string, { bundle: ProjectBundle; projectDirectory: string }>();
 
 const mimeTypes: Record<string, string> = {
@@ -260,6 +260,19 @@ async function openPreview(request?: EditorPreviewRequest): Promise<void> {
 async function openPreviewInBrowser(request?: EditorPreviewRequest): Promise<void> {
   const previewUrl = await buildPreviewUrl(request);
   await shell.openExternal(previewUrl);
+}
+
+async function resolveProjectAssetUrl(assetPath: string): Promise<string> {
+  const projectDirectory = currentProjectPath();
+  const absolutePath = path.resolve(projectDirectory, assetPath);
+  const relativePath = path.relative(projectDirectory, absolutePath);
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    throw new Error(`Asset path "${assetPath}" is outside the loaded project`);
+  }
+
+  const mimeType = mimeTypes[path.extname(absolutePath).toLowerCase()] ?? "application/octet-stream";
+  const data = await readFile(absolutePath);
+  return `data:${mimeType};base64,${data.toString("base64")}`;
 }
 
 function currentProjectPath(): string {
@@ -513,6 +526,9 @@ app.whenReady().then(() => {
   });
   ipcMain.handle("project:validate", async () => {
     return runEditorValidation();
+  });
+  ipcMain.handle("project:asset-url", async (_event, assetPath: string) => {
+    return resolveProjectAssetUrl(assetPath);
   });
   ipcMain.handle("recovery:load", async (_event, projectDirectory: string) => {
     return loadRecoverySnapshot(projectDirectory);

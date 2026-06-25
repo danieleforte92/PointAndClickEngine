@@ -145,19 +145,13 @@ function isHexColor(value: string): boolean {
   return hexColorPattern.test(value);
 }
 
-function sceneBackgroundStyle(background: string, assetBase = "") {
+function sceneBackgroundStyle(background: string, assetUrl?: string) {
   if (isHexColor(background)) {
-    return { background };
+    return { backgroundColor: background, backgroundImage: "none" };
   }
-  const normalizedBase = assetBase.replace(/\\/g, "/").replace(/\/?$/, "/");
-  const assetUrl = assetBase
-    ? normalizedBase.startsWith("http")
-      ? `${normalizedBase}${background}`
-      : `file:///${normalizedBase}${background}`
-    : background;
   return {
-    background: "#24384a",
-    backgroundImage: `url("${assetUrl}")`,
+    backgroundColor: "#24384a",
+    backgroundImage: assetUrl ? `url("${assetUrl}")` : "none",
     backgroundPosition: "center",
     backgroundRepeat: "no-repeat",
     backgroundSize: "100% 100%"
@@ -752,6 +746,7 @@ export function EditorApp() {
   const [history, setHistory] = useState<EditorHistoryState>(emptyHistory);
   const [pendingRecovery, setPendingRecovery] = useState<EditorRecoverySnapshot | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
   const [assetPathDraft, setAssetPathDraft] = useState("");
   const [validationRunState, setValidationRunState] = useState<EditorValidationRunState>("idle");
   const [validationReport, setValidationReport] = useState<EditorValidationReport | null>(null);
@@ -978,6 +973,35 @@ export function EditorApp() {
     ? currentSceneDraft.background.trim() || selectedScene.background
     : "";
   const previewSceneColor = isHexColor(previewSceneBackground) ? previewSceneBackground : "#24384a";
+  const previewSceneBackgroundUrl = isHexColor(previewSceneBackground)
+    ? undefined
+    : assetPreviewUrls[previewSceneBackground];
+
+  useEffect(() => {
+    if (!project || !previewSceneBackground || isHexColor(previewSceneBackground)) return;
+    if (assetPreviewUrls[previewSceneBackground]) return;
+
+    let cancelled = false;
+    window.pointClick
+      .resolveAssetUrl(previewSceneBackground)
+      .then((url) => {
+        if (cancelled) return;
+        setAssetPreviewUrls((current) =>
+          current[previewSceneBackground]
+            ? current
+            : { ...current, [previewSceneBackground]: url }
+        );
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setStatus(error instanceof Error ? error.message : "Background asset could not be previewed");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [assetPreviewUrls, previewSceneBackground, project]);
+
   const defaultLocaleDocument = useMemo(
     () =>
       project?.locales.find((locale) => locale.locale === project.manifest.defaultLocale) ?? null,
@@ -3885,7 +3909,7 @@ export function EditorApp() {
               style={
                 selectedScene
                   ? {
-                      ...sceneBackgroundStyle(previewSceneBackground, project?.directory ?? ""),
+                      ...sceneBackgroundStyle(previewSceneBackground, previewSceneBackgroundUrl),
                       aspectRatio: `${previewSceneSize.width} / ${previewSceneSize.height}`
                     }
                   : { background: "#24384a" }
