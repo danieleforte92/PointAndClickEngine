@@ -669,7 +669,7 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
     promptId: result.promptId,
     provider: "comfyui" as const,
     seed: result.seed,
-    snapshot: summarizeProject(loaded.directory, loaded.bundle),
+    snapshot: await summarizeProject(loaded.directory, loaded.bundle),
     status: "completed" as const,
     targetId: result.targetId
   };

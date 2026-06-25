@@ -1225,6 +1225,33 @@ button {
   padding: 0 8px;
 }
 
+.preset-checklist {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid #30434e;
+  border-radius: 4px;
+  background: #101922;
+}
+
+.preset-checklist label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #cbd8dc;
+  font-family: "Courier New", monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.preset-checklist input {
+  width: auto;
+  height: auto;
+  margin: 0;
+}
+
 .ai-workspace .prompt-studio-card {
   border-color: #4a6471;
 }

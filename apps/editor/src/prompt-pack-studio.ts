@@ -9,6 +9,7 @@ import type {
   SceneActor,
   ScenePickup
 } from "@pointclick/contracts";
+import { pointClickCoreNegativePrompt } from "./prompt-pack-presets";
 
 export interface GeneratePromptPackRequest {
   bundle: ProjectBundle;
@@ -47,7 +48,7 @@ const mockModel = "creator-alpha-mock-v1";
 const defaultArtBrief =
   "Readable 2D point-and-click adventure art, hand-painted shapes, clear interactable silhouettes, restrained palette.";
 const defaultNegativePrompt =
-  "photorealism, unreadable silhouettes, cluttered UI text, warped hands, extra limbs, heavy blur, low contrast";
+  `photorealism, unreadable silhouettes, cluttered UI text, warped hands, extra limbs, heavy blur, low contrast, ${pointClickCoreNegativePrompt}`;
 
 export const promptProviderDescriptors: PromptProviderDescriptor[] = [
   {
@@ -261,6 +262,60 @@ function buildSuggestedActors(scene: Layered2DScene, context: PromptPackContext)
   });
 }
 
+function appendArtDirection(prompt: string, context: PromptPackContext) {
+  const trimmedPrompt = prompt.trim();
+  const artBrief = context.artBrief.trim();
+  if (!artBrief || trimmedPrompt.includes(artBrief)) return trimmedPrompt;
+  return `${trimmedPrompt} Art direction: ${artBrief}`;
+}
+
+function mergeUniqueTextParts(parts: Array<string | undefined>) {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const part of parts) {
+    for (const item of part?.split(",") ?? []) {
+      const trimmed = item.trim();
+      const key = trimmed.toLowerCase();
+      if (!trimmed || seen.has(key)) continue;
+      seen.add(key);
+      merged.push(trimmed);
+    }
+  }
+  return merged.join(", ");
+}
+
+function mergeOutputsWithArtDirection(
+  deterministicOutputs: PromptPackOutputs,
+  context: PromptPackContext,
+  outputsOverride?: Omit<PromptPackOutputs, "generationTargets">
+): PromptPackOutputs {
+  const merged = {
+    ...deterministicOutputs,
+    ...outputsOverride,
+    generationTargets: deterministicOutputs.generationTargets
+  };
+
+  return {
+    ...merged,
+    sceneBackgroundPrompt: appendArtDirection(merged.sceneBackgroundPrompt, context),
+    propPrompts: merged.propPrompts.map((prompt) => ({
+      ...prompt,
+      prompt: appendArtDirection(prompt.prompt, context)
+    })),
+    characterReferencePrompts: merged.characterReferencePrompts.map((prompt) => ({
+      ...prompt,
+      prompt: appendArtDirection(prompt.prompt, context)
+    })),
+    negativePrompt: mergeUniqueTextParts([deterministicOutputs.negativePrompt, outputsOverride?.negativePrompt]),
+    styleNotes: [
+      ...deterministicOutputs.styleNotes,
+      ...(outputsOverride?.styleNotes ?? []),
+      `Art direction source: ${context.artBrief}`
+    ],
+    generationTargets: deterministicOutputs.generationTargets
+  };
+}
+
 export function createPromptPackDocument(
   request: GeneratePromptPackRequest,
   provenance: {
@@ -280,6 +335,7 @@ export function createPromptPackDocument(
   const inputHash = stableHash(context);
   const generatedAt = request.generatedAt ?? "2026-01-01T00:00:00.000Z";
   const deterministicOutputs = buildOutputs(scene, context);
+  const outputs = mergeOutputsWithArtDirection(deterministicOutputs, context, outputsOverride);
 
   return {
     schemaVersion: 1,
@@ -288,11 +344,7 @@ export function createPromptPackDocument(
     sceneId: scene.id,
     artBrief: context.artBrief,
     context,
-    outputs: {
-      ...deterministicOutputs,
-      ...outputsOverride,
-      generationTargets: deterministicOutputs.generationTargets
-    },
+    outputs,
     suggestedActors: buildSuggestedActors(scene, context),
     provenance: {
       provider: provenance.provider,

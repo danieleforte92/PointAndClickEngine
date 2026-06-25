@@ -8,7 +8,11 @@ import type {
   SceneDocument
 } from "@pointclick/contracts";
 import { validateDocument } from "@pointclick/contracts";
-import { buildPromptPackContext, mockPromptPackProvider } from "./prompt-pack-studio";
+import {
+  buildPromptPackContext,
+  createPromptPackDocument,
+  mockPromptPackProvider
+} from "./prompt-pack-studio";
 
 const manifest: ProjectManifest = {
   schemaVersion: 1,
@@ -176,6 +180,38 @@ describe("Prompt Pack Studio", () => {
     expect(promptPack.outputs.generationTargets.map((target) => target.id)).toContain(
       "moonlit-dock-background"
     );
+    expect(validateDocument("promptPack", promptPack)).toEqual({ valid: true, errors: [] });
+  });
+
+  it("keeps art direction and core negative prompt when provider output is sparse", () => {
+    const promptPack = createPromptPackDocument(
+      {
+        bundle,
+        sceneId: scene.id,
+        artBrief: "Classic comic adventure, original IP, not photorealistic.",
+        generatedAt: "2026-06-25T12:00:00.000Z"
+      },
+      {
+        provider: "lmstudio",
+        model: "local-model",
+        jobId: "job-1"
+      },
+      {
+        sceneBackgroundPrompt: "A damp realistic cavern.",
+        propPrompts: [],
+        characterReferencePrompts: [],
+        animationNotes: ["Keep readable silhouettes."],
+        negativePrompt: "blur",
+        styleNotes: ["Provider style note."]
+      }
+    );
+
+    expect(promptPack.outputs.sceneBackgroundPrompt).toContain("Classic comic adventure");
+    expect(promptPack.outputs.negativePrompt).toContain("blur");
+    expect(promptPack.outputs.negativePrompt).toContain("realistic 3D render");
+    expect(promptPack.outputs.negativePrompt).toContain("existing franchise character");
+    expect(promptPack.outputs.negativePrompt).toContain("LucasArts logo");
+    expect(promptPack.outputs.styleNotes.join(" ")).toContain("Provider style note.");
     expect(validateDocument("promptPack", promptPack)).toEqual({ valid: true, errors: [] });
   });
 });

@@ -82,6 +82,19 @@ import {
   type PromptProviderId,
   type PromptProviderJob
 } from "../prompt-pack-studio";
+import {
+  buildGuidedArtBrief,
+  comfyOutputPresetById,
+  comfyOutputPresets,
+  defaultPromptPresetSelection,
+  gameplayEmphasisPresets,
+  moodPresets,
+  palettePresets,
+  sceneDirectionPresetById,
+  sceneDirectionPresets,
+  settingPresets,
+  visualStylePresets
+} from "../prompt-pack-presets";
 import type { EditorProjectSnapshot } from "../preload";
 import type { EditorValidationReport, EditorValidationRunState } from "../validation-report";
 import { createValidationReport } from "../validation-report";
@@ -104,6 +117,8 @@ const emptyHistory = createHistoryState(
 );
 
 const emptyLocaleEntry = { key: "", value: "" };
+const defaultSceneDirectionPreset =
+  sceneDirectionPresetById(defaultPromptPresetSelection.sceneDirectionPreset) ?? sceneDirectionPresets[0]!;
 
 function sceneFromSnapshot(snapshot: EditorProjectSnapshot | null, sceneId: string | null) {
   if (!snapshot || !sceneId) return null;
@@ -758,36 +773,6 @@ function focusEditorField(element: HTMLInputElement | HTMLSelectElement | null) 
   element.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
-function buildGuidedArtBrief(
-  baseBrief: string,
-  guidedAnswers: {
-    gameplayFocus: string;
-    mood: string;
-    palette: string;
-    setting: string;
-    style: string;
-  }
-) {
-  const rawAnswers: Array<[string, string]> = [
-    ["Mood", guidedAnswers.mood],
-    ["Setting", guidedAnswers.setting],
-    ["Visual style", guidedAnswers.style],
-    ["Palette", guidedAnswers.palette],
-    ["Gameplay emphasis", guidedAnswers.gameplayFocus]
-  ];
-  const answers = rawAnswers.filter((entry): entry is [string, string] => entry[1].trim().length > 0);
-
-  if (answers.length === 0) return baseBrief;
-
-  return [
-    baseBrief.trim(),
-    "Guided scene answers:",
-    ...answers.map(([label, value]) => `- ${label}: ${value.trim()}`)
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
 function promptForGenerationTarget(promptPack: PromptPackDocument, target: PromptPackGenerationTarget) {
   if (target.intendedUse === "scene-background") {
     return promptPack.outputs.sceneBackgroundPrompt;
@@ -833,9 +818,8 @@ export function EditorApp() {
   const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
   const [assetPathDraft, setAssetPathDraft] = useState("");
   const [promptPackSceneId, setPromptPackSceneId] = useState("");
-  const [promptPackBrief, setPromptPackBrief] = useState(
-    "Readable 2D point-and-click adventure art, hand-painted shapes, clear interactable silhouettes, restrained palette."
-  );
+  const [sceneDirectionPresetId, setSceneDirectionPresetId] = useState(defaultSceneDirectionPreset.id);
+  const [promptPackBrief, setPromptPackBrief] = useState(defaultSceneDirectionPreset.artBrief);
   const [promptPackJob, setPromptPackJob] = useState<PromptProviderJob | null>(null);
   const [promptPackGenerationState, setPromptPackGenerationState] = useState<"idle" | "running">("idle");
   const [promptProviderId, setPromptProviderId] = useState<PromptProviderId>("mock");
@@ -849,6 +833,13 @@ export function EditorApp() {
   const [lmStudioModel, setLmStudioModel] = useState(
     promptProviderDescriptors.find((provider) => provider.id === "lmstudio")?.defaultModel ?? "local-model"
   );
+  const [visualStylePresetId, setVisualStylePresetId] = useState(defaultPromptPresetSelection.visualStylePreset);
+  const [moodPresetId, setMoodPresetId] = useState(defaultPromptPresetSelection.moodPreset);
+  const [settingPresetId, setSettingPresetId] = useState(defaultPromptPresetSelection.settingPreset);
+  const [palettePresetId, setPalettePresetId] = useState(defaultPromptPresetSelection.palettePreset);
+  const [gameplayEmphasisPresetIds, setGameplayEmphasisPresetIds] = useState<string[]>(
+    defaultPromptPresetSelection.gameplayEmphasisPresets
+  );
   const [guidedSceneMood, setGuidedSceneMood] = useState("");
   const [guidedSceneSetting, setGuidedSceneSetting] = useState("");
   const [guidedSceneStyle, setGuidedSceneStyle] = useState("");
@@ -858,7 +849,10 @@ export function EditorApp() {
   const [comfyUiCheckpoint, setComfyUiCheckpoint] = useState("");
   const [comfyUiWorkflowPath, setComfyUiWorkflowPath] = useState("");
   const [comfyUiSeed, setComfyUiSeed] = useState("");
-  const [comfyUiTimeoutMinutes, setComfyUiTimeoutMinutes] = useState("20");
+  const [comfyUiOutputPresetId, setComfyUiOutputPresetId] = useState(defaultPromptPresetSelection.comfyOutputPreset);
+  const [comfyUiTimeoutMinutes, setComfyUiTimeoutMinutes] = useState(
+    String(comfyOutputPresetById(defaultPromptPresetSelection.comfyOutputPreset).timeoutMinutes)
+  );
   const [comfyUiGenerationStatus, setComfyUiGenerationStatus] = useState(
     "ComfyUI generation has not been queued yet."
   );
@@ -1086,18 +1080,28 @@ export function EditorApp() {
   const guidedPromptPackBrief = useMemo(
     () =>
       buildGuidedArtBrief(promptPackBrief, {
-        gameplayFocus: guidedSceneGameplayFocus,
-        mood: guidedSceneMood,
-        palette: guidedScenePalette,
-        setting: guidedSceneSetting,
-        style: guidedSceneStyle
+        customGameplayFocus: guidedSceneGameplayFocus,
+        customMood: guidedSceneMood,
+        customPalette: guidedScenePalette,
+        customSetting: guidedSceneSetting,
+        customStyle: guidedSceneStyle,
+        gameplayEmphasisPresetIds,
+        moodPresetId,
+        palettePresetId,
+        settingPresetId,
+        visualStylePresetId
       }),
     [
+      gameplayEmphasisPresetIds,
       guidedSceneGameplayFocus,
       guidedSceneMood,
       guidedScenePalette,
       guidedSceneSetting,
       guidedSceneStyle,
+      moodPresetId,
+      palettePresetId,
+      settingPresetId,
+      visualStylePresetId,
       promptPackBrief
     ]
   );
@@ -1118,13 +1122,18 @@ export function EditorApp() {
     imageGenerationTargets.find((target) => target.id === selectedGenerationTargetId) ??
     imageGenerationTargets[0] ??
     null;
+  const selectedComfyOutputPreset = comfyOutputPresetById(comfyUiOutputPresetId);
   const selectedGenerationPrompt =
     activeImagePromptPack && selectedGenerationTarget
       ? promptForGenerationTarget(activeImagePromptPack, selectedGenerationTarget)
       : "";
-  const selectedGenerationDimensions = selectedGenerationTarget
+  const targetGenerationDimensions = selectedGenerationTarget
     ? dimensionsForGenerationTarget(selectedGenerationTarget)
     : { height: 512, width: 512 };
+  const selectedGenerationDimensions =
+    selectedComfyOutputPreset.id === "target_default"
+      ? targetGenerationDimensions
+      : { height: selectedComfyOutputPreset.height, width: selectedComfyOutputPreset.width };
   const projectHealth = project ? healthSummary(project.diagnostics, dirtyState.count) : null;
   const currentValidationReport =
     validationReport ??
@@ -2569,6 +2578,33 @@ export function EditorApp() {
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Asset delete could not be completed");
     }
+  };
+
+  const applySceneDirectionPreset = (presetId: string) => {
+    const preset = sceneDirectionPresetById(presetId);
+    if (!preset) return;
+
+    setSceneDirectionPresetId(preset.id);
+    setPromptPackBrief(preset.artBrief);
+    setVisualStylePresetId(preset.visualStylePreset);
+    setMoodPresetId(preset.moodPreset);
+    setSettingPresetId(preset.settingPreset);
+    setPalettePresetId(preset.palettePreset);
+    setGameplayEmphasisPresetIds(preset.gameplayEmphasis);
+  };
+
+  const toggleGameplayEmphasisPreset = (presetId: string) => {
+    setGameplayEmphasisPresetIds((current) =>
+      current.includes(presetId)
+        ? current.filter((id) => id !== presetId)
+        : [...current, presetId]
+    );
+  };
+
+  const applyComfyOutputPreset = (presetId: string) => {
+    const preset = comfyOutputPresetById(presetId);
+    setComfyUiOutputPresetId(preset.id);
+    setComfyUiTimeoutMinutes(String(preset.timeoutMinutes));
   };
 
   const generatePromptPack = async () => {
@@ -4639,6 +4675,19 @@ export function EditorApp() {
                     </select>
                   </label>
                   <label className="prompt-studio-field">
+                    Direction preset
+                    <select
+                      value={sceneDirectionPresetId}
+                      onChange={(event) => applySceneDirectionPreset(event.target.value)}
+                    >
+                      {sceneDirectionPresets.map((preset) => (
+                        <option key={`scene-direction-${preset.id}`} value={preset.id}>
+                          {preset.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="prompt-studio-field">
                     Art brief
                     <textarea
                       value={promptPackBrief}
@@ -4646,7 +4695,65 @@ export function EditorApp() {
                     />
                   </label>
                   <label className="prompt-studio-field">
-                    Mood
+                    Visual style preset
+                    <select
+                      value={visualStylePresetId}
+                      onChange={(event) => setVisualStylePresetId(event.target.value)}
+                    >
+                      {visualStylePresets.map((preset) => (
+                        <option key={`visual-style-${preset.id}`} value={preset.id}>
+                          {preset.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="prompt-studio-field">
+                    Mood preset
+                    <select value={moodPresetId} onChange={(event) => setMoodPresetId(event.target.value)}>
+                      {moodPresets.map((preset) => (
+                        <option key={`mood-${preset.id}`} value={preset.id}>
+                          {preset.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="prompt-studio-field">
+                    Setting preset
+                    <select value={settingPresetId} onChange={(event) => setSettingPresetId(event.target.value)}>
+                      {settingPresets.map((preset) => (
+                        <option key={`setting-${preset.id}`} value={preset.id}>
+                          {preset.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="prompt-studio-field">
+                    Palette preset
+                    <select value={palettePresetId} onChange={(event) => setPalettePresetId(event.target.value)}>
+                      {palettePresets.map((preset) => (
+                        <option key={`palette-${preset.id}`} value={preset.id}>
+                          {preset.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="prompt-studio-field">
+                    Gameplay emphasis
+                    <div className="preset-checklist">
+                      {gameplayEmphasisPresets.map((preset) => (
+                        <label key={`gameplay-${preset.id}`}>
+                          <input
+                            checked={gameplayEmphasisPresetIds.includes(preset.id)}
+                            type="checkbox"
+                            onChange={() => toggleGameplayEmphasisPreset(preset.id)}
+                          />
+                          <span>{preset.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <label className="prompt-studio-field">
+                    Custom mood
                     <input
                       placeholder="e.g. lonely, comic, eerie, cozy"
                       value={guidedSceneMood}
@@ -4654,7 +4761,7 @@ export function EditorApp() {
                     />
                   </label>
                   <label className="prompt-studio-field">
-                    Setting details
+                    Custom setting details
                     <input
                       placeholder="e.g. rain-soaked pier, abandoned lab"
                       value={guidedSceneSetting}
@@ -4662,7 +4769,7 @@ export function EditorApp() {
                     />
                   </label>
                   <label className="prompt-studio-field">
-                    Visual style
+                    Custom visual style
                     <input
                       placeholder="e.g. hand-painted 90s adventure, clean pixel art"
                       value={guidedSceneStyle}
@@ -4670,7 +4777,7 @@ export function EditorApp() {
                     />
                   </label>
                   <label className="prompt-studio-field">
-                    Palette
+                    Custom palette
                     <input
                       placeholder="e.g. teal shadows, warm lantern accents"
                       value={guidedScenePalette}
@@ -4794,6 +4901,19 @@ export function EditorApp() {
                     />
                   </label>
                   <label className="prompt-studio-field">
+                    Output preset
+                    <select
+                      value={comfyUiOutputPresetId}
+                      onChange={(event) => applyComfyOutputPreset(event.target.value)}
+                    >
+                      {comfyOutputPresets.map((preset) => (
+                        <option key={`comfy-output-${preset.id}`} value={preset.id}>
+                          {preset.label} {preset.width > 0 ? `(${preset.width}x${preset.height})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="prompt-studio-field">
                     Workflow API JSON path
                     <input
                       placeholder="Optional, e.g. ImgGenSDXLTurbo.json or an absolute path"
@@ -4872,6 +4992,7 @@ export function EditorApp() {
                       {selectedGenerationDimensions.width} x {selectedGenerationDimensions.height} /{" "}
                       {selectedGenerationTarget.transparent ? "transparent target" : "opaque target"}
                     </p>
+                    <p>{selectedComfyOutputPreset.useCase}</p>
                     <p>
                       Custom workflow mode patches checkpoint, size, seed, save prefix, and prompt text. If no
                       `CLIPTextEncode` nodes exist, the provider injects positive/negative prompt nodes for standard
