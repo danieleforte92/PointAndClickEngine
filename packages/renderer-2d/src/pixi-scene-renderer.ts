@@ -1,5 +1,5 @@
 import type { AssetDocument, Layered2DScene, SceneActor, Vector2 } from "@pointclick/contracts";
-import { Application, Container, Graphics, Sprite } from "pixi.js";
+import { Application, Assets, Container, Graphics, Sprite } from "pixi.js";
 
 export interface SceneInteractionHandlers {
   onWalk(position: Vector2): void;
@@ -109,7 +109,7 @@ export class PixiSceneRenderer {
     }
 
     for (const actor of this.scene.actors) {
-      const target = this.createActorTarget(actor);
+      const target = await this.createActorTarget(actor);
       this.actorTargets.set(actor.id, target);
       this.app.stage.addChild(target);
     }
@@ -181,7 +181,7 @@ export class PixiSceneRenderer {
     this.mounted = false;
   }
 
-  private createActorTarget(actor: SceneActor): Container {
+  private async createActorTarget(actor: SceneActor): Promise<Container> {
     const container = new Container();
     container.position.set(actor.bounds.x, actor.bounds.y);
     container.zIndex = actor.depth;
@@ -195,16 +195,17 @@ export class PixiSceneRenderer {
     const asset = actor.assetId ? this.options.assets?.[actor.assetId] : null;
     if (asset) {
       const assetUrl = new URL(asset.path, this.options.assetBaseUrl ?? window.location.href).toString();
-      const sprite = Sprite.from(assetUrl);
-      sprite.width = actor.bounds.width;
-      sprite.height = actor.bounds.height;
-      container.addChild(sprite);
+      try {
+        const texture = await Assets.load(assetUrl);
+        const sprite = new Sprite(texture);
+        sprite.width = actor.bounds.width;
+        sprite.height = actor.bounds.height;
+        container.addChild(sprite);
+      } catch {
+        container.addChild(this.createActorDebugShape(actor));
+      }
     } else {
-      const debugShape = new Graphics()
-        .roundRect(0, 0, actor.bounds.width, actor.bounds.height, 8)
-        .fill({ color: 0x66d9ef, alpha: actor.role === "decoration" ? 0.08 : 0.18 })
-        .stroke({ color: 0x66d9ef, alpha: 0.72, width: 2 });
-      container.addChild(debugShape);
+      container.addChild(this.createActorDebugShape(actor));
     }
 
     const hitArea = new Graphics()
@@ -213,5 +214,12 @@ export class PixiSceneRenderer {
     container.addChild(hitArea);
 
     return container;
+  }
+
+  private createActorDebugShape(actor: SceneActor): Graphics {
+    return new Graphics()
+      .roundRect(0, 0, actor.bounds.width, actor.bounds.height, 8)
+      .fill({ color: 0x66d9ef, alpha: actor.role === "decoration" ? 0.08 : 0.18 })
+      .stroke({ color: 0x66d9ef, alpha: 0.72, width: 2 });
   }
 }

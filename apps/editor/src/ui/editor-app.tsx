@@ -976,31 +976,47 @@ export function EditorApp() {
   const previewSceneBackgroundUrl = isHexColor(previewSceneBackground)
     ? undefined
     : assetPreviewUrls[previewSceneBackground];
+  const assetPathById = useMemo(
+    () => new Map((project?.assets ?? []).map((asset) => [asset.id, asset.path])),
+    [project]
+  );
+  const previewAssetPaths = useMemo(() => {
+    const paths = new Set<string>();
+    if (previewSceneBackground && !isHexColor(previewSceneBackground)) {
+      paths.add(previewSceneBackground);
+    }
+    for (const actor of previewActors) {
+      const assetPath = actor.assetId ? assetPathById.get(actor.assetId) : null;
+      if (assetPath) paths.add(assetPath);
+    }
+    return [...paths];
+  }, [assetPathById, previewActors, previewSceneBackground]);
 
   useEffect(() => {
-    if (!project || !previewSceneBackground || isHexColor(previewSceneBackground)) return;
-    if (assetPreviewUrls[previewSceneBackground]) return;
+    if (!project) return;
+    const missingAssetPath = previewAssetPaths.find((assetPath) => !assetPreviewUrls[assetPath]);
+    if (!missingAssetPath) return;
 
     let cancelled = false;
     window.pointClick
-      .resolveAssetUrl(previewSceneBackground)
+      .resolveAssetUrl(missingAssetPath)
       .then((url) => {
         if (cancelled) return;
         setAssetPreviewUrls((current) =>
-          current[previewSceneBackground]
+          current[missingAssetPath]
             ? current
-            : { ...current, [previewSceneBackground]: url }
+            : { ...current, [missingAssetPath]: url }
         );
       })
       .catch((error) => {
         if (cancelled) return;
-        setStatus(error instanceof Error ? error.message : "Background asset could not be previewed");
+        setStatus(error instanceof Error ? error.message : "Asset could not be previewed");
       });
 
     return () => {
       cancelled = true;
     };
-  }, [assetPreviewUrls, previewSceneBackground, project]);
+  }, [assetPreviewUrls, previewAssetPaths, project]);
 
   const defaultLocaleDocument = useMemo(
     () =>
@@ -4021,6 +4037,8 @@ export function EditorApp() {
                 {previewActors.map((actor) => (
                   (() => {
                     const actorIssues = previewActorIssueMap[actor.id];
+                    const actorAssetPath = actor.assetId ? assetPathById.get(actor.assetId) : null;
+                    const actorAssetUrl = actorAssetPath ? assetPreviewUrls[actorAssetPath] : undefined;
                     return (
                   <button
                     className={`actor-box ${selectedActor?.id === actor.id ? "selected" : ""} ${actorIssues?.hasIssues ? `has-issues ${actorIssues.tone}` : ""}`}
@@ -4033,6 +4051,10 @@ export function EditorApp() {
                       left: `${(actor.bounds.x / previewSceneSize.width) * 100}%`,
                       top: `${(actor.bounds.y / previewSceneSize.height) * 100}%`,
                       width: `${(actor.bounds.width / previewSceneSize.width) * 100}%`,
+                      backgroundImage: actorAssetUrl ? `url("${actorAssetUrl}")` : undefined,
+                      backgroundPosition: actorAssetUrl ? "center" : undefined,
+                      backgroundRepeat: actorAssetUrl ? "no-repeat" : undefined,
+                      backgroundSize: actorAssetUrl ? "100% 100%" : undefined,
                       zIndex: actor.depth
                     }}
                     title={
