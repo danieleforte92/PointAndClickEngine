@@ -31,6 +31,7 @@ button {
 
 .studio-shell {
   height: 100%;
+  min-height: 0;
   padding-top: env(titlebar-area-height, 0);
   background:
     radial-gradient(circle at 45% -30%, rgba(70, 108, 126, 0.18), transparent 42%),
@@ -194,6 +195,7 @@ button {
 
 .workspace-grid {
   height: calc(100% - 64px);
+  min-height: 0;
   display: grid;
   grid-template-columns: 220px minmax(540px, 1fr) 260px;
   gap: 1px;
@@ -307,6 +309,7 @@ button {
 
 .panel {
   min-width: 0;
+  min-height: 0;
   background: #17212a;
 }
 
@@ -314,6 +317,7 @@ button {
 .inspector-panel {
   display: flex;
   min-height: 0;
+  overflow: hidden;
   flex-direction: column;
 }
 
@@ -349,7 +353,37 @@ button {
 
 .tree {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 10px 8px;
+}
+
+.tree,
+.canvas-panel > :not(.canvas-toolbar):not(.timeline-strip),
+.inspector-content {
+  scrollbar-color: #3c5460 #111a22;
+  scrollbar-width: thin;
+}
+
+.tree::-webkit-scrollbar,
+.canvas-panel > :not(.canvas-toolbar):not(.timeline-strip)::-webkit-scrollbar,
+.inspector-content::-webkit-scrollbar {
+  width: 9px;
+}
+
+.tree::-webkit-scrollbar-track,
+.canvas-panel > :not(.canvas-toolbar):not(.timeline-strip)::-webkit-scrollbar-track,
+.inspector-content::-webkit-scrollbar-track {
+  background: #111a22;
+}
+
+.tree::-webkit-scrollbar-thumb,
+.canvas-panel > :not(.canvas-toolbar):not(.timeline-strip)::-webkit-scrollbar-thumb,
+.inspector-content::-webkit-scrollbar-thumb {
+  border: 2px solid #111a22;
+  border-radius: 999px;
+  background: #3c5460;
 }
 
 .tree-group,
@@ -469,7 +503,15 @@ button {
 
 .canvas-panel {
   display: grid;
+  min-height: 0;
+  overflow: hidden;
   grid-template-rows: 43px minmax(0, 1fr) 68px;
+}
+
+.canvas-panel > :not(.canvas-toolbar):not(.timeline-strip) {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .canvas-toolbar {
@@ -949,6 +991,7 @@ button {
 .workspace-overview {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
   gap: 14px;
   padding: 18px;
 }
