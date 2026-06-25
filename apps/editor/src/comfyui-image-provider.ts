@@ -160,7 +160,15 @@ function firstCheckpointNode(workflow: ComfyWorkflow) {
 
 function checkpointNameFromWorkflow(workflow: ComfyWorkflow) {
   const checkpoint = firstCheckpointNode(workflow)?.[1].inputs?.ckpt_name;
-  return typeof checkpoint === "string" ? checkpoint : "custom-workflow";
+  if (typeof checkpoint === "string") return checkpoint;
+
+  const unet = Object.values(workflow).find((node) => node.class_type === "UNETLoader")?.inputs?.unet_name;
+  if (typeof unet === "string") return unet;
+
+  const clip = Object.values(workflow).find((node) => node.class_type === "CLIPLoader")?.inputs?.clip_name;
+  if (typeof clip === "string") return clip;
+
+  return "custom-workflow";
 }
 
 function ensureInputs(node: ComfyWorkflowNode) {
@@ -189,6 +197,31 @@ function patchExistingPromptNodes(workflow: ComfyWorkflow, request: GenerateComf
   }
 
   return true;
+}
+
+function patchPrimitivePromptNodes(workflow: ComfyWorkflow, request: GenerateComfyUIImageRequest) {
+  const promptNodes = Object.entries(workflow).filter(([, node]) => {
+    const title = `${node._meta?.title ?? ""}`.toLowerCase();
+    return (
+      node.class_type === "PrimitiveStringMultiline" &&
+      typeof node.inputs?.value === "string" &&
+      (title.includes("user prompt") || title.includes("user input") || title.includes("positive prompt"))
+    );
+  });
+
+  if (promptNodes.length === 0) return false;
+
+  for (const [, node] of promptNodes) {
+    ensureInputs(node).value = request.prompt;
+  }
+
+  return true;
+}
+
+function hasLinkedPromptConditioning(workflow: ComfyWorkflow) {
+  return Object.values(workflow).some(
+    (node) => node.class_type === "CLIPTextEncode" && Array.isArray(node.inputs?.text)
+  );
 }
 
 function injectPromptNodes(workflow: ComfyWorkflow, request: GenerateComfyUIImageRequest) {
@@ -249,19 +282,26 @@ function patchCustomWorkflow(
     if (checkpointName && typeof inputs.ckpt_name === "string") {
       inputs.ckpt_name = checkpointName;
     }
-    if (typeof inputs.width === "number" && typeof inputs.height === "number") {
+    if ("width" in inputs && "height" in inputs) {
       inputs.width = request.width;
       inputs.height = request.height;
     }
-    if (typeof inputs.seed === "number") {
-      inputs.seed = seed;
+    for (const key of Object.keys(inputs)) {
+      if ((key === "seed" || key.endsWith(".seed")) && typeof inputs[key] === "number") {
+        inputs[key] = seed;
+      }
     }
     if (typeof inputs.filename_prefix === "string") {
       inputs.filename_prefix = `pointclick_${request.targetId}`;
     }
   }
 
-  if (!patchExistingPromptNodes(workflow, request)) {
+  if (!patchPrimitivePromptNodes(workflow, request) && !patchExistingPromptNodes(workflow, request)) {
+    if (hasLinkedPromptConditioning(workflow)) {
+      throw new Error(
+        "ComfyUI custom workflow uses linked prompt conditioning, but no editable user prompt string node was found."
+      );
+    }
     injectPromptNodes(workflow, request);
   }
 

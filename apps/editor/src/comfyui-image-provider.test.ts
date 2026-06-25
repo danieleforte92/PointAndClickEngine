@@ -219,4 +219,143 @@ describe("generateComfyUIImage", () => {
     });
     expect(workflow["7"].inputs.filename_prefix).toBe("pointclick_tavern-background");
   });
+
+  it("patches Krea-style workflows with linked prompt and resolution nodes", async () => {
+    const calls: Array<{ body?: Record<string, any>; url: string }> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      calls.push({
+        url,
+        body: init?.body ? JSON.parse(String(init.body)) : undefined
+      });
+
+      if (url.endsWith("/prompt")) {
+        return {
+          ok: true,
+          json: async () => ({ prompt_id: "prompt-krea" })
+        } as Response;
+      }
+
+      if (url.endsWith("/history/prompt-krea")) {
+        return {
+          ok: true,
+          json: async () => ({
+            "prompt-krea": {
+              outputs: {
+                "29": {
+                  images: [{ filename: "Krea2_turbo_00001_.png", subfolder: "", type: "output" }]
+                }
+              }
+            }
+          })
+        } as Response;
+      }
+
+      if (url.includes("/view?")) {
+        return {
+          headers: new Headers({ "content-type": "image/png" }),
+          ok: true,
+          arrayBuffer: async () => new Uint8Array([4, 5, 6]).buffer
+        } as Response;
+      }
+
+      throw new Error(`Unexpected URL ${url}`);
+    }) as typeof fetch;
+
+    const result = await generateComfyUIImage(
+      {
+        height: 720,
+        prompt: "A clear hand-painted pirate tavern background.",
+        seed: 1234,
+        targetId: "tavern-bg",
+        width: 1280
+      },
+      {
+        pollIntervalMs: 1,
+        timeoutMs: 1_000,
+        workflowJson: {
+          "29": {
+            inputs: {
+              filename_prefix: "Krea2_turbo",
+              images: ["30:8", 0]
+            },
+            class_type: "SaveImage"
+          },
+          "49": {
+            inputs: {
+              aspect_ratio: "1:1 (Square)",
+              megapixels: 1,
+              multiple: 8
+            },
+            class_type: "ResolutionSelector"
+          },
+          "30:5": {
+            inputs: {
+              width: ["49", 0],
+              height: ["49", 1],
+              batch_size: 1
+            },
+            class_type: "EmptyLatentImage"
+          },
+          "30:3": {
+            inputs: {
+              seed: 562435667168948,
+              steps: 8,
+              cfg: 1,
+              sampler_name: "euler",
+              scheduler: "simple",
+              denoise: 1,
+              model: ["30:22", 0],
+              positive: ["30:6", 0],
+              negative: ["30:13", 0],
+              latent_image: ["30:5", 0]
+            },
+            class_type: "KSampler"
+          },
+          "30:10": {
+            inputs: {
+              unet_name: "krea2_turbo_fp8_scaled.safetensors",
+              weight_dtype: "default"
+            },
+            class_type: "UNETLoader"
+          },
+          "30:16": {
+            inputs: {
+              prompt: ["30:17", 0],
+              "sampling_mode.seed": 0,
+              clip: ["30:11", 0]
+            },
+            class_type: "TextGenerate"
+          },
+          "30:19": {
+            inputs: {
+              value: "Old hardcoded prompt"
+            },
+            class_type: "PrimitiveStringMultiline",
+            _meta: {
+              title: "Text String (User Prompt)"
+            }
+          },
+          "30:6": {
+            inputs: {
+              text: ["30:28", 0],
+              clip: ["30:11", 0]
+            },
+            class_type: "CLIPTextEncode"
+          }
+        }
+      },
+      {
+        fetchImpl,
+        sleep: async () => {}
+      }
+    );
+
+    const workflow = calls[0]!.body!.prompt as Record<string, any>;
+    expect(workflow["30:19"].inputs.value).toBe("A clear hand-painted pirate tavern background.");
+    expect(workflow["30:5"].inputs).toMatchObject({ height: 720, width: 1280 });
+    expect(workflow["30:3"].inputs.seed).toBe(1234);
+    expect(workflow["30:16"].inputs["sampling_mode.seed"]).toBe(1234);
+    expect(workflow["29"].inputs.filename_prefix).toBe("pointclick_tavern-bg");
+    expect(result.model).toBe("krea2_turbo_fp8_scaled.safetensors");
+  });
 });

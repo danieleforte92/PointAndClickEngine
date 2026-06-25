@@ -92,6 +92,12 @@ and standard `KSampler` nodes, the provider injects positive and negative prompt
 nodes and wires them into the sampler. This supports small API exports such as
 SDXL Turbo workflows that were saved without prompt text nodes.
 
+Krea/Qwen-style workflows are also supported. For exports that route the prompt
+through `PrimitiveStringMultiline`, `TextGenerate`, `ComfySwitchNode`, and linked
+`CLIPTextEncode` nodes, the provider patches the node titled like **User Prompt**
+instead of rewiring the graph. Leave checkpoint override empty unless you want to
+replace the workflow's model names.
+
 Keep ComfyUI and LM Studio bound to localhost for this workflow. Do not expose
 either local server to a public network without authentication and firewalling.
 
