@@ -1,4 +1,5 @@
 import type {
+  AnimationPackDocument,
   AssetDocument,
   CursorValue,
   FlowDocument,
@@ -119,6 +120,90 @@ const emptyHistory = createHistoryState(
 const emptyLocaleEntry = { key: "", value: "" };
 const defaultSceneDirectionPreset =
   sceneDirectionPresetById(defaultPromptPresetSelection.sceneDirectionPreset) ?? sceneDirectionPresets[0]!;
+const defaultAnimationClipIds = ["idle", "walk", "talk"] as const;
+
+interface AnimationClipDraft {
+  fps: string;
+  frames: string;
+  id: string;
+  loop: boolean;
+}
+
+interface AnimationPackDraft {
+  assetId: string;
+  defaultFacing: "right" | "left";
+  footOriginX: string;
+  footOriginY: string;
+  frameHeight: string;
+  frameWidth: string;
+  gridColumns: string;
+  gridRows: string;
+  id: string;
+  name: string;
+  clips: AnimationClipDraft[];
+}
+
+function createAnimationPackDraft(
+  animationPack: AnimationPackDocument | null,
+  fallbackAssetId = ""
+): AnimationPackDraft {
+  const clips: AnimationClipDraft[] = defaultAnimationClipIds.map((clipId, index) => {
+    const existing = animationPack?.clips.find((clip) => clip.id === clipId);
+    return {
+      id: clipId,
+      frames: existing?.frames.join(", ") ?? String(index),
+      fps: String(existing?.fps ?? (clipId === "walk" ? 8 : 4)),
+      loop: existing?.loop ?? true
+    };
+  });
+
+  for (const clip of animationPack?.clips ?? []) {
+    if (defaultAnimationClipIds.some((clipId) => clipId === clip.id)) continue;
+    clips.push({
+      id: clip.id,
+      frames: clip.frames.join(", "),
+      fps: String(clip.fps),
+      loop: clip.loop
+    });
+  }
+
+  return {
+    assetId: animationPack?.assetId ?? fallbackAssetId,
+    defaultFacing: animationPack?.defaultFacing ?? "right",
+    footOriginX: String(animationPack?.footOrigin.x ?? 32),
+    footOriginY: String(animationPack?.footOrigin.y ?? 63),
+    frameHeight: String(animationPack?.frame.height ?? 64),
+    frameWidth: String(animationPack?.frame.width ?? 64),
+    gridColumns: String(animationPack?.grid.columns ?? 3),
+    gridRows: String(animationPack?.grid.rows ?? 2),
+    id: animationPack?.id ?? "new-animation-pack",
+    name: animationPack?.name ?? "New Animation Pack",
+    clips
+  };
+}
+
+function nextAnimationPackId(snapshot: EditorProjectSnapshot | null): string {
+  const existing = new Set(snapshot?.animationPacks.map((animationPack) => animationPack.id) ?? []);
+  let counter = 0;
+  let candidate = "new-animation-pack";
+  while (existing.has(candidate)) {
+    counter += 1;
+    candidate = `new-animation-pack-${counter}`;
+  }
+  return candidate;
+}
+
+function parseFrameList(value: string): number[] | null {
+  const frames = value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => Number(entry));
+  if (frames.length === 0 || frames.some((frame) => !Number.isInteger(frame) || frame < 0)) {
+    return null;
+  }
+  return frames;
+}
 
 function sceneFromSnapshot(snapshot: EditorProjectSnapshot | null, sceneId: string | null) {
   if (!snapshot || !sceneId) return null;
@@ -815,6 +900,10 @@ export function EditorApp() {
   const [history, setHistory] = useState<EditorHistoryState>(emptyHistory);
   const [pendingRecovery, setPendingRecovery] = useState<EditorRecoverySnapshot | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  const [selectedAnimationPackId, setSelectedAnimationPackId] = useState<string | null>(null);
+  const [animationPackDraft, setAnimationPackDraft] = useState<AnimationPackDraft>(
+    createAnimationPackDraft(null)
+  );
   const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
   const [assetPathDraft, setAssetPathDraft] = useState("");
   const [promptPackSceneId, setPromptPackSceneId] = useState("");
@@ -897,6 +986,10 @@ export function EditorApp() {
     pickupFromSnapshot(project, session.activeSceneId, session.activePickupId) ?? null;
   const selectedAsset =
     assetFromSnapshot(project, selectedAssetId) ?? project?.selectedAsset ?? project?.assets[0] ?? null;
+  const selectedAnimationPack =
+    selectedAnimationPackId && project
+      ? project.animationPacks.find((animationPack) => animationPack.id === selectedAnimationPackId) ?? null
+      : null;
   const layeredScenes = scenes.filter((scene): scene is Layered2DScene => scene.type === "layered-2d");
   const promptPackScene =
     layeredScenes.find((scene) => scene.id === promptPackSceneId) ??
@@ -2218,6 +2311,13 @@ export function EditorApp() {
       setHistory(baseHistory);
       setPendingRecovery(recovery);
       setSelectedAssetId(snapshot.selectedAsset?.id ?? snapshot.assets[0]?.id ?? null);
+      setSelectedAnimationPackId(snapshot.selectedAnimationPack?.id ?? snapshot.animationPacks[0]?.id ?? null);
+      setAnimationPackDraft(
+        createAnimationPackDraft(
+          snapshot.selectedAnimationPack ?? snapshot.animationPacks[0] ?? null,
+          snapshot.assets.find((asset) => asset.kind === "image")?.id ?? ""
+        )
+      );
       setValidationRunState("idle");
       setValidationReport(null);
       setValidationStatus("Validation uses saved project files.");
@@ -2296,6 +2396,25 @@ export function EditorApp() {
   useEffect(() => {
     setAssetPathDraft(selectedAsset?.path ?? "");
   }, [selectedAsset?.id, selectedAsset?.path]);
+
+  useEffect(() => {
+    if (!project) {
+      setSelectedAnimationPackId(null);
+      setAnimationPackDraft(createAnimationPackDraft(null));
+      return;
+    }
+
+    const fallbackAssetId = project.assets.find((asset) => asset.kind === "image")?.id ?? "";
+    if (!selectedAnimationPackId) return;
+
+    const selected = project.animationPacks.find((animationPack) => animationPack.id === selectedAnimationPackId) ?? null;
+    if (!selected) {
+      setSelectedAnimationPackId(null);
+      setAnimationPackDraft(createAnimationPackDraft(null, fallbackAssetId));
+      return;
+    }
+    setAnimationPackDraft(createAnimationPackDraft(selected, fallbackAssetId));
+  }, [project, selectedAnimationPackId]);
 
   useEffect(() => {
     if (!project || promptPackSceneId) return;
@@ -2509,6 +2628,168 @@ export function EditorApp() {
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Assets could not be imported");
     }
+  };
+
+  const createAnimationPackDraftFromSelection = () => {
+    const nextId = nextAnimationPackId(project);
+    const fallbackAssetId = project?.assets.find((asset) => asset.kind === "image")?.id ?? "";
+    setSelectedAnimationPackId(null);
+    setAnimationPackDraft({
+      ...createAnimationPackDraft(null, fallbackAssetId),
+      id: nextId,
+      name: "New Animation Pack"
+    });
+    setWorkspace("assets");
+    setStatus(`Drafting animation pack ${nextId}`);
+  };
+
+  const updateAnimationPackDraft = <K extends keyof AnimationPackDraft>(
+    field: K,
+    value: AnimationPackDraft[K]
+  ) => {
+    setAnimationPackDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  const updateAnimationClipDraft = (index: number, patch: Partial<AnimationClipDraft>) => {
+    setAnimationPackDraft((current) => ({
+      ...current,
+      clips: current.clips.map((clip, clipIndex) =>
+        clipIndex === index ? { ...clip, ...patch } : clip
+      )
+    }));
+  };
+
+  const buildAnimationPackFromDraft = (): AnimationPackDocument | null => {
+    const id = animationPackDraft.id.trim();
+    const name = animationPackDraft.name.trim();
+    const assetId = animationPackDraft.assetId.trim();
+    const frameWidth = parsePositiveNumber(animationPackDraft.frameWidth);
+    const frameHeight = parsePositiveNumber(animationPackDraft.frameHeight);
+    const gridColumns = parsePositiveNumber(animationPackDraft.gridColumns);
+    const gridRows = parsePositiveNumber(animationPackDraft.gridRows);
+    const footOriginX = parseNumber(animationPackDraft.footOriginX);
+    const footOriginY = parseNumber(animationPackDraft.footOriginY);
+
+    if (!id || !name) {
+      setStatus("Animation pack id and name are required.");
+      return null;
+    }
+    if (!assetId || !availableAssetIdsSet.has(assetId)) {
+      setStatus("Animation pack must reference an existing image asset.");
+      return null;
+    }
+    if (
+      frameWidth === null ||
+      frameHeight === null ||
+      gridColumns === null ||
+      gridRows === null ||
+      !Number.isInteger(frameWidth) ||
+      !Number.isInteger(frameHeight) ||
+      !Number.isInteger(gridColumns) ||
+      !Number.isInteger(gridRows)
+    ) {
+      setStatus("Frame size and grid must use positive whole numbers.");
+      return null;
+    }
+    if (footOriginX === null || footOriginY === null) {
+      setStatus("Foot origin must use valid X/Y numbers.");
+      return null;
+    }
+
+    const frameCount = gridColumns * gridRows;
+    const clips = [];
+    for (const clipDraft of animationPackDraft.clips) {
+      const clipId = clipDraft.id.trim();
+      const fps = parsePositiveNumber(clipDraft.fps);
+      const frames = parseFrameList(clipDraft.frames);
+      if (!clipId) {
+        setStatus("Animation clips need an id.");
+        return null;
+      }
+      if (fps === null) {
+        setStatus(`Clip "${clipId}" fps must be a positive number.`);
+        return null;
+      }
+      if (!frames) {
+        setStatus(`Clip "${clipId}" needs comma-separated frame numbers.`);
+        return null;
+      }
+      if (frames.some((frame) => frame >= frameCount)) {
+        setStatus(`Clip "${clipId}" references a frame outside the ${frameCount} frame grid.`);
+        return null;
+      }
+      clips.push({
+        id: clipId,
+        frames,
+        fps,
+        loop: clipDraft.loop
+      });
+    }
+
+    return {
+      schemaVersion: 1,
+      id,
+      name,
+      assetId,
+      frame: {
+        width: frameWidth,
+        height: frameHeight
+      },
+      grid: {
+        columns: gridColumns,
+        rows: gridRows
+      },
+      footOrigin: {
+        x: footOriginX,
+        y: footOriginY
+      },
+      defaultFacing: animationPackDraft.defaultFacing,
+      clips
+    };
+  };
+
+  const saveAnimationPackDraft = async () => {
+    const animationPack = buildAnimationPackFromDraft();
+    if (!animationPack) return;
+
+    setStatus(`Saving animation pack ${animationPack.id}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "animation-pack/upsert",
+        patch: { animationPack }
+      });
+      setProject(snapshot);
+      setSelectedAnimationPackId(animationPack.id);
+      setStatus(`Saved animation pack ${animationPack.id}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Animation pack could not be saved");
+    }
+  };
+
+  const assignAnimationPackToPlayerDraft = () => {
+    const animationPackId = animationPackDraft.id.trim();
+    if (!animationPackId) {
+      setStatus("Save or name an animation pack before assigning it to the player.");
+      return;
+    }
+    updateSceneDraft("playerAnimationPackId", animationPackId);
+    setWorkspace("player");
+    setStatus(`Assigned ${animationPackId} to the current player draft. Apply Player Changes to save.`);
+  };
+
+  const assignAnimationPackToActorDraft = () => {
+    const animationPackId = animationPackDraft.id.trim();
+    if (!selectedActor) {
+      setStatus("Select an actor before assigning an animation pack.");
+      return;
+    }
+    if (!animationPackId) {
+      setStatus("Save or name an animation pack before assigning it to an actor.");
+      return;
+    }
+    updateActorDraft("animationPackId", animationPackId);
+    setWorkspace("scene");
+    setStatus(`Assigned ${animationPackId} to actor ${selectedActor.id}. Apply Actor Changes to save.`);
   };
 
   const assignAssetBackground = async () => {
@@ -4230,6 +4511,27 @@ export function EditorApp() {
                 {assetHealth(asset, project) === "missing" ? <span className="dirty-mark">!</span> : null}
               </button>
             ))}
+            <div className="tree-group open">Animation Packs ({project?.animationPackCount ?? 0})</div>
+            {project ? (
+              <button className="tree-item tree-child" type="button" onClick={createAnimationPackDraftFromSelection}>
+                <span className="scene-dot muted" /> + New animation pack
+              </button>
+            ) : null}
+            {project?.animationPacks.map((animationPack) => (
+              <button
+                className={`tree-item ${
+                  selectedAnimationPack?.id === animationPack.id && workspace === "assets" ? "selected" : ""
+                }`}
+                key={animationPack.id}
+                type="button"
+                onClick={() => {
+                  setSelectedAnimationPackId(animationPack.id);
+                  setWorkspace("assets");
+                }}
+              >
+                <span className="scene-dot muted" /> {animationPack.id}
+              </button>
+            ))}
             <div className="tree-group open">Prompt Packs ({project?.promptPackCount ?? 0})</div>
             {project?.promptPacks.map((promptPack) => (
               <button
@@ -5148,6 +5450,210 @@ export function EditorApp() {
                     </button>
                   </div>
                 ) : null}
+              </section>
+              <section className="overview-card prompt-studio-card">
+                <span className="overview-label">Character Gym</span>
+                <strong>{selectedAnimationPack?.id ?? animationPackDraft.id}</strong>
+                <p>
+                  Build a reusable spritesheet animation pack, then assign it to the current scene player or
+                  selected actor.
+                </p>
+                <div className="prompt-studio-controls">
+                  <label className="prompt-studio-field">
+                    Existing pack
+                    <select
+                      value={selectedAnimationPack?.id ?? ""}
+                      onChange={(event) => {
+                        setSelectedAnimationPackId(event.target.value || null);
+                      }}
+                    >
+                      <option value="">New draft</option>
+                      {project?.animationPacks.map((animationPack) => (
+                        <option key={`gym-pack-${animationPack.id}`} value={animationPack.id}>
+                          {animationPack.id}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="prompt-studio-field">
+                    Pack id
+                    <input
+                      value={animationPackDraft.id}
+                      onChange={(event) => updateAnimationPackDraft("id", event.target.value)}
+                    />
+                  </label>
+                  <label className="prompt-studio-field">
+                    Name
+                    <input
+                      value={animationPackDraft.name}
+                      onChange={(event) => updateAnimationPackDraft("name", event.target.value)}
+                    />
+                  </label>
+                  <label className="prompt-studio-field">
+                    Spritesheet asset
+                    <select
+                      value={animationPackDraft.assetId}
+                      onChange={(event) => updateAnimationPackDraft("assetId", event.target.value)}
+                    >
+                      <option value="">Select image asset</option>
+                      {project?.assets
+                        .filter((asset) => asset.kind === "image")
+                        .map((asset) => (
+                          <option key={`gym-asset-${asset.id}`} value={asset.id}>
+                            {asset.id}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <div className="player-field-grid">
+                    <label>
+                      Frame W
+                      <input
+                        value={animationPackDraft.frameWidth}
+                        onChange={(event) => updateAnimationPackDraft("frameWidth", event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Frame H
+                      <input
+                        value={animationPackDraft.frameHeight}
+                        onChange={(event) => updateAnimationPackDraft("frameHeight", event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Columns
+                      <input
+                        value={animationPackDraft.gridColumns}
+                        onChange={(event) => updateAnimationPackDraft("gridColumns", event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Rows
+                      <input
+                        value={animationPackDraft.gridRows}
+                        onChange={(event) => updateAnimationPackDraft("gridRows", event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Foot X
+                      <input
+                        value={animationPackDraft.footOriginX}
+                        onChange={(event) => updateAnimationPackDraft("footOriginX", event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Foot Y
+                      <input
+                        value={animationPackDraft.footOriginY}
+                        onChange={(event) => updateAnimationPackDraft("footOriginY", event.target.value)}
+                      />
+                    </label>
+                    <label className="player-field-wide">
+                      Default facing
+                      <select
+                        value={animationPackDraft.defaultFacing}
+                        onChange={(event) =>
+                          updateAnimationPackDraft(
+                            "defaultFacing",
+                            event.target.value === "left" ? "left" : "right"
+                          )
+                        }
+                      >
+                        <option value="right">right</option>
+                        <option value="left">left</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="clip-editor-list">
+                    {animationPackDraft.clips.map((clip, index) => (
+                      <div className="clip-editor-row" key={`clip-${index}-${clip.id}`}>
+                        <label className="prompt-studio-field">
+                          Clip
+                          <input
+                            value={clip.id}
+                            onChange={(event) => updateAnimationClipDraft(index, { id: event.target.value })}
+                          />
+                        </label>
+                        <label className="prompt-studio-field">
+                          Frames
+                          <input
+                            placeholder="0, 1, 2"
+                            value={clip.frames}
+                            onChange={(event) => updateAnimationClipDraft(index, { frames: event.target.value })}
+                          />
+                        </label>
+                        <label className="prompt-studio-field">
+                          FPS
+                          <input
+                            value={clip.fps}
+                            onChange={(event) => updateAnimationClipDraft(index, { fps: event.target.value })}
+                          />
+                        </label>
+                        <label className="checkbox-field clip-loop-field">
+                          <input
+                            checked={clip.loop}
+                            type="checkbox"
+                            onChange={(event) => updateAnimationClipDraft(index, { loop: event.target.checked })}
+                          />
+                          Loop
+                        </label>
+                        <button
+                          className="secondary-action"
+                          disabled={defaultAnimationClipIds.some((clipId) => clipId === clip.id)}
+                          type="button"
+                          onClick={() =>
+                            setAnimationPackDraft((current) => ({
+                              ...current,
+                              clips: current.clips.filter((_, clipIndex) => clipIndex !== index)
+                            }))
+                          }
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="build-actions">
+                  <button className="secondary-action" type="button" onClick={createAnimationPackDraftFromSelection}>
+                    New Pack
+                  </button>
+                  <button className="secondary-action" type="button" onClick={() =>
+                    setAnimationPackDraft((current) => ({
+                      ...current,
+                      clips: [
+                        ...current.clips,
+                        {
+                          id: `clip-${current.clips.length + 1}`,
+                          frames: "0",
+                          fps: "4",
+                          loop: true
+                        }
+                      ]
+                    }))
+                  }>
+                    Add Clip
+                  </button>
+                  <button className="play-action" disabled={!project} type="button" onClick={saveAnimationPackDraft}>
+                    Save Animation Pack
+                  </button>
+                  <button
+                    className="secondary-action"
+                    disabled={!selectedScene}
+                    type="button"
+                    onClick={assignAnimationPackToPlayerDraft}
+                  >
+                    Assign To Player Draft
+                  </button>
+                  <button
+                    className="secondary-action"
+                    disabled={!selectedActor}
+                    type="button"
+                    onClick={assignAnimationPackToActorDraft}
+                  >
+                    Assign To Actor Draft
+                  </button>
+                </div>
               </section>
               <section className="overview-card prompt-studio-card">
                 <span className="overview-label">Prompt Pack Studio</span>

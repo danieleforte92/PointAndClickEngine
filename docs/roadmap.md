@@ -71,16 +71,18 @@ import it, assign it, validate, and preview.
 
 Make player and actor animation authorable, not just loadable.
 
-- Sprite editor UI for selecting a spritesheet asset.
+- Asset Studio controls for selecting a spritesheet asset are available.
 - Frame size, grid, foot origin, default facing, clip fps, loop flag, and clip
-  frame lists.
-- Required clips: `idle`, `walk`, and `talk`; extra clips allowed for future use.
-- Preview loop for each clip.
-- Assign animation pack to player or actor from editor UI.
+  frame lists are editable.
+- Default clips `idle`, `walk`, and `talk` are scaffolded; extra clips are
+  allowed.
+- Animation packs can be assigned to the current player draft or selected actor
+  draft from the editor UI.
 - Renderer fallback remains visible when assets or packs are missing.
+- Next: animated clip preview and visual frame slicing.
 
-Done when the sample player and one actor can be edited, previewed, assigned,
-validated, and played from the editor.
+Done when the sample player and one actor can be edited, assigned, validated,
+and played from the editor; clip preview completes the polish pass.
 
 ## Milestone 5 - Creator Alpha Release
 

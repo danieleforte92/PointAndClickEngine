@@ -1252,6 +1252,37 @@ button {
   margin: 0;
 }
 
+.clip-editor-list {
+  display: grid;
+  gap: 8px;
+}
+
+.clip-editor-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.8fr) minmax(150px, 1.4fr) minmax(64px, 0.5fr) auto auto;
+  gap: 8px;
+  align-items: end;
+  padding: 8px;
+  border: 1px solid #30434e;
+  border-radius: 4px;
+  background: #101922;
+}
+
+.clip-loop-field {
+  align-self: center;
+  margin-top: 20px;
+}
+
+@media (max-width: 900px) {
+  .clip-editor-row {
+    grid-template-columns: 1fr;
+  }
+
+  .clip-loop-field {
+    margin-top: 0;
+  }
+}
+
 .ai-workspace .prompt-studio-card {
   border-color: #4a6471;
 }

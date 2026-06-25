@@ -1,8 +1,8 @@
 # Character Gym Guide
 
 Character Gym is the MVP workflow for reusable spritesheet animation packs.
-Creator Alpha already has runtime and document support for packs; the roadmap
-now treats the full sprite editor UI as a release-critical UX milestone.
+Creator Alpha has runtime support, project document support, and editor controls
+for creating/updating packs from the Asset Studio.
 
 ## Pack Shape
 
@@ -41,16 +41,17 @@ The renderer uses `walk` while the player interpolates and returns to `idle` at
 the destination. If a pack or asset is missing, validation reports an error and
 the renderer falls back to visible debug shapes where possible.
 
-## Editor MVP Target
+## Editor MVP
 
-The Creator Alpha editor should expose these controls without manual JSON edits:
+The Creator Alpha editor exposes these controls without manual JSON edits:
 
 - select spritesheet asset;
 - set frame width/height and grid columns/rows;
 - set foot origin and default facing;
 - edit `idle`, `walk`, and `talk` clips with frame lists, fps, and loop flag;
-- preview the selected clip;
 - assign the pack to the current scene player or selected actor.
+
+Animated clip preview and visual frame slicing remain follow-up UX work.
 
 ## AI Asset Studio Connection
 

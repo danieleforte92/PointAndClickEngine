@@ -50,9 +50,9 @@ export const workspaceCapabilities: EditorCapability[] = [
     label: "Asset Studio",
     status: "beta",
     workspace: "assets",
-    summary: "Project asset import, health, usage, and scene background assignment.",
+    summary: "Project asset import, Character Gym, health, usage, and scene background assignment.",
     detail:
-      "The asset library is wired for import, scene usage, generated image imports, health, and usage review today; provenance and versioning remain later milestones."
+      "The asset library is wired for import, generated image imports, scene usage, Character Gym animation packs, health, and usage review today; provenance and versioning remain later milestones."
   },
   {
     id: "ai",
