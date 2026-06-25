@@ -15,7 +15,7 @@ import type {
   SceneDocument
 } from "@pointclick/contracts";
 
-export type Workspace = "overview" | "scene" | "narrative" | "assets" | "build";
+export type Workspace = "overview" | "scene" | "player" | "narrative" | "assets" | "build";
 export type FlagValueKind = "string" | "number" | "boolean";
 export type DraftNodeType = "line" | "set-flag" | "change-scene" | "end";
 

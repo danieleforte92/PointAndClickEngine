@@ -1013,6 +1013,132 @@ button {
   margin-top: 12px;
 }
 
+.player-workspace {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.player-hero-card {
+  border-color: #465c67;
+}
+
+.player-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.player-field-grid label {
+  display: block;
+  color: #708995;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.player-field-grid input {
+  width: 100%;
+  height: 32px;
+  margin-top: 7px;
+  padding: 0 8px;
+  color: #cbd8dc;
+  border: 1px solid #30434e;
+  border-radius: 4px;
+  outline: none;
+  background: #101922;
+  font-family: "Courier New", monospace;
+  font-size: 0.68rem;
+}
+
+.player-field-wide {
+  grid-column: 1 / -1;
+}
+
+.player-preview-card {
+  grid-row: span 2;
+}
+
+.player-stage {
+  position: relative;
+  min-height: 230px;
+  margin-top: 15px;
+  overflow: hidden;
+  border: 1px solid #2f414b;
+  border-radius: 5px 16px 5px 16px;
+  background:
+    linear-gradient(180deg, rgba(112, 137, 149, 0.08), transparent 58%),
+    #111a22;
+}
+
+.player-stage::before {
+  position: absolute;
+  inset: 18px;
+  content: "";
+  border: 1px dashed rgba(112, 137, 149, 0.2);
+  border-radius: 999px;
+  transform: translateY(80px) scaleX(1.4);
+}
+
+.player-stage-avatar {
+  position: absolute;
+  left: 50%;
+  bottom: 54px;
+  width: 38px;
+  height: 92px;
+  border-radius: 18px 18px 5px 5px;
+  background: #d98b52;
+  box-shadow: 14px 22px 14px rgba(0, 0, 0, 0.35);
+  transform: translateX(-50%);
+}
+
+.player-stage-avatar::before {
+  position: absolute;
+  left: 4px;
+  top: -31px;
+  width: 30px;
+  height: 30px;
+  content: "";
+  border-radius: 50%;
+  background: #e7b47d;
+}
+
+.player-stage-avatar span {
+  position: absolute;
+  left: -10px;
+  bottom: -2px;
+  width: 58px;
+  height: 44px;
+  background: #263a55;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+.player-stage-avatar.has-player-image {
+  width: 96px;
+  height: 150px;
+  border-radius: 0;
+  background-color: transparent;
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  background-size: contain;
+}
+
+.player-stage-avatar.has-player-image::before,
+.player-stage-avatar.has-player-image span {
+  display: none;
+}
+
+.player-stage-floor {
+  position: absolute;
+  left: 50%;
+  bottom: 38px;
+  width: 180px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.28);
+  transform: translateX(-50%);
+}
+
 .prompt-studio-card {
   border-color: #3b4d56;
 }

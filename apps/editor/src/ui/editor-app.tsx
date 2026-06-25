@@ -1536,6 +1536,11 @@ export function EditorApp() {
   const actorAnimationPackMissing =
     !!currentActorDraft.animationPackId.trim() &&
     !availableAnimationPackIdsSet.has(currentActorDraft.animationPackId.trim());
+  const playerAssetMissing =
+    !!currentSceneDraft.playerAssetId.trim() && !availableAssetIdsSet.has(currentSceneDraft.playerAssetId.trim());
+  const playerAnimationPackMissing =
+    !!currentSceneDraft.playerAnimationPackId.trim() &&
+    !availableAnimationPackIdsSet.has(currentSceneDraft.playerAnimationPackId.trim());
   const actorLabelMissing =
     currentActorDraft.labelKey.trim().length === 0 ||
     (!!defaultLocaleStrings && !(currentActorDraft.labelKey.trim() in defaultLocaleStrings));
@@ -2923,6 +2928,20 @@ export function EditorApp() {
     }));
   };
 
+  const selectPlayerScene = (sceneId: string) => {
+    setWorkspace("player");
+    updateSessionSelection((current) => ({
+      ...current,
+      activeActorId: null,
+      activeFlowId: null,
+      activeHotspotId: null,
+      activeItemId: null,
+      activeLocale: null,
+      activePickupId: null,
+      activeSceneId: sceneId
+    }));
+  };
+
   const selectHotspot = (hotspot: Hotspot) => {
     setWorkspace("scene");
     setActiveSceneTool("hotspot");
@@ -3830,6 +3849,16 @@ export function EditorApp() {
                 {dirtyState.sceneIds.has(scene.id) ? <span className="dirty-mark">*</span> : null}
               </button>
             ))}
+            {selectedScene ? (
+              <button
+                className={`tree-item tree-child ${workspace === "player" ? "selected" : ""}`}
+                type="button"
+                onClick={() => setWorkspace("player")}
+              >
+                <span className="scene-dot muted" /> Player
+                {dirtyState.sceneIds.has(selectedScene.id) ? <span className="dirty-mark">*</span> : null}
+              </button>
+            ) : null}
             <div className="tree-group open">Hotspots ({selectedScene?.hotspots.length ?? 0})</div>
             {selectedScene ? (
               <button className="tree-item tree-child" type="button" onClick={createHotspot}>
@@ -4007,6 +4036,8 @@ export function EditorApp() {
                   ? `Layered 2D - ${sceneLabel} - ${selectedScene.hotspots.length} hotspot(s) - ${selectedScene.pickups.length} pickup(s) - Tool: ${selectedSceneToolLabel}`
                   : workspace === "narrative"
                     ? "Structured flow and locale editing"
+                    : workspace === "player" && selectedScene
+                      ? `Player - ${selectedScene.name} - ${previewPlayerConfig.walkSpeed}px/s`
                     : workspaceCapability.summary}
             </div>
           </div>
@@ -4065,6 +4096,170 @@ export function EditorApp() {
                   ) : (
                     <p>No project diagnostics right now.</p>
                   )}
+                </div>
+              </section>
+            </div>
+          ) : workspace === "player" ? (
+            <div className="workspace-overview build-workspace player-workspace">
+              <section className="overview-card player-hero-card">
+                <span className="overview-label">Player setup</span>
+                <strong>{selectedScene ? `${selectedScene.name} player` : "No scene selected"}</strong>
+                <p>
+                  Configure the playable character for the current scene. This saves into the scene
+                  document so runtime and preview stay deterministic.
+                </p>
+                <div className="prompt-studio-controls">
+                  <label className="prompt-studio-field">
+                    Scene
+                    <select
+                      disabled={scenes.length === 0}
+                      value={selectedScene?.id ?? ""}
+                      onChange={(event) => selectPlayerScene(event.target.value)}
+                    >
+                      {scenes.map((scene) => (
+                        <option key={`player-scene-${scene.id}`} value={scene.id}>
+                          {scene.name} ({scene.id})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="build-actions">
+                  <button
+                    className="secondary-action"
+                    disabled={!selectedScene}
+                    type="button"
+                    onClick={() => {
+                      setWorkspace("scene");
+                      setActiveSceneTool("player-start");
+                    }}
+                  >
+                    Edit Start In Viewport
+                  </button>
+                  <button
+                    className="play-action"
+                    disabled={!selectedScene}
+                    type="button"
+                    onClick={applySceneChanges}
+                  >
+                    Apply Player Changes
+                  </button>
+                </div>
+              </section>
+              <section className="overview-card">
+                <span className="overview-label">Visual identity</span>
+                <strong>{previewPlayerConfig.assetId ?? "Generated marker"}</strong>
+                <p>
+                  Use a registered image asset or assign an animation pack from Character Gym.
+                </p>
+                <div className="prompt-studio-controls">
+                  <label className="prompt-studio-field">
+                    Player asset
+                    <select
+                      value={currentSceneDraft.playerAssetId}
+                      onChange={(event) => updateSceneDraft("playerAssetId", event.target.value)}
+                    >
+                      <option value="">Generated marker</option>
+                      {availableAssetIds.map((assetId) => (
+                        <option key={`player-workspace-asset-${assetId}`} value={assetId}>
+                          {assetId}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="prompt-studio-field">
+                    Animation pack
+                    <select
+                      value={currentSceneDraft.playerAnimationPackId}
+                      onChange={(event) => updateSceneDraft("playerAnimationPackId", event.target.value)}
+                    >
+                      <option value="">None</option>
+                      {availableAnimationPackIds.map((animationPackId) => (
+                        <option key={`player-workspace-animation-${animationPackId}`} value={animationPackId}>
+                          {animationPackId}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </section>
+              <section className="overview-card">
+                <span className="overview-label">Start and movement</span>
+                <strong>
+                  {previewPlayerStart
+                    ? `${Math.round(previewPlayerStart.x)}, ${Math.round(previewPlayerStart.y)}`
+                    : "No player start"}
+                </strong>
+                <p>Set spawn point, walk speed, and scale interpolation for scene depth.</p>
+                <div className="player-field-grid">
+                  <label>
+                    Start X
+                    <input
+                      value={currentSceneDraft.playerStartX}
+                      onChange={(event) => updateSceneDraft("playerStartX", event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Start Y
+                    <input
+                      value={currentSceneDraft.playerStartY}
+                      onChange={(event) => updateSceneDraft("playerStartY", event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Far scale
+                    <input
+                      value={currentSceneDraft.playerScaleFar}
+                      onChange={(event) => updateSceneDraft("playerScaleFar", event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Near scale
+                    <input
+                      value={currentSceneDraft.playerScaleNear}
+                      onChange={(event) => updateSceneDraft("playerScaleNear", event.target.value)}
+                    />
+                  </label>
+                  <label className="player-field-wide">
+                    Walk speed
+                    <input
+                      value={currentSceneDraft.playerWalkSpeed}
+                      onChange={(event) => updateSceneDraft("playerWalkSpeed", event.target.value)}
+                    />
+                  </label>
+                </div>
+              </section>
+              <section className="overview-card player-preview-card">
+                <span className="overview-label">Preview</span>
+                <strong>{previewPlayerConfig.animationPackId ?? "Static player"}</strong>
+                <p>
+                  Preview uses the current draft asset assignment and reflects the same marker shown
+                  in the scene viewport.
+                </p>
+                <div className="player-stage">
+                  <div
+                    className={`player-stage-avatar ${previewPlayerAssetUrl ? "has-player-image" : ""}`}
+                    style={{
+                      backgroundImage: previewPlayerAssetUrl ? `url("${previewPlayerAssetUrl}")` : undefined
+                    }}
+                  >
+                    <span />
+                  </div>
+                  <div className="player-stage-floor" />
+                </div>
+                <div className="diagnostic-list">
+                  <div className={`diagnostic-item ${playerAssetMissing ? "error" : ""}`}>
+                    <div>
+                      <strong>{playerAssetMissing ? "Missing asset" : "Asset reference"}</strong>
+                      <p>{currentSceneDraft.playerAssetId.trim() || "Generated marker fallback"}</p>
+                    </div>
+                  </div>
+                  <div className={`diagnostic-item ${playerAnimationPackMissing ? "error" : ""}`}>
+                    <div>
+                      <strong>{playerAnimationPackMissing ? "Missing animation pack" : "Animation reference"}</strong>
+                      <p>{currentSceneDraft.playerAnimationPackId.trim() || "No animation pack assigned"}</p>
+                    </div>
+                  </div>
                 </div>
               </section>
             </div>
@@ -4702,6 +4897,8 @@ export function EditorApp() {
                 ? "Status"
                 : workspace === "assets"
                   ? "Library"
+                  : workspace === "player"
+                    ? "Player"
                   : workspace === "build"
                     ? "Validation"
                   : selectedFlow
@@ -4745,6 +4942,28 @@ export function EditorApp() {
                   </p>
                 </div>
               </>
+            ) : workspace === "player" ? (
+              <div className="workspace-placeholder compact">
+                <span className={`capability-badge ${playerAssetMissing || playerAnimationPackMissing ? "error" : "good"}`}>
+                  Player
+                </span>
+                <strong>{selectedScene ? `${selectedScene.name} player` : "No scene"}</strong>
+                <p>{workspaceCapability.detail}</p>
+                <p className="inspector-copy">
+                  Asset: {currentSceneDraft.playerAssetId.trim() || "generated marker"}
+                </p>
+                <p className="inspector-copy">
+                  Animation pack: {currentSceneDraft.playerAnimationPackId.trim() || "none"}
+                </p>
+                <p className="inspector-copy">
+                  Start: {currentSceneDraft.playerStartX}, {currentSceneDraft.playerStartY}
+                </p>
+                <p className="inspector-copy">
+                  {selectedScene && dirtyState.sceneIds.has(selectedScene.id)
+                    ? "Scene player settings have unapplied draft changes."
+                    : "Player settings match the saved scene."}
+                </p>
+              </div>
             ) : workspace === "assets" ? (
               <div className="workspace-placeholder compact">
                 <span className={`capability-badge ${selectedAssetHealth === "missing" ? "error" : "good"}`}>

@@ -10,9 +10,12 @@ describe("editor capabilities", () => {
   it("marks implemented workspaces as usable instead of planned placeholders", () => {
     const assets = workspaceCapabilities.find((capability) => capability.workspace === "assets");
     const build = workspaceCapabilities.find((capability) => capability.workspace === "build");
+    const player = workspaceCapabilities.find((capability) => capability.workspace === "player");
 
     expect(assets?.status).toBe("beta");
     expect(assets?.summary).toContain("import");
+    expect(player?.status).toBe("beta");
+    expect(player?.summary).toContain("playable character");
     expect(build?.status).toBe("beta");
     expect(build?.summary).toContain("validation");
   });
