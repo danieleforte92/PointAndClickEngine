@@ -232,6 +232,79 @@ button {
   gap: 8px;
 }
 
+.project-start-screen {
+  min-height: calc(100% - 64px);
+  display: grid;
+  grid-template-columns: minmax(320px, 520px) minmax(360px, 1fr);
+  gap: 18px;
+  padding: 28px;
+  background:
+    linear-gradient(135deg, rgba(217, 165, 97, 0.08), transparent 34%),
+    #111820;
+}
+
+.project-start-panel,
+.project-start-grid article {
+  border: 1px solid #30414c;
+  border-radius: 6px 18px 6px 18px;
+  background: linear-gradient(180deg, #18232d, #141d25);
+}
+
+.project-start-panel {
+  align-self: start;
+  padding: 22px;
+}
+
+.project-start-panel strong {
+  display: block;
+  margin-top: 10px;
+  color: #e2ecee;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.5rem;
+  font-weight: 400;
+}
+
+.project-start-panel p,
+.project-start-grid p {
+  margin: 10px 0 0;
+  color: #8ea5af;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.project-start-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 18px;
+}
+
+.project-start-grid {
+  align-self: start;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.project-start-grid article {
+  min-width: 0;
+  padding: 16px;
+}
+
+.project-start-grid span {
+  color: #d9a561;
+  font-family: "Courier New", monospace;
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.project-start-grid strong {
+  display: block;
+  margin-top: 12px;
+  color: #e2ecee;
+  font-size: 0.94rem;
+}
+
 .panel {
   min-width: 0;
   background: #17212a;
@@ -938,6 +1011,100 @@ button {
   display: grid;
   gap: 10px;
   margin-top: 12px;
+}
+
+.prompt-studio-card {
+  border-color: #3b4d56;
+}
+
+.prompt-studio-controls {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.prompt-studio-field {
+  display: block;
+  color: #708995;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.prompt-studio-field select,
+.prompt-studio-field textarea {
+  width: 100%;
+  margin-top: 7px;
+  color: #cbd8dc;
+  border: 1px solid #30434e;
+  border-radius: 4px;
+  outline: none;
+  background: #101922;
+  font-family: "Courier New", monospace;
+  font-size: 0.68rem;
+}
+
+.prompt-studio-field select {
+  height: 32px;
+  padding: 0 8px;
+}
+
+.prompt-studio-field textarea {
+  min-height: 92px;
+  padding: 9px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.prompt-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.prompt-chip {
+  max-width: 100%;
+  padding: 5px 8px;
+  overflow: hidden;
+  color: #d9a561;
+  border: 1px solid #3a4d57;
+  border-radius: 999px;
+  background: #121d25;
+  font-family: "Courier New", monospace;
+  font-size: 0.62rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompt-output-card {
+  grid-column: 1 / -1;
+}
+
+.prompt-output-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.prompt-output-item {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #2f414b;
+  border-radius: 4px 12px 4px 12px;
+  background: #162129;
+}
+
+.prompt-output-item strong {
+  margin-top: 0;
+  color: #d9a561;
+  font-size: 0.72rem;
+}
+
+.prompt-output-item p {
+  word-break: break-word;
 }
 
 .capability-card,

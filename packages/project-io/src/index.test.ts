@@ -4,10 +4,56 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   applyProjectCommand,
+  createBlankProject,
+  createProjectFromTemplate,
   loadProjectFromDirectory,
   validateProjectBundle,
   validateProjectFiles
 } from "./index";
+
+describe("project creation", () => {
+  it("creates a valid blank project in an empty directory", async () => {
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "blank-adventure");
+
+    const loaded = await createBlankProject(projectRoot, {
+      title: "Blank Adventure"
+    });
+
+    expect(loaded.directory).toBe(path.resolve(projectRoot));
+    expect(loaded.bundle.manifest).toMatchObject({
+      id: "blank-adventure",
+      title: "Blank Adventure",
+      initialSceneId: "start",
+      defaultLocale: "en"
+    });
+    expect(loaded.bundle.scenes.start?.type).toBe("layered-2d");
+    expect(Object.keys(loaded.bundle.locales)).toEqual(["en"]);
+    expect(validateProjectBundle(loaded.bundle)).toEqual([]);
+    expect(await validateProjectFiles(loaded)).toEqual([]);
+  });
+
+  it("copies a valid template project into an empty directory", async () => {
+    const templateRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "from-template");
+
+    const loaded = await createProjectFromTemplate(templateRoot, projectRoot);
+
+    expect(loaded.bundle.manifest.title).toBe("The Isle of Echoes");
+    expect(Object.keys(loaded.bundle.scenes)).toContain("moonlit-dock");
+    expect(await validateProjectFiles(loaded)).toEqual([]);
+  });
+
+  it("does not create a project over existing files", async () => {
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "occupied");
+    await mkdir(projectRoot, { recursive: true });
+    await writeFile(path.join(projectRoot, "notes.txt"), "keep me", "utf8");
+
+    await expect(createBlankProject(projectRoot)).rejects.toThrow("must be empty");
+  });
+});
 
 describe("loadProjectFromDirectory", () => {
   it("loads the sample project bundle from disk", async () => {

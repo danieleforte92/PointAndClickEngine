@@ -12,10 +12,6 @@
     {
       "id": "new-scene",
       "path": "scenes/new-scene.scene.json"
-    },
-    {
-      "id": "new-scene-1",
-      "path": "scenes/new-scene-1.scene.json"
     }
   ],
   "flows": [],
@@ -28,10 +24,5 @@
       "path": "locales/en.json"
     }
   ],
-  "assets": [
-    {
-      "id": "grotta-1",
-      "path": "assets/grotta-1.asset.json"
-    }
-  ]
+  "assets": []
 }

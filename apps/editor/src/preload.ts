@@ -63,6 +63,8 @@ export interface EditorProjectSnapshot {
 export interface PointClickEditorApi {
   applyCommand(command: EditorProjectCommand): Promise<EditorProjectSnapshot>;
   clearRecovery(projectDirectory: string): Promise<void>;
+  createBlankProject(): Promise<EditorProjectSnapshot | null>;
+  createProjectFromStarter(): Promise<EditorProjectSnapshot | null>;
   importAssets(): Promise<EditorProjectSnapshot | null>;
   loadProject(projectDirectory?: string): Promise<EditorProjectSnapshot>;
   loadRecovery(projectDirectory: string): Promise<EditorRecoverySnapshot | null>;
@@ -77,6 +79,8 @@ export interface PointClickEditorApi {
 const api: PointClickEditorApi = {
   applyCommand: (command) => ipcRenderer.invoke("project:command", command),
   clearRecovery: (projectDirectory) => ipcRenderer.invoke("recovery:clear", projectDirectory),
+  createBlankProject: () => ipcRenderer.invoke("project:create-blank"),
+  createProjectFromStarter: () => ipcRenderer.invoke("project:create-from-starter"),
   importAssets: () => ipcRenderer.invoke("project:import-assets"),
   loadProject: (projectDirectory) => ipcRenderer.invoke("project:load", projectDirectory),
   loadRecovery: (projectDirectory) => ipcRenderer.invoke("recovery:load", projectDirectory),

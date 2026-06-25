@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   assertDocument,
@@ -27,6 +27,11 @@ import {
 export interface LoadedProject {
   directory: string;
   bundle: ProjectBundle;
+}
+
+export interface CreateBlankProjectOptions {
+  id?: string;
+  title?: string;
 }
 
 export type ProjectDiagnosticSeverity = "error" | "warning";
@@ -295,6 +300,46 @@ async function readJson(filePath: string): Promise<unknown> {
 async function writeJson(filePath: string, value: unknown): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function slugifyId(value: string, fallback: string): string {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || fallback;
+}
+
+function titleFromDirectory(projectDirectory: string): string {
+  const name = path.basename(path.resolve(projectDirectory)).replace(/[-_]+/g, " ").trim();
+  return name
+    ? name.replace(/\b\w/g, (character) => character.toUpperCase())
+    : "Untitled Adventure";
+}
+
+async function ensureEmptyDirectory(projectDirectory: string): Promise<string> {
+  const directory = path.resolve(projectDirectory);
+  await mkdir(directory, { recursive: true });
+  const entries = await readdir(directory);
+  if (entries.length > 0) {
+    throw new Error(`Project directory "${directory}" must be empty before creating a new project.`);
+  }
+  return directory;
+}
+
+async function copyDirectoryContents(sourceDirectory: string, targetDirectory: string): Promise<void> {
+  await mkdir(targetDirectory, { recursive: true });
+  const entries = await readdir(sourceDirectory, { withFileTypes: true });
+  for (const entry of entries) {
+    const sourcePath = path.join(sourceDirectory, entry.name);
+    const targetPath = path.join(targetDirectory, entry.name);
+    if (entry.isDirectory()) {
+      await copyDirectoryContents(sourcePath, targetPath);
+    } else if (entry.isFile()) {
+      await mkdir(path.dirname(targetPath), { recursive: true });
+      await copyFile(sourcePath, targetPath);
+    }
+  }
 }
 
 function createDiagnostic(
@@ -901,6 +946,103 @@ export async function loadProjectFromDirectory(projectDirectory: string): Promis
       promptPacks
     }
   };
+}
+
+export async function createBlankProject(
+  projectDirectory: string,
+  options: CreateBlankProjectOptions = {}
+): Promise<LoadedProject> {
+  const directory = await ensureEmptyDirectory(projectDirectory);
+  const title = options.title?.trim() || titleFromDirectory(directory);
+  const projectId = slugifyId(options.id ?? title, "untitled-adventure");
+  const sceneId = "start";
+
+  const manifest: ProjectManifest = {
+    schemaVersion: 1,
+    id: projectId,
+    title,
+    initialSceneId: sceneId,
+    defaultLocale: "en",
+    viewport: {
+      width: 1280,
+      height: 720
+    },
+    scenes: [
+      {
+        id: sceneId,
+        path: "scenes/start.scene.json"
+      }
+    ],
+    flows: [],
+    items: [],
+    assets: [],
+    promptPacks: [],
+    animationPacks: [],
+    locales: [
+      {
+        locale: "en",
+        path: "locales/en.json"
+      }
+    ]
+  };
+
+  const scene: Layered2DScene = {
+    schemaVersion: 1,
+    id: sceneId,
+    name: "Start",
+    type: "layered-2d",
+    size: {
+      width: 1280,
+      height: 720
+    },
+    background: "#24384a",
+    playerStart: {
+      x: 640,
+      y: 576
+    },
+    walkArea: {
+      points: [
+        { x: 0, y: 0 },
+        { x: 1280, y: 0 },
+        { x: 1280, y: 720 },
+        { x: 0, y: 720 }
+      ]
+    },
+    actors: [],
+    pickups: [],
+    shapes: [],
+    hotspots: []
+  };
+
+  const locale: LocaleDocument = {
+    schemaVersion: 1,
+    locale: "en",
+    strings: {}
+  };
+
+  await writeJson(path.join(directory, "adventure.project.json"), manifest);
+  await writeJson(path.join(directory, "scenes/start.scene.json"), scene);
+  await writeJson(path.join(directory, "locales/en.json"), locale);
+  await mkdir(path.join(directory, "assets", "imported"), { recursive: true });
+  await mkdir(path.join(directory, "animation-packs"), { recursive: true });
+  await mkdir(path.join(directory, "flows"), { recursive: true });
+  await mkdir(path.join(directory, "items"), { recursive: true });
+  await mkdir(path.join(directory, "prompt-packs"), { recursive: true });
+
+  return loadProjectFromDirectory(directory);
+}
+
+export async function createProjectFromTemplate(
+  templateDirectory: string,
+  projectDirectory: string
+): Promise<LoadedProject> {
+  const sourceDirectory = path.resolve(templateDirectory);
+  const directory = await ensureEmptyDirectory(projectDirectory);
+
+  await loadProjectFromDirectory(sourceDirectory);
+  await copyDirectoryContents(sourceDirectory, directory);
+
+  return loadProjectFromDirectory(directory);
 }
 
 function scenePathFor(project: LoadedProject, sceneId: string): string {

@@ -74,6 +74,11 @@ import {
   type Workspace
 } from "../editor-session";
 import { buildDraftProjectBundle } from "../preview-session";
+import {
+  buildPromptPackContext,
+  mockPromptPackProvider,
+  type PromptProviderJob
+} from "../prompt-pack-studio";
 import type { EditorProjectSnapshot } from "../preload";
 import type { EditorValidationReport, EditorValidationRunState } from "../validation-report";
 import { createValidationReport } from "../validation-report";
@@ -759,6 +764,12 @@ export function EditorApp() {
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
   const [assetPathDraft, setAssetPathDraft] = useState("");
+  const [promptPackSceneId, setPromptPackSceneId] = useState("");
+  const [promptPackBrief, setPromptPackBrief] = useState(
+    "Readable 2D point-and-click adventure art, hand-painted shapes, clear interactable silhouettes, restrained palette."
+  );
+  const [promptPackJob, setPromptPackJob] = useState<PromptProviderJob | null>(null);
+  const [selectedPromptPackId, setSelectedPromptPackId] = useState<string | null>(null);
   const [validationRunState, setValidationRunState] = useState<EditorValidationRunState>("idle");
   const [validationReport, setValidationReport] = useState<EditorValidationReport | null>(null);
   const [validationStatus, setValidationStatus] = useState("Validation uses saved project files.");
@@ -797,6 +808,17 @@ export function EditorApp() {
     pickupFromSnapshot(project, session.activeSceneId, session.activePickupId) ?? null;
   const selectedAsset =
     assetFromSnapshot(project, selectedAssetId) ?? project?.selectedAsset ?? project?.assets[0] ?? null;
+  const layeredScenes = scenes.filter((scene): scene is Layered2DScene => scene.type === "layered-2d");
+  const promptPackScene =
+    layeredScenes.find((scene) => scene.id === promptPackSceneId) ??
+    (selectedScene?.type === "layered-2d" ? selectedScene : null) ??
+    layeredScenes[0] ??
+    null;
+  const selectedPromptPack =
+    project?.promptPacks.find((promptPack) => promptPack.id === selectedPromptPackId) ??
+    project?.promptPacks[0] ??
+    null;
+  const promptPackCandidate = promptPackJob?.candidates[0] ?? null;
 
   const currentSceneDraft = selectedScene
     ? session.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene)
@@ -963,6 +985,18 @@ export function EditorApp() {
         sceneId: selectedScene?.id ?? project.activeSceneId
       }
     : undefined;
+  const promptPackContext = useMemo(() => {
+    if (!project || !promptPackScene) return null;
+    try {
+      return buildPromptPackContext(
+        buildDraftProjectBundle(project, history.present),
+        promptPackScene.id,
+        promptPackBrief
+      );
+    } catch {
+      return null;
+    }
+  }, [history.present, project, promptPackBrief, promptPackScene?.id]);
   const projectHealth = project ? healthSummary(project.diagnostics, dirtyState.count) : null;
   const currentValidationReport =
     validationReport ??
@@ -2111,6 +2145,21 @@ export function EditorApp() {
   }, [selectedAsset?.id, selectedAsset?.path]);
 
   useEffect(() => {
+    if (!project || promptPackSceneId) return;
+    const nextSceneId =
+      selectedScene?.type === "layered-2d"
+        ? selectedScene.id
+        : sceneItems(project.scenes).find((scene) => scene.type === "layered-2d")?.id;
+    if (nextSceneId) {
+      setPromptPackSceneId(nextSceneId);
+    }
+  }, [project, promptPackSceneId, selectedScene]);
+
+  useEffect(() => {
+    setPromptPackJob(null);
+  }, [promptPackBrief, promptPackSceneId]);
+
+  useEffect(() => {
     if (!viewportInteraction || !selectedScene) return;
 
     const handlePointerMove = (event: PointerEvent) => {
@@ -2262,6 +2311,36 @@ export function EditorApp() {
     await hydrateProject(snapshot);
   };
 
+  const createBlankProject = async () => {
+    setStatus("Choose an empty folder for the blank project...");
+    try {
+      const snapshot = await window.pointClick.createBlankProject();
+      if (!snapshot) {
+        setStatus(project ? `Loaded ${project.manifest.title}` : "Project creation cancelled");
+        return;
+      }
+      await hydrateProject(snapshot);
+      setWorkspace("overview");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Blank project could not be created");
+    }
+  };
+
+  const createProjectFromStarter = async () => {
+    setStatus("Choose an empty folder for the starter project...");
+    try {
+      const snapshot = await window.pointClick.createProjectFromStarter();
+      if (!snapshot) {
+        setStatus(project ? `Loaded ${project.manifest.title}` : "Project creation cancelled");
+        return;
+      }
+      await hydrateProject(snapshot);
+      setWorkspace("overview");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Starter project could not be created");
+    }
+  };
+
   const importAssets = async () => {
     setStatus("Importing assets...");
     try {
@@ -2345,6 +2424,46 @@ export function EditorApp() {
       setStatus(`Deleted ${deletedAssetId}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Asset delete could not be completed");
+    }
+  };
+
+  const generateMockPromptPack = () => {
+    if (!project || !promptPackScene) return;
+
+    try {
+      const job = mockPromptPackProvider.generate({
+        bundle: buildDraftProjectBundle(project, history.present),
+        sceneId: promptPackScene.id,
+        artBrief: promptPackBrief
+      });
+      const candidate = job.candidates[0] ?? null;
+      setPromptPackJob(job);
+      setSelectedPromptPackId(candidate?.promptPack.id ?? null);
+      setStatus(
+        candidate
+          ? `Generated ${candidate.promptPack.id} with ${candidate.promptPack.outputs.generationTargets.length} target(s)`
+          : "Mock provider returned no prompt pack candidates"
+      );
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Prompt pack could not be generated");
+    }
+  };
+
+  const saveApprovedPromptPack = async () => {
+    const promptPack = promptPackCandidate?.promptPack ?? null;
+    if (!promptPack) return;
+
+    setStatus(`Saving ${promptPack.id}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "prompt-pack/upsert",
+        patch: { promptPack }
+      });
+      setProject(snapshot);
+      setSelectedPromptPackId(promptPack.id);
+      setStatus(`Saved prompt pack ${promptPack.id}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Prompt pack could not be saved");
     }
   };
 
@@ -3616,10 +3735,16 @@ export function EditorApp() {
           <button className="secondary-action" type="button" onClick={openProject}>
             Open Project
           </button>
-          <button className="secondary-action" type="button" onClick={openBrowser}>
+          <button className="secondary-action" type="button" onClick={createProjectFromStarter}>
+            New From Starter
+          </button>
+          <button className="secondary-action" type="button" onClick={createBlankProject}>
+            Blank Project
+          </button>
+          <button className="secondary-action" disabled={!project} type="button" onClick={openBrowser}>
             Open in Browser
           </button>
-          <button className="play-action" type="button" onClick={play}>
+          <button className="play-action" disabled={!project} type="button" onClick={play}>
             <span>&#9654;</span> {dirtyState.count > 0 ? "Play Draft Preview" : "Play Project"}
           </button>
         </div>
@@ -3642,6 +3767,43 @@ export function EditorApp() {
         </div>
       ) : null}
 
+      {!project ? (
+        <main className="project-start-screen">
+          <section className="project-start-panel">
+            <span className="overview-label">Project bootstrap</span>
+            <strong>Create or open an adventure project</strong>
+            <p>{status}</p>
+            <div className="project-start-actions">
+              <button className="play-action" type="button" onClick={createProjectFromStarter}>
+                New From Starter
+              </button>
+              <button className="secondary-action" type="button" onClick={createBlankProject}>
+                Blank Project
+              </button>
+              <button className="secondary-action" type="button" onClick={openProject}>
+                Open Project
+              </button>
+            </div>
+          </section>
+          <section className="project-start-grid" aria-label="Project creation options">
+            <article>
+              <span>01</span>
+              <strong>Starter</strong>
+              <p>Copies the checked-in starter into an empty folder, then opens it ready for scene editing.</p>
+            </article>
+            <article>
+              <span>02</span>
+              <strong>Blank</strong>
+              <p>Creates a valid minimal project with one layered scene, one locale, and empty asset libraries.</p>
+            </article>
+            <article>
+              <span>03</span>
+              <strong>Open</strong>
+              <p>Loads any existing folder that contains an `adventure.project.json` manifest.</p>
+            </article>
+          </section>
+        </main>
+      ) : (
       <div className="workspace-grid">
         <aside className="project-panel panel">
           <div className="panel-heading">
@@ -3772,6 +3934,23 @@ export function EditorApp() {
               >
                 <span className="scene-dot muted" /> {asset.id}
                 {assetHealth(asset, project) === "missing" ? <span className="dirty-mark">!</span> : null}
+              </button>
+            ))}
+            <div className="tree-group open">Prompt Packs ({project?.promptPackCount ?? 0})</div>
+            {project?.promptPacks.map((promptPack) => (
+              <button
+                className={`tree-item ${
+                  selectedPromptPack?.id === promptPack.id && workspace === "assets" ? "selected" : ""
+                }`}
+                key={promptPack.id}
+                type="button"
+                onClick={() => {
+                  setSelectedPromptPackId(promptPack.id);
+                  setPromptPackSceneId(promptPack.sceneId);
+                  setWorkspace("assets");
+                }}
+              >
+                <span className="scene-dot muted" /> {promptPack.id}
               </button>
             ))}
             <div className="tree-group open">Locales ({project?.localeCount ?? 0})</div>
@@ -4027,6 +4206,137 @@ export function EditorApp() {
                     >
                       Delete Unused Asset
                     </button>
+                  </div>
+                ) : null}
+              </section>
+              <section className="overview-card prompt-studio-card">
+                <span className="overview-label">Prompt Pack Studio</span>
+                <strong>{promptPackScene ? `${promptPackScene.name} mock brief` : "No layered scene"}</strong>
+                <p>Generate a deterministic art pack from the current draft scene context.</p>
+                <div className="prompt-studio-controls">
+                  <label className="prompt-studio-field">
+                    Scene
+                    <select
+                      disabled={!project || layeredScenes.length === 0}
+                      value={promptPackScene?.id ?? ""}
+                      onChange={(event) => setPromptPackSceneId(event.target.value)}
+                    >
+                      {layeredScenes.map((scene) => (
+                        <option key={scene.id} value={scene.id}>
+                          {scene.name} ({scene.id})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="prompt-studio-field">
+                    Art brief
+                    <textarea
+                      value={promptPackBrief}
+                      onChange={(event) => setPromptPackBrief(event.target.value)}
+                    />
+                  </label>
+                </div>
+                <div className="build-actions">
+                  <button
+                    className="play-action"
+                    disabled={!project || !promptPackScene}
+                    type="button"
+                    onClick={generateMockPromptPack}
+                  >
+                    Generate Mock Pack
+                  </button>
+                  <button
+                    className="secondary-action"
+                    disabled={!promptPackCandidate}
+                    type="button"
+                    onClick={saveApprovedPromptPack}
+                  >
+                    Save Approved Pack
+                  </button>
+                </div>
+              </section>
+              <section className="overview-card">
+                <span className="overview-label">Extracted context</span>
+                <strong>
+                  {promptPackContext
+                    ? `${promptPackContext.hotspots.length} hotspot(s), ${promptPackContext.pickups.length} pickup(s), ${promptPackContext.actors.length} actor(s)`
+                    : "No context"}
+                </strong>
+                <p>
+                  {promptPackContext
+                    ? `${promptPackContext.sceneSize.width} x ${promptPackContext.sceneSize.height} - ${promptPackContext.locale}`
+                    : "Choose a layered scene to inspect AI prompt context."}
+                </p>
+                {promptPackContext ? (
+                  <div className="prompt-chip-list">
+                    {Object.entries(promptPackContext.labels).map(([key, value]) => (
+                      <span className="prompt-chip" key={key} title={key}>
+                        {value}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </section>
+              <section className="overview-card prompt-output-card">
+                <span className="overview-label">Candidate output</span>
+                <strong>{promptPackCandidate?.promptPack.id ?? "No candidate generated"}</strong>
+                <p>{promptPackCandidate?.summary ?? "Generate a mock pack to review prompt outputs."}</p>
+                {promptPackCandidate ? (
+                  <div className="prompt-output-list">
+                    <div className="prompt-output-item">
+                      <strong>Background</strong>
+                      <p>{promptPackCandidate.promptPack.outputs.sceneBackgroundPrompt}</p>
+                    </div>
+                    {promptPackCandidate.promptPack.outputs.propPrompts.map((prompt) => (
+                      <div className="prompt-output-item" key={prompt.id}>
+                        <strong>Prop: {prompt.id}</strong>
+                        <p>{prompt.prompt}</p>
+                      </div>
+                    ))}
+                    {promptPackCandidate.promptPack.outputs.characterReferencePrompts.map((prompt) => (
+                      <div className="prompt-output-item" key={prompt.id}>
+                        <strong>Character: {prompt.id}</strong>
+                        <p>{prompt.prompt}</p>
+                      </div>
+                    ))}
+                    <div className="prompt-output-item">
+                      <strong>Animation notes</strong>
+                      <p>{promptPackCandidate.promptPack.outputs.animationNotes.join(" ")}</p>
+                    </div>
+                    <div className="prompt-output-item">
+                      <strong>Negative prompt</strong>
+                      <p>{promptPackCandidate.promptPack.outputs.negativePrompt}</p>
+                    </div>
+                    <div className="prompt-output-item">
+                      <strong>Provenance</strong>
+                      <p>
+                        {promptPackCandidate.promptPack.provenance.provider} /{" "}
+                        {promptPackCandidate.promptPack.provenance.model} /{" "}
+                        {promptPackCandidate.promptPack.provenance.inputHash}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+              </section>
+              <section className="overview-card">
+                <span className="overview-label">Saved prompt packs</span>
+                <strong>{project?.promptPackCount ?? 0} pack(s)</strong>
+                <p>
+                  {selectedPromptPack
+                    ? `${selectedPromptPack.id} targets ${selectedPromptPack.sceneId}`
+                    : "Approved packs will be written under project prompt-packs."}
+                </p>
+                {selectedPromptPack ? (
+                  <div className="diagnostic-list">
+                    <div className="diagnostic-item">
+                      <div>
+                        <strong>{selectedPromptPack.name}</strong>
+                        <p>{selectedPromptPack.provenance.provider} - {selectedPromptPack.provenance.model}</p>
+                      </div>
+                      <span className="capability-badge good">
+                        {selectedPromptPack.outputs.generationTargets.length} target(s)
+                      </span>
+                    </div>
                   </div>
                 ) : null}
               </section>
@@ -5640,6 +5950,7 @@ export function EditorApp() {
           </div>
         </aside>
       </div>
+      )}
     </div>
   );
 }

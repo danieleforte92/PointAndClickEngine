@@ -21,6 +21,8 @@ import type { EditorPreviewRequest } from "./preload";
 import { createValidationReport } from "./validation-report";
 import {
   applyProjectCommand,
+  createBlankProject,
+  createProjectFromTemplate,
   loadProjectFromDirectory,
   type EditorProjectCommand,
   validateProjectBundle,
@@ -32,8 +34,12 @@ let previewWindow: BrowserWindow | null = null;
 let playerServer: Server | null = null;
 let previewBundleServer: Server | null = null;
 let playerUrl = process.env.POINTCLICK_PLAYER_URL ?? "http://127.0.0.1:5173";
-let loadedProjectDirectory = path.resolve(__dirname, "../../../starter-game/project");
+let loadedProjectDirectory = starterProjectPath();
 const previewSessions = new Map<string, { bundle: ProjectBundle; projectDirectory: string }>();
+
+function starterProjectPath(): string {
+  return path.resolve(__dirname, "../../../starter-game/project");
+}
 
 const mimeTypes: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
@@ -499,6 +505,36 @@ async function promptForProjectDirectory(browserWindow: BrowserWindow) {
   return readEditorProject(result.filePaths[0]);
 }
 
+async function promptForNewProjectDirectory(browserWindow: BrowserWindow, title: string) {
+  const result = await dialog.showOpenDialog(browserWindow, {
+    title,
+    defaultPath: app.getPath("documents"),
+    properties: ["openDirectory", "createDirectory"]
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+  return result.filePaths[0];
+}
+
+async function createBlankEditorProject(browserWindow: BrowserWindow) {
+  const projectDirectory = await promptForNewProjectDirectory(browserWindow, "Create Blank Project");
+  if (!projectDirectory) return null;
+
+  const loaded = await createBlankProject(projectDirectory);
+  loadedProjectDirectory = loaded.directory;
+  return summarizeProject(loaded.directory, loaded.bundle);
+}
+
+async function createEditorProjectFromStarter(browserWindow: BrowserWindow) {
+  const projectDirectory = await promptForNewProjectDirectory(browserWindow, "Create Project From Starter");
+  if (!projectDirectory) return null;
+
+  const loaded = await createProjectFromTemplate(starterProjectPath(), projectDirectory);
+  loadedProjectDirectory = loaded.directory;
+  return summarizeProject(loaded.directory, loaded.bundle);
+}
+
 app.whenReady().then(() => {
   if (app.isPackaged) {
     return startBundledPlayerServer();
@@ -519,6 +555,20 @@ app.whenReady().then(() => {
       throw new Error("Unable to resolve editor window");
     }
     return promptForProjectDirectory(browserWindow);
+  });
+  ipcMain.handle("project:create-blank", async (event) => {
+    const browserWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!browserWindow) {
+      throw new Error("Unable to resolve editor window");
+    }
+    return createBlankEditorProject(browserWindow);
+  });
+  ipcMain.handle("project:create-from-starter", async (event) => {
+    const browserWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!browserWindow) {
+      throw new Error("Unable to resolve editor window");
+    }
+    return createEditorProjectFromStarter(browserWindow);
   });
   ipcMain.handle("project:import-assets", async (event) => {
     const browserWindow = BrowserWindow.fromWebContents(event.sender);

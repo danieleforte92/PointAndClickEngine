@@ -3,7 +3,7 @@
   "background": "#24384a",
   "hotspots": [],
   "id": "new-scene",
-  "name": "New Scene",
+  "name": "Cave",
   "playerStart": {
     "x": 640,
     "y": 576
@@ -12,19 +12,19 @@
   "schemaVersion": 1,
   "shapes": [],
   "size": {
-    "width": 1280,
-    "height": 720
+    "height": 720,
+    "width": 1280
   },
   "type": "layered-2d",
   "walkArea": {
     "points": [
       {
-        "x": 0,
-        "y": 0
+        "x": 175,
+        "y": 454
       },
       {
         "x": 1280,
-        "y": 0
+        "y": 269
       },
       {
         "x": 1280,
@@ -35,5 +35,10 @@
         "y": 720
       }
     ]
+  },
+  "player": {
+    "scaleFar": 0.62,
+    "scaleNear": 1.08,
+    "walkSpeed": 320
   }
 }
