@@ -858,6 +858,10 @@ export function EditorApp() {
   const [comfyUiCheckpoint, setComfyUiCheckpoint] = useState("");
   const [comfyUiWorkflowPath, setComfyUiWorkflowPath] = useState("");
   const [comfyUiSeed, setComfyUiSeed] = useState("");
+  const [comfyUiTimeoutMinutes, setComfyUiTimeoutMinutes] = useState("20");
+  const [comfyUiGenerationStatus, setComfyUiGenerationStatus] = useState(
+    "ComfyUI generation has not been queued yet."
+  );
   const [selectedGenerationTargetId, setSelectedGenerationTargetId] = useState("");
   const [imageGenerationState, setImageGenerationState] = useState<"idle" | "running">("idle");
   const [selectedPromptPackId, setSelectedPromptPackId] = useState<string | null>(null);
@@ -2625,11 +2629,26 @@ export function EditorApp() {
   };
 
   const generateImageAsset = async () => {
-    if (!project || !activeImagePromptPack || !selectedGenerationTarget) return;
+    if (!project) {
+      setComfyUiGenerationStatus("Open or create a project before generating image assets.");
+      setStatus("Open or create a project before generating image assets.");
+      return;
+    }
+    if (!activeImagePromptPack) {
+      setComfyUiGenerationStatus("Generate or select a prompt pack before queueing ComfyUI.");
+      setStatus("Generate or select a prompt pack before queueing ComfyUI.");
+      return;
+    }
+    if (!selectedGenerationTarget) {
+      setComfyUiGenerationStatus("Select a prompt-pack generation target before queueing ComfyUI.");
+      setStatus("Select a prompt-pack generation target before queueing ComfyUI.");
+      return;
+    }
 
     const checkpointName = comfyUiCheckpoint.trim();
     const workflowPath = comfyUiWorkflowPath.trim();
     if (!checkpointName && !workflowPath) {
+      setComfyUiGenerationStatus("ComfyUI needs a checkpoint filename or a workflow API JSON path.");
       setStatus("ComfyUI needs a checkpoint filename or a workflow API JSON path.");
       return;
     }
@@ -2637,12 +2656,22 @@ export function EditorApp() {
     const seedText = comfyUiSeed.trim();
     const parsedSeed = seedText ? Number(seedText) : null;
     if (parsedSeed !== null && (!Number.isFinite(parsedSeed) || parsedSeed < 0)) {
+      setComfyUiGenerationStatus("ComfyUI seed must be a positive number or empty for random.");
       setStatus("ComfyUI seed must be a positive number or empty for random.");
       return;
     }
 
+    const timeoutMinutes = Number(comfyUiTimeoutMinutes.trim() || "20");
+    if (!Number.isFinite(timeoutMinutes) || timeoutMinutes <= 0) {
+      setComfyUiGenerationStatus("ComfyUI timeout must be a positive number of minutes.");
+      setStatus("ComfyUI timeout must be a positive number of minutes.");
+      return;
+    }
+
     setImageGenerationState("running");
-    setStatus(`Generating ${selectedGenerationTarget.id} with ComfyUI...`);
+    const queuedStatus = `Queueing ${selectedGenerationTarget.id} with ComfyUI. Krea workflows can take several minutes.`;
+    setComfyUiGenerationStatus(queuedStatus);
+    setStatus(queuedStatus);
     try {
       const imageRequest = {
         height: selectedGenerationDimensions.height,
@@ -2654,14 +2683,19 @@ export function EditorApp() {
         ...(comfyUiBaseUrl.trim() ? { baseUrl: comfyUiBaseUrl.trim() } : {}),
         ...(checkpointName ? { checkpointName } : {}),
         ...(parsedSeed !== null ? { seed: parsedSeed } : {}),
+        timeoutMs: Math.round(timeoutMinutes * 60_000),
         ...(workflowPath ? { workflowPath } : {})
       };
       const job = await window.pointClick.generateImageAsset(imageRequest);
       setProject(job.snapshot);
       setSelectedAssetId(job.assetId);
-      setStatus(`Generated ${job.assetId} from ${job.targetId} with ComfyUI seed ${job.seed}`);
+      const completedStatus = `Generated ${job.assetId} from ${job.targetId} with ComfyUI seed ${job.seed}`;
+      setComfyUiGenerationStatus(completedStatus);
+      setStatus(completedStatus);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Image asset could not be generated");
+      const message = error instanceof Error ? error.message : "Image asset could not be generated";
+      setComfyUiGenerationStatus(message);
+      setStatus(message);
     } finally {
       setImageGenerationState("idle");
     }
@@ -4798,6 +4832,13 @@ export function EditorApp() {
                     />
                   </label>
                   <label className="prompt-studio-field">
+                    Timeout minutes
+                    <input
+                      value={comfyUiTimeoutMinutes}
+                      onChange={(event) => setComfyUiTimeoutMinutes(event.target.value)}
+                    />
+                  </label>
+                  <label className="prompt-studio-field">
                     Prompt preview
                     <textarea readOnly value={selectedGenerationPrompt} />
                   </label>
@@ -4816,6 +4857,14 @@ export function EditorApp() {
                   >
                     {imageGenerationState === "running" ? "Generating..." : "Generate And Import Asset"}
                   </button>
+                </div>
+                <div className="diagnostic-list">
+                  <div className={`diagnostic-item ${imageGenerationState === "running" ? "warning" : ""}`}>
+                    <div>
+                      <strong>ComfyUI status</strong>
+                      <p>{comfyUiGenerationStatus}</p>
+                    </div>
+                  </div>
                 </div>
                 {selectedGenerationTarget ? (
                   <>

@@ -68,7 +68,9 @@ a time and import the resulting PNG into the project asset library.
    or provide a ComfyUI workflow API JSON path.
 5. Choose a generation target from the active prompt pack.
 6. Optionally set a seed.
-7. Click **Generate And Import Asset**.
+7. Set a timeout long enough for the workflow. Krea/Qwen workflows can take many
+   minutes on 8GB GPUs.
+8. Click **Generate And Import Asset**.
 
 The editor queues a small text-to-image workflow through `POST /prompt`, polls
 `GET /history/{prompt_id}`, downloads the generated image through `/view`, saves
@@ -97,6 +99,11 @@ through `PrimitiveStringMultiline`, `TextGenerate`, `ComfySwitchNode`, and linke
 `CLIPTextEncode` nodes, the provider patches the node titled like **User Prompt**
 instead of rewiring the graph. Leave checkpoint override empty unless you want to
 replace the workflow's model names.
+
+When the request is accepted, the editor status card should report that the job
+was queued. The ComfyUI web UI should then show an active or completed job in
+its queue/history. If no job appears, check the workflow path and the status
+message in the editor before changing ComfyUI itself.
 
 Keep ComfyUI and LM Studio bound to localhost for this workflow. Do not expose
 either local server to a public network without authentication and firewalling.

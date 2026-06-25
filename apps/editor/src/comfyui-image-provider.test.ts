@@ -358,4 +358,49 @@ describe("generateComfyUIImage", () => {
     expect(workflow["29"].inputs.filename_prefix).toBe("pointclick_tavern-bg");
     expect(result.model).toBe("krea2_turbo_fp8_scaled.safetensors");
   });
+
+  it("reports timeout in minutes for long-running workflows", async () => {
+    let now = 0;
+    const fetchImpl = (async (url: string) => {
+      if (url.endsWith("/prompt")) {
+        return {
+          ok: true,
+          json: async () => ({ prompt_id: "prompt-timeout" })
+        } as Response;
+      }
+
+      if (url.endsWith("/history/prompt-timeout")) {
+        return {
+          ok: true,
+          json: async () => ({ "prompt-timeout": { outputs: {} } })
+        } as Response;
+      }
+
+      throw new Error(`Unexpected URL ${url}`);
+    }) as typeof fetch;
+
+    await expect(
+      generateComfyUIImage(
+        {
+          height: 512,
+          prompt: "A slow generation.",
+          targetId: "slow-target",
+          width: 512
+        },
+        {
+          checkpointName: "test-model.safetensors",
+          pollIntervalMs: 1,
+          timeoutMs: 60_000
+        },
+        {
+          fetchImpl,
+          now: () => {
+            now += 60_001;
+            return now;
+          },
+          sleep: async () => {}
+        }
+      )
+    ).rejects.toThrow("ComfyUI generation timed out after 1 minute(s).");
+  });
 });

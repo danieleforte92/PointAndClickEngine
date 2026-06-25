@@ -9,6 +9,7 @@ export interface GenerateImageAssetRequest {
   providerId: "comfyui";
   seed?: number;
   targetId: string;
+  timeoutMs?: number;
   width: number;
   workflowPath?: string;
 }

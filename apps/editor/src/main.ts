@@ -574,9 +574,15 @@ async function readComfyWorkflowJson(projectDirectory: string, workflowPath: str
   const trimmedPath = workflowPath.trim();
   if (!trimmedPath) return undefined;
 
-  const candidates = path.isAbsolute(trimmedPath)
+  const rawCandidates = path.isAbsolute(trimmedPath)
     ? [trimmedPath]
-    : [path.resolve(projectDirectory, trimmedPath), path.resolve(process.cwd(), trimmedPath)];
+    : [
+        path.resolve(projectDirectory, trimmedPath),
+        path.resolve(process.cwd(), trimmedPath),
+        path.resolve(process.cwd(), "..", "..", trimmedPath),
+        path.resolve(__dirname, "..", "..", "..", "..", trimmedPath)
+      ];
+  const candidates = [...new Set(rawCandidates)];
 
   let lastError: unknown = null;
   for (const candidate of candidates) {
@@ -602,6 +608,11 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
   const workflowJson = request.workflowPath
     ? await readComfyWorkflowJson(projectDirectory, request.workflowPath)
     : undefined;
+  console.info(
+    `[ComfyUI] Queueing ${request.targetId} at ${request.baseUrl ?? "http://127.0.0.1:8188"} using ${
+      request.workflowPath ? `workflow ${request.workflowPath}` : `checkpoint ${request.checkpointName}`
+    }`
+  );
   const result = await generateComfyUIImage(
     {
       height: request.height,
@@ -614,6 +625,7 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
     {
       ...(request.baseUrl ? { baseUrl: request.baseUrl } : {}),
       ...(request.checkpointName ? { checkpointName: request.checkpointName } : {}),
+      ...(request.timeoutMs ? { timeoutMs: request.timeoutMs } : {}),
       ...(workflowJson ? { workflowJson } : {})
     }
   );

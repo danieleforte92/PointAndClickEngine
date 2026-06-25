@@ -17,6 +17,7 @@ export interface GenerateComfyUIImageRequest {
 
 export interface GenerateComfyUIImageOptions {
   fetchImpl?: typeof fetch;
+  now?: () => number;
   sleep?: (milliseconds: number) => Promise<void>;
 }
 
@@ -356,6 +357,7 @@ export async function generateComfyUIImage(
   const seed = request.seed ?? defaultSeed();
   const baseUrl = (config.baseUrl?.trim() || "http://127.0.0.1:8188").replace(/\/+$/, "");
   const fetchImpl = options.fetchImpl ?? fetch;
+  const now = options.now ?? Date.now;
   const wait = options.sleep ?? sleep;
   const pollIntervalMs = config.pollIntervalMs ?? 1_000;
   const timeoutMs = config.timeoutMs ?? 120_000;
@@ -379,11 +381,12 @@ export async function generateComfyUIImage(
   if (!promptId) {
     throw new Error("ComfyUI prompt response did not include prompt_id.");
   }
+  console.info(`[ComfyUI] Queued prompt ${promptId} for target ${request.targetId}`);
 
-  const startedAt = Date.now();
+  const startedAt = now();
   let imageReference: ComfyImageReference | null = null;
 
-  while (Date.now() - startedAt < timeoutMs) {
+  while (now() - startedAt < timeoutMs) {
     const historyResponse = await fetchImpl(`${baseUrl}/history/${encodeURIComponent(promptId)}`);
     if (!historyResponse.ok) {
       throw new Error(`ComfyUI history failed (${historyResponse.status}): ${await readError(historyResponse)}`);
@@ -397,7 +400,7 @@ export async function generateComfyUIImage(
   }
 
   if (!imageReference?.filename) {
-    throw new Error(`ComfyUI generation timed out after ${timeoutMs}ms.`);
+    throw new Error(`ComfyUI generation timed out after ${Math.round(timeoutMs / 60_000)} minute(s).`);
   }
 
   const viewUrl = new URL(`${baseUrl}/view`);
