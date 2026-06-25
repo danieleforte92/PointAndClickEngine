@@ -46,9 +46,9 @@ Only `layered-2d` is executable in the current milestone.
 Layered scenes define:
 
 - dimensions and background;
-- player start and walk bounds;
+- player start, optional player animation pack, and walk bounds;
 - depth-ordered visual shapes;
-- rectangular hotspots and their flow IDs.
+- actors, pickups, rectangular hotspots, and their flow IDs.
 
 Renderer objects are never serialized into project or save data.
 
@@ -58,9 +58,19 @@ The first Flow VM supports:
 
 - localized dialogue lines;
 - deterministic flag changes;
+- scene transitions;
 - explicit end nodes.
 
 Execution yields one presentation line at a time while applying state commands
 through the same command/event core. Conditions, choices, calls, waits, and
 timeline cues will extend this IR without changing the runtime boundary.
 
+## Asset And AI Boundary
+
+Assets and animation packs are project documents. The renderer consumes image
+assets and clip metadata, but simulation state stores only IDs, positions,
+flags, inventory, and event sequence.
+
+Prompt packs are authoring documents, not runtime dependencies. Creator Alpha
+ships a deterministic mock-provider path and saved prompt-pack provenance so
+contributors can inspect the AI direction without paid provider keys.

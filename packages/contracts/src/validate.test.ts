@@ -15,7 +15,27 @@ describe("project contracts", () => {
       items: [{ id: "rusty-hook", path: "items/rusty-hook.item.json" }],
       assets: [{ id: "dock-sky", path: "assets/dock-sky.asset.json" }],
       promptPacks: [{ id: "dock-art", path: "prompt-packs/dock-art.prompt-pack.json" }],
+      animationPacks: [{ id: "mara", path: "animation-packs/mara.animation-pack.json" }],
       locales: [{ locale: "en", path: "locales/en.json" }]
+    });
+
+    expect(result).toEqual({ valid: true, errors: [] });
+  });
+
+  it("accepts animation pack definitions", () => {
+    const result = validateDocument("animationPack", {
+      schemaVersion: 1,
+      id: "mara",
+      name: "Mara",
+      assetId: "mara-spritesheet",
+      frame: { width: 64, height: 64 },
+      grid: { columns: 3, rows: 2 },
+      footOrigin: { x: 32, y: 63 },
+      defaultFacing: "right",
+      clips: [
+        { id: "idle", frames: [0, 1], fps: 4, loop: true },
+        { id: "walk", frames: [3, 4, 5], fps: 8, loop: true }
+      ]
     });
 
     expect(result).toEqual({ valid: true, errors: [] });

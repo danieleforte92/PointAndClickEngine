@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   assertDocument,
   type AssetDocument,
+  type AnimationPackDocument,
   type CursorValue,
   type FlowDocument,
   type FlowNode,
@@ -98,6 +99,11 @@ export interface FlowPatch {
 export interface PromptPackUpsertPatch {
   documentPath?: string;
   promptPack: PromptPackDocument;
+}
+
+export interface AnimationPackUpsertPatch {
+  animationPack: AnimationPackDocument;
+  documentPath?: string;
 }
 
 export type FlowReferenceUse =
@@ -250,6 +256,11 @@ export type PromptPackUpsertCommand = {
   patch: PromptPackUpsertPatch;
 };
 
+export type AnimationPackUpsertCommand = {
+  type: "animation-pack/upsert";
+  patch: AnimationPackUpsertPatch;
+};
+
 export type EditorProjectCommand =
   | HotspotUpdateCommand
   | HotspotCreateCommand
@@ -274,6 +285,7 @@ export type EditorProjectCommand =
   | AssetImportCommand
   | AssetRelinkCommand
   | AssetDeleteCommand
+  | AnimationPackUpsertCommand
   | PromptPackUpsertCommand;
 
 async function readJson(filePath: string): Promise<unknown> {
@@ -427,6 +439,17 @@ function validateActor(
     );
   }
 
+  if (actor.animationPackId && !bundle.animationPacks[actor.animationPackId]) {
+    diagnostics.push(
+      createDiagnostic(
+        "error",
+        "scene.actor-animation-pack-missing",
+        `Actor "${actor.id}" references missing animation pack "${actor.animationPackId}".`,
+        { documentId: scene.id, path: `scenes/${scene.id}/actors/${actor.id}/animationPackId` }
+      )
+    );
+  }
+
   if (defaultLocale && !(actor.labelKey in defaultLocale.strings)) {
     diagnostics.push(
       createDiagnostic(
@@ -511,6 +534,16 @@ export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[
     }
 
     for (const node of flow.nodes) {
+      if (node.type === "change-scene" && !bundle.scenes[node.targetSceneId]) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "flow.change-scene-missing-scene",
+            `Flow "${flow.id}" changes to missing scene "${node.targetSceneId}".`,
+            { documentId: flow.id, path: `flows/${flow.id}/nodes/${node.id}/targetSceneId` }
+          )
+        );
+      }
       if (node.type !== "line" || !defaultLocale) continue;
       if (!(node.textKey in defaultLocale.strings)) {
         diagnostics.push(
@@ -564,6 +597,17 @@ export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[
           "scene.player-asset-missing",
           `Scene "${scene.id}" player references missing asset "${scene.player.assetId}".`,
           { documentId: scene.id, path: `scenes/${scene.id}/player/assetId` }
+        )
+      );
+    }
+
+    if (scene.player?.animationPackId && !bundle.animationPacks[scene.player.animationPackId]) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "scene.player-animation-pack-missing",
+          `Scene "${scene.id}" player references missing animation pack "${scene.player.animationPackId}".`,
+          { documentId: scene.id, path: `scenes/${scene.id}/player/animationPackId` }
         )
       );
     }
@@ -723,6 +767,48 @@ export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[
     }
   }
 
+  for (const animationPack of Object.values(bundle.animationPacks)) {
+    if (!bundle.assets[animationPack.assetId]) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "animation-pack.asset-missing",
+          `Animation pack "${animationPack.id}" references missing asset "${animationPack.assetId}".`,
+          { documentId: animationPack.id, path: `animation-packs/${animationPack.id}/assetId` }
+        )
+      );
+    }
+
+    const frameCount = animationPack.grid.columns * animationPack.grid.rows;
+    const clipIds = new Set<string>();
+    for (const clip of animationPack.clips) {
+      if (clipIds.has(clip.id)) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "animation-pack.clip-duplicate-id",
+            `Animation pack "${animationPack.id}" contains duplicate clip "${clip.id}".`,
+            { documentId: animationPack.id, path: `animation-packs/${animationPack.id}/clips/${clip.id}` }
+          )
+        );
+      }
+      clipIds.add(clip.id);
+
+      for (const frame of clip.frames) {
+        if (frame >= frameCount) {
+          diagnostics.push(
+            createDiagnostic(
+              "error",
+              "animation-pack.clip-frame-out-of-range",
+              `Animation pack "${animationPack.id}" clip "${clip.id}" references frame ${frame}, but the grid has ${frameCount} frame(s).`,
+              { documentId: animationPack.id, path: `animation-packs/${animationPack.id}/clips/${clip.id}/frames` }
+            )
+          );
+        }
+      }
+    }
+  }
+
   return diagnostics;
 }
 
@@ -782,6 +868,16 @@ export async function loadProjectFromDirectory(projectDirectory: string): Promis
     assets[value.id] = value;
   }
 
+  const animationPacks: Record<string, AnimationPackDocument> = {};
+  for (const reference of manifestValue.animationPacks ?? []) {
+    const value = await readJson(path.resolve(directory, reference.path));
+    assertDocument<AnimationPackDocument>("animationPack", value);
+    if (value.id !== reference.id) {
+      throw new Error(`Animation pack reference "${reference.id}" points to document "${value.id}"`);
+    }
+    animationPacks[value.id] = value;
+  }
+
   const promptPacks: Record<string, PromptPackDocument> = {};
   for (const reference of manifestValue.promptPacks ?? []) {
     const value = await readJson(path.resolve(directory, reference.path));
@@ -801,6 +897,7 @@ export async function loadProjectFromDirectory(projectDirectory: string): Promis
       locales,
       items,
       assets,
+      animationPacks,
       promptPacks
     }
   };
@@ -858,6 +955,14 @@ function promptPackPathFor(project: LoadedProject, promptPackId: string): string
   return path.resolve(project.directory, reference.path);
 }
 
+function animationPackPathFor(project: LoadedProject, animationPackId: string): string {
+  const reference = (project.bundle.manifest.animationPacks ?? []).find((entry) => entry.id === animationPackId);
+  if (!reference) {
+    throw new Error(`Animation pack "${animationPackId}" is not referenced by the project manifest`);
+  }
+  return path.resolve(project.directory, reference.path);
+}
+
 function projectManifestPath(project: LoadedProject): string {
   return path.join(project.directory, "adventure.project.json");
 }
@@ -876,6 +981,10 @@ function defaultSceneDocumentPath(sceneId: string): string {
 
 function defaultPromptPackDocumentPath(promptPackId: string): string {
   return `prompt-packs/${promptPackId}.prompt-pack.json`;
+}
+
+function defaultAnimationPackDocumentPath(animationPackId: string): string {
+  return `animation-packs/${animationPackId}.animation-pack.json`;
 }
 
 function describeFlowReference(use: FlowReferenceUse): string {
@@ -1284,6 +1393,27 @@ function upsertPromptPackManifestReference(
   return {
     ...manifest,
     promptPacks
+  };
+}
+
+function upsertAnimationPackManifestReference(
+  manifest: ProjectManifest,
+  animationPack: AnimationPackDocument,
+  documentPath: string
+): ProjectManifest {
+  const animationPacks = [...(manifest.animationPacks ?? [])];
+  const existingIndex = animationPacks.findIndex((entry) => entry.id === animationPack.id);
+  const reference = { id: animationPack.id, path: documentPath };
+
+  if (existingIndex >= 0) {
+    animationPacks[existingIndex] = reference;
+  } else {
+    animationPacks.push(reference);
+  }
+
+  return {
+    ...manifest,
+    animationPacks
   };
 }
 
@@ -1792,6 +1922,26 @@ export async function applyProjectCommand(
         throw error;
       }
     }
+  }
+
+  if (command.type === "animation-pack/upsert") {
+    const animationPack = command.patch.animationPack;
+    assertDocument<AnimationPackDocument>("animationPack", animationPack);
+
+    if (!project.bundle.assets[animationPack.assetId]) {
+      throw new Error(`Animation pack "${animationPack.id}" references missing asset "${animationPack.assetId}"`);
+    }
+
+    const documentPath =
+      command.patch.documentPath ??
+      (project.bundle.animationPacks[animationPack.id]
+        ? path.relative(project.directory, animationPackPathFor(project, animationPack.id)).replace(/\\/g, "/")
+        : defaultAnimationPackDocumentPath(animationPack.id));
+
+    const nextManifest = upsertAnimationPackManifestReference(project.bundle.manifest, animationPack, documentPath);
+    assertDocument<ProjectManifest>("project", nextManifest);
+    await writeJson(path.resolve(project.directory, documentPath), animationPack);
+    await writeJson(projectManifestPath(project), nextManifest);
   }
 
   if (command.type === "prompt-pack/upsert") {

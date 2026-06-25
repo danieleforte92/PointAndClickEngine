@@ -18,7 +18,8 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "build": "pnpm -r --if-present build",
     "validate:sample": "tsx packages/cli/src/index.ts validate apps/sample-game/project",
-    "check": "pnpm test && pnpm typecheck && pnpm validate:sample && pnpm build"
+    "validate:starter": "tsx packages/cli/src/index.ts validate apps/starter-game/project",
+    "check": "pnpm test && pnpm typecheck && pnpm validate:sample && pnpm validate:starter && pnpm build"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0",

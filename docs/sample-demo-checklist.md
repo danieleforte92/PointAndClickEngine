@@ -7,7 +7,7 @@ GIF or a 15-30 second demo clip.
 
 Show the smallest complete loop that proves the product direction:
 
-`scene -> hotspot -> inventory -> item use -> flow -> state update`
+`scene -> hotspot -> inventory -> item use -> flow -> state update -> transition`
 
 ## Recording Pass
 
@@ -18,8 +18,9 @@ Show the smallest complete loop that proves the product direction:
 5. Advance the pickup dialogue.
 6. Click `Rusty Hook` in the inventory strip.
 7. Click the tavern entrance again to trigger the item-use flow.
-8. Advance the final dialogue and leave the footer visible long enough to show
-   the latest event and updated sequence.
+8. Advance the final dialogue to enter the Lantern Room.
+9. Leave the footer visible long enough to show the latest event, new scene, and
+   updated sequence.
 
 ## Framing Notes
 

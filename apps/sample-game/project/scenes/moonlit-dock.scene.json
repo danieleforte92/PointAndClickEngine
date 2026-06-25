@@ -8,6 +8,12 @@
     "height": 720
   },
   "background": "#132538",
+  "player": {
+    "animationPackId": "mara",
+    "scaleFar": 0.62,
+    "scaleNear": 1.08,
+    "walkSpeed": 320
+  },
   "playerStart": {
     "x": 510,
     "y": 590

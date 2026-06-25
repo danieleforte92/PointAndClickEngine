@@ -19,6 +19,7 @@ describe("loadProjectFromDirectory", () => {
     expect(Object.keys(loaded.bundle.scenes)).toContain("moonlit-dock");
     expect(loaded.bundle.scenes["moonlit-dock"]?.type).toBe("layered-2d");
     expect(Object.keys(loaded.bundle.promptPacks)).toContain("moonlit-dock-art");
+    expect(Object.keys(loaded.bundle.animationPacks)).toContain("mara");
   });
 
   it("persists hotspot edits back to the scene document", async () => {
@@ -478,7 +479,7 @@ describe("loadProjectFromDirectory", () => {
       sceneId: "moonlit-dock"
     });
 
-    expect(updated.bundle.manifest.initialSceneId).toBe("harbor-street");
+    expect(updated.bundle.manifest.initialSceneId).toBe("new-scene");
     expect(updated.bundle.scenes["moonlit-dock"]).toBeUndefined();
   });
 
@@ -488,6 +489,11 @@ describe("loadProjectFromDirectory", () => {
     const projectRoot = path.join(tempRoot, "project");
 
     await cp(fixtureRoot, projectRoot, { recursive: true });
+
+    await applyProjectCommand(projectRoot, {
+      type: "scene/delete",
+      sceneId: "new-scene"
+    });
 
     await expect(
       applyProjectCommand(projectRoot, {
@@ -1158,6 +1164,41 @@ describe("loadProjectFromDirectory", () => {
     expect(promptPackFile).toMatchObject({
       id: "harbor-style",
       name: "Harbor Style Exploration"
+    });
+  });
+
+  it("upserts an animation pack document and manifest entry", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+
+    const source = (await loadProjectFromDirectory(projectRoot)).bundle.animationPacks.mara;
+    if (!source) {
+      throw new Error("Expected sample animation pack");
+    }
+
+    const updated = await applyProjectCommand(projectRoot, {
+      type: "animation-pack/upsert",
+      patch: {
+        animationPack: {
+          ...source,
+          id: "mara-fast",
+          name: "Mara Fast Walk"
+        },
+        documentPath: "animation-packs/mara-fast.animation-pack.json"
+      }
+    });
+
+    expect(updated.bundle.animationPacks["mara-fast"]?.name).toBe("Mara Fast Walk");
+
+    const manifest = JSON.parse(
+      await readFile(path.join(projectRoot, "adventure.project.json"), "utf8")
+    ) as { animationPacks?: Array<{ id: string; path: string }> };
+    expect(manifest.animationPacks).toContainEqual({
+      id: "mara-fast",
+      path: "animation-packs/mara-fast.animation-pack.json"
     });
   });
 

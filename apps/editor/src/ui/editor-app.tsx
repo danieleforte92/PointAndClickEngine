@@ -586,6 +586,7 @@ function summarizeActorViewportIssues(
   actor: SceneActor,
   scene: Layered2DScene,
   availableAssetIdsSet: Set<string>,
+  availableAnimationPackIdsSet: Set<string>,
   availableFlowIdsSet: Set<string>,
   availableItemIdsSet: Set<string>,
   defaultLocaleId: string,
@@ -597,6 +598,10 @@ function summarizeActorViewportIssues(
 
   if (actor.assetId && !availableAssetIdsSet.has(actor.assetId)) {
     blockingIssues.push(`Actor asset "${actor.assetId}" no longer exists.`);
+  }
+
+  if (actor.animationPackId && !availableAnimationPackIdsSet.has(actor.animationPackId)) {
+    blockingIssues.push(`Actor animation pack "${actor.animationPackId}" no longer exists.`);
   }
 
   if (!labelKey) {
@@ -992,6 +997,9 @@ export function EditorApp() {
     const scaleNear = parsePositiveNumber(currentSceneDraft.playerScaleNear);
     const walkSpeed = parsePositiveNumber(currentSceneDraft.playerWalkSpeed);
     return {
+      ...(currentSceneDraft.playerAnimationPackId.trim()
+        ? { animationPackId: currentSceneDraft.playerAnimationPackId.trim() }
+        : {}),
       ...(currentSceneDraft.playerAssetId.trim()
         ? { assetId: currentSceneDraft.playerAssetId.trim() }
         : {}),
@@ -1000,6 +1008,7 @@ export function EditorApp() {
       walkSpeed: walkSpeed ?? defaults.walkSpeed
     };
   }, [
+    currentSceneDraft.playerAnimationPackId,
     currentSceneDraft.playerAssetId,
     currentSceneDraft.playerScaleFar,
     currentSceneDraft.playerScaleNear,
@@ -1062,6 +1071,14 @@ export function EditorApp() {
   const defaultLocaleStrings = defaultLocaleDocument?.strings ?? null;
   const availableAssetIds = useMemo(() => (project ? project.assets.map((asset) => asset.id) : []), [project]);
   const availableAssetIdsSet = useMemo(() => new Set(availableAssetIds), [availableAssetIds]);
+  const availableAnimationPackIds = useMemo(
+    () => (project ? project.animationPacks.map((animationPack) => animationPack.id) : []),
+    [project]
+  );
+  const availableAnimationPackIdsSet = useMemo(
+    () => new Set(availableAnimationPackIds),
+    [availableAnimationPackIds]
+  );
   const availableFlowIdsSet = useMemo(() => new Set(availableFlowIds), [availableFlowIds]);
   const availableItemIdsSet = useMemo(() => new Set(availableItemIds), [availableItemIds]);
   const previewActorIssueMap = useMemo(
@@ -1074,6 +1091,7 @@ export function EditorApp() {
                 actor,
                 selectedScene,
                 availableAssetIdsSet,
+                availableAnimationPackIdsSet,
                 availableFlowIdsSet,
                 availableItemIdsSet,
                 defaultLocaleId,
@@ -1084,6 +1102,7 @@ export function EditorApp() {
         : {},
     [
       availableAssetIdsSet,
+      availableAnimationPackIdsSet,
       availableFlowIdsSet,
       availableItemIdsSet,
       defaultLocaleId,
@@ -1151,6 +1170,11 @@ export function EditorApp() {
         }
       }
     }
+    for (const node of currentFlowDraft.nodes) {
+      if (node.type === "change-scene" && !sceneItems(project?.scenes ?? []).some((scene) => scene.id === node.targetSceneId.trim())) {
+        warningIssues.push(`Node "${node.id}" changes to a scene that is not available.`);
+      }
+    }
 
     return buildGuardrail(
       [],
@@ -1158,7 +1182,7 @@ export function EditorApp() {
       "Locale coverage looks good",
       `All line text keys exist in ${defaultLocaleId}.`
     );
-  }, [currentFlowDraft, defaultLocaleId, defaultLocaleStrings]);
+  }, [currentFlowDraft, defaultLocaleId, defaultLocaleStrings, project?.scenes]);
   const hotspotGuardrail = useMemo(() => {
     const blockingIssues: string[] = [];
     const warningIssues: string[] = [];
@@ -1259,9 +1283,13 @@ export function EditorApp() {
     const warningIssues: string[] = [];
     const labelKey = currentActorDraft.labelKey.trim();
     const assetId = currentActorDraft.assetId.trim();
+    const animationPackId = currentActorDraft.animationPackId.trim();
 
     if (assetId && !availableAssetIdsSet.has(assetId)) {
       blockingIssues.push(`Actor asset "${assetId}" no longer exists.`);
+    }
+    if (animationPackId && !availableAnimationPackIdsSet.has(animationPackId)) {
+      blockingIssues.push(`Actor animation pack "${animationPackId}" no longer exists.`);
     }
 
     if (!labelKey) {
@@ -1347,8 +1375,10 @@ export function EditorApp() {
     );
   }, [
     availableAssetIdsSet,
+    availableAnimationPackIdsSet,
     availableFlowIdsSet,
     availableItemIdsSet,
+    currentActorDraft.animationPackId,
     currentActorDraft.assetId,
     currentActorDraft.interactSpotEnabled,
     currentActorDraft.interactSpotX,
@@ -1469,6 +1499,9 @@ export function EditorApp() {
   });
   const actorAssetMissing =
     !!currentActorDraft.assetId.trim() && !availableAssetIdsSet.has(currentActorDraft.assetId.trim());
+  const actorAnimationPackMissing =
+    !!currentActorDraft.animationPackId.trim() &&
+    !availableAnimationPackIdsSet.has(currentActorDraft.animationPackId.trim());
   const actorLabelMissing =
     currentActorDraft.labelKey.trim().length === 0 ||
     (!!defaultLocaleStrings && !(currentActorDraft.labelKey.trim() in defaultLocaleStrings));
@@ -3186,6 +3219,7 @@ export function EditorApp() {
     const playerScaleFar = parsePositiveNumber(currentSceneDraft.playerScaleFar);
     const playerScaleNear = parsePositiveNumber(currentSceneDraft.playerScaleNear);
     const playerWalkSpeed = parsePositiveNumber(currentSceneDraft.playerWalkSpeed);
+    const playerAnimationPackId = currentSceneDraft.playerAnimationPackId.trim();
     const playerAssetId = currentSceneDraft.playerAssetId.trim();
     const sceneWidth = parsePositiveNumber(currentSceneDraft.width);
     const sceneHeight = parsePositiveNumber(currentSceneDraft.height);
@@ -3211,6 +3245,10 @@ export function EditorApp() {
     }
     if (playerAssetId && !availableAssetIdsSet.has(playerAssetId)) {
       setStatus(`Player asset "${playerAssetId}" no longer exists`);
+      return;
+    }
+    if (playerAnimationPackId && !availableAnimationPackIdsSet.has(playerAnimationPackId)) {
+      setStatus(`Player animation pack "${playerAnimationPackId}" no longer exists`);
       return;
     }
     if (playerScaleFar === null || playerScaleNear === null || playerWalkSpeed === null) {
@@ -3242,6 +3280,7 @@ export function EditorApp() {
           background,
           name,
           player: {
+            ...(playerAnimationPackId ? { animationPackId: playerAnimationPackId } : {}),
             ...(playerAssetId ? { assetId: playerAssetId } : {}),
             scaleFar: playerScaleFar,
             scaleNear: playerScaleNear,
@@ -3481,6 +3520,27 @@ export function EditorApp() {
         }
         if (node.valueKind === "number" && Number.isNaN(Number(node.value))) {
           setStatus(`Set-flag node "${node.id}" needs a valid numeric value`);
+          return;
+        }
+      }
+      if (node.type === "change-scene") {
+        if (!node.targetSceneId.trim() || !node.next.trim()) {
+          setStatus(`Change-scene node "${node.id}" is incomplete`);
+          return;
+        }
+        if (!ids.includes(node.next.trim())) {
+          setStatus(`Change-scene node "${node.id}" points to a missing next node`);
+          return;
+        }
+        if (!sceneItems(project?.scenes ?? []).some((scene) => scene.id === node.targetSceneId.trim())) {
+          setStatus(`Change-scene node "${node.id}" points to a missing scene`);
+          return;
+        }
+        if (
+          node.playerStartEnabled &&
+          (parseNumber(node.playerStartX) === null || parseNumber(node.playerStartY) === null)
+        ) {
+          setStatus(`Change-scene node "${node.id}" needs valid player start coordinates`);
           return;
         }
       }
@@ -4559,6 +4619,89 @@ export function EditorApp() {
                           </label>
                         </>
                       ) : null}
+                      {node.type === "change-scene" ? (
+                        <>
+                          <label>
+                            Target scene
+                            <select
+                              value={node.targetSceneId}
+                              onChange={(event) =>
+                                updateFlowNode(index, (current) =>
+                                  current.type === "change-scene"
+                                    ? { ...current, targetSceneId: event.target.value }
+                                    : current
+                                )
+                              }
+                            >
+                              <option value="">Select scene</option>
+                              {sceneItems(project?.scenes ?? []).map((scene) => (
+                                <option key={`change-scene-${scene.id}`} value={scene.id}>
+                                  {scene.id}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="checkbox-field">
+                            <input
+                              checked={node.playerStartEnabled}
+                              type="checkbox"
+                              onChange={(event) =>
+                                updateFlowNode(index, (current) =>
+                                  current.type === "change-scene"
+                                    ? { ...current, playerStartEnabled: event.target.checked }
+                                    : current
+                                )
+                              }
+                            />
+                            Set player start
+                          </label>
+                          <div className="four-fields">
+                            <input
+                              aria-label="Transition player X"
+                              disabled={!node.playerStartEnabled}
+                              value={node.playerStartX}
+                              onChange={(event) =>
+                                updateFlowNode(index, (current) =>
+                                  current.type === "change-scene"
+                                    ? { ...current, playerStartX: event.target.value }
+                                    : current
+                                )
+                              }
+                            />
+                            <input
+                              aria-label="Transition player Y"
+                              disabled={!node.playerStartEnabled}
+                              value={node.playerStartY}
+                              onChange={(event) =>
+                                updateFlowNode(index, (current) =>
+                                  current.type === "change-scene"
+                                    ? { ...current, playerStartY: event.target.value }
+                                    : current
+                                )
+                              }
+                            />
+                          </div>
+                          <label>
+                            Next
+                            <select
+                              value={node.next}
+                              onChange={(event) =>
+                                updateFlowNode(index, (current) =>
+                                  current.type === "change-scene"
+                                    ? { ...current, next: event.target.value }
+                                    : current
+                                )
+                              }
+                            >
+                              {flowNodeIds.map((nodeId) => (
+                                <option key={nodeId} value={nodeId}>
+                                  {nodeId}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </>
+                      ) : null}
                     </div>
                   ))}
                 </div>
@@ -4582,6 +4725,9 @@ export function EditorApp() {
                     </button>
                     <button type="button" onClick={() => addFlowNode("set-flag")}>
                       Add set-flag
+                    </button>
+                    <button type="button" onClick={() => addFlowNode("change-scene")}>
+                      Add transition
                     </button>
                     <button type="button" onClick={() => addFlowNode("end")}>
                       Add end
@@ -4702,6 +4848,24 @@ export function EditorApp() {
                   </select>
                   {actorAssetMissing ? (
                     <small className="field-hint error">Selected actor asset no longer exists.</small>
+                  ) : null}
+                </label>
+                <label>
+                  Animation pack
+                  <select
+                    className={actorAnimationPackMissing ? "field-input-invalid" : ""}
+                    value={currentActorDraft.animationPackId}
+                    onChange={(event) => updateActorDraft("animationPackId", event.target.value)}
+                  >
+                    <option value="">None</option>
+                    {availableAnimationPackIds.map((animationPackId) => (
+                      <option key={`actor-animation-pack-${animationPackId}`} value={animationPackId}>
+                        {animationPackId}
+                      </option>
+                    ))}
+                  </select>
+                  {actorAnimationPackMissing ? (
+                    <small className="field-hint error">Selected actor animation pack no longer exists.</small>
                   ) : null}
                 </label>
                 <div className="field-group">
@@ -5365,6 +5529,20 @@ export function EditorApp() {
                       {availableAssetIds.map((assetId) => (
                         <option key={`player-asset-${assetId}`} value={assetId}>
                           {assetId}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Player animation pack
+                    <select
+                      value={currentSceneDraft.playerAnimationPackId}
+                      onChange={(event) => updateSceneDraft("playerAnimationPackId", event.target.value)}
+                    >
+                      <option value="">None</option>
+                      {availableAnimationPackIds.map((animationPackId) => (
+                        <option key={`player-animation-pack-${animationPackId}`} value={animationPackId}>
+                          {animationPackId}
                         </option>
                       ))}
                     </select>

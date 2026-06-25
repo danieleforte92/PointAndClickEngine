@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
   AssetDocument,
+  AnimationPackDocument,
   FlowDocument,
   Hotspot,
   ItemDocument,
@@ -33,6 +34,8 @@ export interface EditorProjectSnapshot {
   activeSceneId: string;
   assetCount: number;
   assets: AssetDocument[];
+  animationPackCount: number;
+  animationPacks: AnimationPackDocument[];
   directory: string;
   flowCount: number;
   flows: FlowDocument[];
@@ -48,6 +51,7 @@ export interface EditorProjectSnapshot {
   scenes: SceneDocument[];
   selectedAsset: AssetDocument | null;
   selectedActor: SceneActor | null;
+  selectedAnimationPack: AnimationPackDocument | null;
   selectedFlow: FlowDocument | null;
   selectedHotspot: Hotspot | null;
   selectedItem: ItemDocument | null;

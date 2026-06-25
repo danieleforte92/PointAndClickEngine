@@ -39,5 +39,31 @@ describe("flow machine", () => {
     expect(step.line?.textKey).toBe("door.line");
     expect(updated.flags["door.seen"]).toBe(true);
   });
-});
 
+  it("emits scene change commands from transition nodes", () => {
+    const transitionFlow: FlowDocument = {
+      schemaVersion: 1,
+      id: "enter-tavern",
+      name: "Enter tavern",
+      startNodeId: "transition",
+      nodes: [
+        {
+          id: "transition",
+          type: "change-scene",
+          targetSceneId: "tavern",
+          playerStart: { x: 300, y: 580 },
+          next: "done"
+        },
+        { id: "done", type: "end" }
+      ]
+    };
+    const world = createInitialState("dock", { x: 0, y: 0 });
+    const step = advanceFlow(transitionFlow, createFlowSession(transitionFlow), world);
+
+    expect(step.commands).toEqual([
+      { type: "scene/change", sceneId: "tavern", player: { x: 300, y: 580 } },
+      { type: "flow/end", flowId: "enter-tavern" }
+    ]);
+    expect(step.session.done).toBe(true);
+  });
+});

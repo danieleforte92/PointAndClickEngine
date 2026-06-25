@@ -3,6 +3,7 @@ import addFormats from "ajv-formats";
 import type { TSchema } from "@sinclair/typebox";
 import {
   AssetDocumentSchema,
+  AnimationPackDocumentSchema,
   FlowDocumentSchema,
   ItemDocumentSchema,
   Layered2DSceneSchema,
@@ -23,6 +24,7 @@ const validators = {
   locale: ajv.compile(LocaleDocumentSchema),
   item: ajv.compile(ItemDocumentSchema),
   asset: ajv.compile(AssetDocumentSchema),
+  animationPack: ajv.compile(AnimationPackDocumentSchema),
   promptPack: ajv.compile(PromptPackDocumentSchema)
 } satisfies Record<string, ValidateFunction>;
 

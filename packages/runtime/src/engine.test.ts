@@ -69,11 +69,13 @@ function testBundle(): ProjectBundle {
       items: [{ id: "brass-key", path: "items/brass-key.item.json" }],
       locales: [{ locale: "en", path: "locales/en.json" }],
       promptPacks: [],
+      animationPacks: [],
       scenes: [{ id: "room", path: "scenes/room.scene.json" }],
       schemaVersion: 1,
       title: "Test Project",
       viewport: { width: 320, height: 240 }
     },
+    animationPacks: {},
     promptPacks: {},
     scenes: {
       room: {

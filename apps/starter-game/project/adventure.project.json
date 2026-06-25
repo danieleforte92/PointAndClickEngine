@@ -12,16 +12,26 @@
     {
       "id": "new-scene",
       "path": "scenes/new-scene.scene.json"
+    },
+    {
+      "id": "new-scene-1",
+      "path": "scenes/new-scene-1.scene.json"
     }
   ],
   "flows": [],
   "items": [],
   "promptPacks": [],
+  "animationPacks": [],
   "locales": [
     {
       "locale": "en",
       "path": "locales/en.json"
     }
   ],
-  "assets": []
+  "assets": [
+    {
+      "id": "grotta-1",
+      "path": "assets/grotta-1.asset.json"
+    }
+  ]
 }

@@ -1,5 +1,6 @@
 import type {
   AssetDocument,
+  AnimationPackDocument,
   FlowDocument,
   Hotspot,
   ItemDocument,
@@ -42,6 +43,10 @@ function toAssetMap(assets: AssetDocument[]): Record<string, AssetDocument> {
   return Object.fromEntries(assets.map((asset) => [asset.id, asset]));
 }
 
+function toAnimationPackMap(animationPacks: AnimationPackDocument[]): Record<string, AnimationPackDocument> {
+  return Object.fromEntries(animationPacks.map((animationPack) => [animationPack.id, animationPack]));
+}
+
 function toPromptPackMap(promptPacks: PromptPackDocument[]): Record<string, PromptPackDocument> {
   return Object.fromEntries(promptPacks.map((promptPack) => [promptPack.id, promptPack]));
 }
@@ -78,6 +83,7 @@ function applySceneDrafts(
       background: draft.background,
       name: draft.name,
       player: {
+        ...(draft.playerAnimationPackId.trim() ? { animationPackId: draft.playerAnimationPackId.trim() } : {}),
         ...(draft.playerAssetId.trim() ? { assetId: draft.playerAssetId.trim() } : {}),
         scaleFar: scaleFar ?? playerDefaults.scaleFar,
         scaleNear: scaleNear ?? playerDefaults.scaleNear,
@@ -257,6 +263,7 @@ export function buildDraftProjectBundle(
   const localeMap = applyLocaleDrafts(toLocaleMap(snapshot.locales), session);
   const itemMap = applyItemDrafts(toItemMap(snapshot.items), session);
   const assetMap = toAssetMap(snapshot.assets);
+  const animationPackMap = toAnimationPackMap(snapshot.animationPacks);
   const promptPackMap = toPromptPackMap(snapshot.promptPacks);
 
   return {
@@ -266,6 +273,7 @@ export function buildDraftProjectBundle(
     locales: localeMap,
     items: itemMap,
     assets: assetMap,
+    animationPacks: animationPackMap,
     promptPacks: promptPackMap
   };
 }

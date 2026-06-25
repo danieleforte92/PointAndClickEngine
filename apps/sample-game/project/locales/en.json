@@ -3,12 +3,15 @@
   "locale": "en",
   "strings": {
     "hotspot.tavern-entrance": "The Lantern & Gull",
+    "hotspot.door-to-dock": "Door to the dock",
+    "actor.sleeping-keeper": "Sleeping Keeper",
     "pickup.rusty-hook": "Rusty Hook",
     "item.rusty-hook": "Rusty Hook",
     "speaker.mara": "Mara",
     "dialogue.tavern.look.01": "The tavern door is warm, though the harbor has been cold for years.",
     "dialogue.tavern.talk.01": "I try talking to the door. The door, in a shocking break from etiquette, stays quiet.",
     "dialogue.hook.pickup.01": "A rusty hook. Not elegant, but it might still persuade old wood.",
-    "dialogue.tavern.use-hook.01": "The hook catches the latch. Crude? Yes. Effective? Also yes."
+    "dialogue.tavern.use-hook.01": "The hook catches the latch. Crude? Yes. Effective? Also yes.",
+    "dialogue.tavern.return.01": "Back to the dock before the keeper decides to wake up."
   }
 }

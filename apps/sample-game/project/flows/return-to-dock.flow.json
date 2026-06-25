@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "return-to-dock",
+  "name": "Return to the moonlit dock",
+  "startNodeId": "mara-one",
+  "nodes": [
+    {
+      "id": "mara-one",
+      "type": "line",
+      "speakerId": "mara",
+      "textKey": "dialogue.tavern.return.01",
+      "next": "return-dock"
+    },
+    {
+      "id": "return-dock",
+      "type": "change-scene",
+      "targetSceneId": "moonlit-dock",
+      "playerStart": {
+        "x": 910,
+        "y": 550
+      },
+      "next": "end"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ]
+}

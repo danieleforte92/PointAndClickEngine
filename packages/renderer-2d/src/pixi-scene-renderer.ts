@@ -1,5 +1,5 @@
-import type { AssetDocument, Layered2DScene, SceneActor, Vector2 } from "@pointclick/contracts";
-import { Application, Assets, Container, Graphics, Sprite } from "pixi.js";
+import type { AnimationPackDocument, AssetDocument, Layered2DScene, SceneActor, Vector2 } from "@pointclick/contracts";
+import { AnimatedSprite, Application, Assets, Container, Graphics, Rectangle, Sprite, Texture } from "pixi.js";
 
 export interface SceneInteractionHandlers {
   onWalk(position: Vector2): void;
@@ -9,6 +9,7 @@ export interface SceneInteractionHandlers {
 }
 
 export interface SceneRenderOptions {
+  animationPacks?: Record<string, AnimationPackDocument>;
   assets?: Record<string, AssetDocument>;
   assetBaseUrl?: string;
 }
@@ -26,6 +27,9 @@ export class PixiSceneRenderer {
   private readonly actorTargets = new Map<string, Container>();
   private readonly player = new Container();
   private readonly pickupTargets = new Map<string, Graphics>();
+  private playerAnimatedSprite: AnimatedSprite | null = null;
+  private playerClipTextures = new Map<string, Texture[]>();
+  private playerCurrentClipId: string | null = null;
   private playerAnimationFrame: number | null = null;
   private playerFacing: 1 | -1 = 1;
   private playerPosition: Vector2 = { x: 0, y: 0 };
@@ -188,6 +192,19 @@ export class PixiSceneRenderer {
     this.player.removeChildren();
 
     const asset = this.scene.player?.assetId ? this.options.assets?.[this.scene.player.assetId] : null;
+    const animationPack = this.scene.player?.animationPackId
+      ? this.options.animationPacks?.[this.scene.player.animationPackId]
+      : null;
+    if (animationPack) {
+      const animated = await this.createAnimatedSprite(animationPack, "idle", 128);
+      if (animated) {
+        this.playerAnimatedSprite = animated;
+        this.playerCurrentClipId = "idle";
+        this.player.addChild(animated);
+        return;
+      }
+    }
+
     if (asset) {
       try {
         const assetUrl = new URL(asset.path, this.options.assetBaseUrl ?? window.location.href).toString();
@@ -229,6 +246,7 @@ export class PixiSceneRenderer {
     }
 
     this.playerFacing = target.x < start.x ? -1 : 1;
+    this.playPlayerClip("walk");
     const walkSpeed = this.scene.player?.walkSpeed ?? 320;
     const duration = Math.max(120, Math.min(2400, (distance / walkSpeed) * 1000));
     const startedAt = performance.now();
@@ -246,6 +264,7 @@ export class PixiSceneRenderer {
       if (t < 1) {
         this.playerAnimationFrame = requestAnimationFrame(step);
       } else {
+        this.playPlayerClip("idle");
         this.playerAnimationFrame = null;
       }
     };
@@ -282,16 +301,30 @@ export class PixiSceneRenderer {
       this.handlers.onActor(actor.id);
     });
 
-    const asset = actor.assetId ? this.options.assets?.[actor.assetId] : null;
-    if (asset) {
-      const assetUrl = new URL(asset.path, this.options.assetBaseUrl ?? window.location.href).toString();
-      try {
-        const texture = await Assets.load(assetUrl);
-        const sprite = new Sprite(texture);
-        sprite.width = actor.bounds.width;
-        sprite.height = actor.bounds.height;
-        container.addChild(sprite);
-      } catch {
+    const animationPack = actor.animationPackId ? this.options.animationPacks?.[actor.animationPackId] : null;
+    if (animationPack) {
+      const animated = await this.createAnimatedSprite(animationPack, "idle", actor.bounds.height);
+      if (animated) {
+        animated.width = actor.bounds.width;
+        animated.height = actor.bounds.height;
+        container.addChild(animated);
+      } else {
+        container.addChild(this.createActorDebugShape(actor));
+      }
+    } else if (actor.assetId) {
+      const asset = this.options.assets?.[actor.assetId];
+      if (asset) {
+        const assetUrl = new URL(asset.path, this.options.assetBaseUrl ?? window.location.href).toString();
+        try {
+          const texture = await Assets.load(assetUrl);
+          const sprite = new Sprite(texture);
+          sprite.width = actor.bounds.width;
+          sprite.height = actor.bounds.height;
+          container.addChild(sprite);
+        } catch {
+          container.addChild(this.createActorDebugShape(actor));
+        }
+      } else {
         container.addChild(this.createActorDebugShape(actor));
       }
     } else {
@@ -311,5 +344,82 @@ export class PixiSceneRenderer {
       .roundRect(0, 0, actor.bounds.width, actor.bounds.height, 8)
       .fill({ color: 0x66d9ef, alpha: actor.role === "decoration" ? 0.08 : 0.18 })
       .stroke({ color: 0x66d9ef, alpha: 0.72, width: 2 });
+  }
+
+  private async createAnimatedSprite(
+    animationPack: AnimationPackDocument,
+    preferredClipId: string,
+    targetHeight: number
+  ): Promise<AnimatedSprite | null> {
+    const asset = this.options.assets?.[animationPack.assetId];
+    if (!asset) return null;
+
+    try {
+      const assetUrl = new URL(asset.path, this.options.assetBaseUrl ?? window.location.href).toString();
+      const sheetTexture = await Assets.load<Texture>(assetUrl);
+      const texturesByClip = new Map<string, Texture[]>();
+      for (const candidate of animationPack.clips) {
+        texturesByClip.set(
+          candidate.id,
+          candidate.frames.map((frameIndex) => {
+            const column = frameIndex % animationPack.grid.columns;
+            const row = Math.floor(frameIndex / animationPack.grid.columns);
+            return new Texture({
+              source: sheetTexture.source,
+              frame: new Rectangle(
+                column * animationPack.frame.width,
+                row * animationPack.frame.height,
+                animationPack.frame.width,
+                animationPack.frame.height
+              )
+            });
+          })
+        );
+      }
+      const clip =
+        animationPack.clips.find((candidate) => candidate.id === preferredClipId) ??
+        animationPack.clips[0];
+      if (!clip) return null;
+      const textures = texturesByClip.get(clip.id);
+      if (!textures) return null;
+      if (animationPack.id === this.scene.player?.animationPackId) {
+        this.playerClipTextures = texturesByClip;
+      }
+      const sprite = new AnimatedSprite(textures);
+      sprite.anchor.set(
+        animationPack.footOrigin.x / animationPack.frame.width,
+        animationPack.footOrigin.y / animationPack.frame.height
+      );
+      sprite.animationSpeed = clip.fps / 60;
+      sprite.loop = clip.loop;
+      sprite.height = targetHeight;
+      sprite.width = (animationPack.frame.width / animationPack.frame.height) * sprite.height;
+      sprite.play();
+      return sprite;
+    } catch {
+      return null;
+    }
+  }
+
+  private playPlayerClip(clipId: string): void {
+    const animationPack = this.scene.player?.animationPackId
+      ? this.options.animationPacks?.[this.scene.player.animationPackId]
+      : null;
+    if (!this.playerAnimatedSprite || !animationPack || this.playerCurrentClipId === clipId) return;
+
+    const clip =
+      animationPack.clips.find((candidate) => candidate.id === clipId) ??
+      animationPack.clips.find((candidate) => candidate.id === "idle") ??
+      animationPack.clips[0];
+    if (!clip) return;
+
+    const nextTextures = this.playerClipTextures.get(clip.id);
+    if (!nextTextures) return;
+
+    this.playerAnimatedSprite.textures = nextTextures;
+    this.playerAnimatedSprite.animationSpeed = clip.fps / 60;
+    this.playerAnimatedSprite.loop = clip.loop;
+    this.playerAnimatedSprite.gotoAndPlay(0);
+    this.playerCurrentClipId = clip.id;
   }
 }

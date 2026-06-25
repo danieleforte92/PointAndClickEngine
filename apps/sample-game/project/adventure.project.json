@@ -12,6 +12,10 @@
     {
       "id": "moonlit-dock",
       "path": "scenes/moonlit-dock.scene.json"
+    },
+    {
+      "id": "new-scene",
+      "path": "scenes/new-scene.scene.json"
     }
   ],
   "flows": [
@@ -30,6 +34,10 @@
     {
       "id": "use-rusty-hook-on-door",
       "path": "flows/use-rusty-hook-on-door.flow.json"
+    },
+    {
+      "id": "return-to-dock",
+      "path": "flows/return-to-dock.flow.json"
     }
   ],
   "items": [
@@ -44,10 +52,22 @@
       "path": "prompt-packs/moonlit-dock-art.prompt-pack.json"
     }
   ],
+  "animationPacks": [
+    {
+      "id": "mara",
+      "path": "animation-packs/mara.animation-pack.json"
+    }
+  ],
   "locales": [
     {
       "locale": "en",
       "path": "locales/en.json"
+    }
+  ],
+  "assets": [
+    {
+      "id": "mara-spritesheet",
+      "path": "assets/mara-spritesheet.asset.json"
     }
   ]
 }

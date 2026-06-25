@@ -17,7 +17,7 @@ import type {
 
 export type Workspace = "overview" | "scene" | "narrative" | "assets" | "build";
 export type FlagValueKind = "string" | "number" | "boolean";
-export type DraftNodeType = "line" | "set-flag" | "end";
+export type DraftNodeType = "line" | "set-flag" | "change-scene" | "end";
 
 export interface HotspotDraft {
   cursor: string;
@@ -49,6 +49,7 @@ export interface PickupDraft {
 }
 
 export interface ActorDraft {
+  animationPackId: string;
   assetId: string;
   cursor: string;
   depth: string;
@@ -84,6 +85,7 @@ export interface SceneDraft {
   background: string;
   height: string;
   name: string;
+  playerAnimationPackId: string;
   playerAssetId: string;
   playerScaleFar: string;
   playerScaleNear: string;
@@ -111,12 +113,22 @@ export interface FlowFlagDraftNode {
   valueKind: FlagValueKind;
 }
 
+export interface FlowChangeSceneDraftNode {
+  id: string;
+  next: string;
+  playerStartEnabled: boolean;
+  playerStartX: string;
+  playerStartY: string;
+  targetSceneId: string;
+  type: "change-scene";
+}
+
 export interface FlowEndDraftNode {
   id: string;
   type: "end";
 }
 
-export type FlowDraftNode = FlowLineDraftNode | FlowFlagDraftNode | FlowEndDraftNode;
+export type FlowDraftNode = FlowLineDraftNode | FlowFlagDraftNode | FlowChangeSceneDraftNode | FlowEndDraftNode;
 
 export interface FlowDraft {
   id: string;
@@ -244,6 +256,7 @@ export function createActorDraft(actor: SceneActor | null): ActorDraft {
   const visibleWhen = actor?.visibleWhen;
   const visibleWhenType = visibleWhen?.type ?? "none";
   return {
+    animationPackId: actor?.animationPackId ?? "",
     assetId: actor?.assetId ?? "",
     cursor: "",
     depth: actor ? String(actor.depth) : "0",
@@ -288,6 +301,7 @@ export function createSceneDraft(scene: Layered2DScene | null): SceneDraft {
     background: scene?.background ?? "",
     height: scene ? String(scene.size.height) : "",
     name: scene?.name ?? "",
+    playerAnimationPackId: player.animationPackId ?? "",
     playerAssetId: player.assetId ?? "",
     playerScaleFar: String(player.scaleFar),
     playerScaleNear: String(player.scaleNear),
@@ -309,6 +323,7 @@ export function createSceneDraft(scene: Layered2DScene | null): SceneDraft {
 
 export function createScenePlayerConfig(player?: ScenePlayerConfig | null): Required<ScenePlayerConfig> {
   return {
+    animationPackId: player?.animationPackId ?? "",
     assetId: player?.assetId ?? "",
     scaleFar: player?.scaleFar ?? 0.62,
     scaleNear: player?.scaleNear ?? 1.08,
@@ -355,6 +370,17 @@ export function createFlowDraft(flow: FlowDocument | null): FlowDraft | null {
           type: "set-flag",
           value: String(node.value),
           valueKind: inferFlagValueKind(node.value)
+        };
+      }
+      if (node.type === "change-scene") {
+        return {
+          id: node.id,
+          next: node.next,
+          playerStartEnabled: node.playerStart !== undefined,
+          playerStartX: node.playerStart ? String(node.playerStart.x) : "",
+          playerStartY: node.playerStart ? String(node.playerStart.y) : "",
+          targetSceneId: node.targetSceneId,
+          type: "change-scene"
         };
       }
       return {
@@ -455,6 +481,13 @@ export function buildActorFromDraft(actor: SceneActor, draft: ActorDraft): Scene
     nextActor.assetId = assetId;
   } else {
     delete nextActor.assetId;
+  }
+
+  const animationPackId = draft.animationPackId.trim();
+  if (animationPackId) {
+    nextActor.animationPackId = animationPackId;
+  } else {
+    delete nextActor.animationPackId;
   }
 
   if (draft.lookFlowId.trim()) nextActor.actions.lookFlowId = draft.lookFlowId.trim();
@@ -624,6 +657,17 @@ export function createNewFlowNode(type: DraftNodeType, nodes: FlowDraftNode[]): 
       valueKind: "boolean"
     };
   }
+  if (type === "change-scene") {
+    return {
+      id: generateNodeId(nodes, "scene"),
+      next: nextNodeTarget(nodes),
+      playerStartEnabled: false,
+      playerStartX: "",
+      playerStartY: "",
+      targetSceneId: "",
+      type: "change-scene"
+    };
+  }
   return {
     id: generateNodeId(nodes, "end"),
     type: "end"
@@ -654,6 +698,19 @@ export function buildFlowNodes(nodes: FlowDraftNode[]): FlowNode[] {
         next: node.next.trim(),
         type: "set-flag",
         value
+      };
+    }
+    if (node.type === "change-scene") {
+      const playerStartX = parseNumber(node.playerStartX);
+      const playerStartY = parseNumber(node.playerStartY);
+      return {
+        id: node.id.trim(),
+        next: node.next.trim(),
+        ...(node.playerStartEnabled && playerStartX !== null && playerStartY !== null
+          ? { playerStart: { x: playerStartX, y: playerStartY } }
+          : {}),
+        targetSceneId: node.targetSceneId.trim(),
+        type: "change-scene"
       };
     }
     return {

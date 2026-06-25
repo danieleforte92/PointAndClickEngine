@@ -63,6 +63,16 @@ export function advanceFlow(
       continue;
     }
 
+    if (node.type === "change-scene") {
+      commands.push({
+        type: "scene/change",
+        sceneId: node.targetSceneId,
+        player: node.playerStart ?? _world.player
+      });
+      currentNodeId = node.next;
+      continue;
+    }
+
     commands.push({ type: "flow/end", flowId: flow.id });
     return {
       commands,
@@ -73,4 +83,3 @@ export function advanceFlow(
 
   throw new Error(`Flow "${flow.id}" exceeded its synchronous step limit`);
 }
-

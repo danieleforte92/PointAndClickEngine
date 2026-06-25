@@ -211,6 +211,8 @@ function formatEvent(
     }
     case "character/moved":
       return `character moved: ${Math.round(event.x)}, ${Math.round(event.y)}`;
+    case "scene/changed":
+      return `scene changed: ${bundle.scenes[event.sceneId]?.name ?? event.sceneId}`;
     case "hotspot/interacted": {
       const hotspot = scene.hotspots.find(
         (entry) => entry.id === event.hotspotId,
@@ -362,7 +364,11 @@ export function PlayerApp() {
           setFrame(nextFrame);
         },
       },
-      { assets: activeBundle.assets, ...(assetBaseUrl ? { assetBaseUrl } : {}) },
+      {
+        animationPacks: activeBundle.animationPacks,
+        assets: activeBundle.assets,
+        ...(assetBaseUrl ? { assetBaseUrl } : {})
+      },
     );
     rendererRef.current = renderer;
 

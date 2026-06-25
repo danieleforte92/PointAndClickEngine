@@ -7,13 +7,16 @@ adventures. The repository currently implements the first playable foundation:
 - deterministic command/event game state;
 - a small narrative Flow VM;
 - a PixiJS layered-2D renderer;
-- a web player with a playable sample scene;
+- a web player with a playable two-scene sample;
 - an Electron/React editor shell;
+- mock-only AI prompt pack documents;
+- MVP animation pack documents for sprite clips;
 - isolated Electron and external-browser preview paths;
 - unit, schema, E2E, typecheck, and packaging verification.
 
-The sample game, **The Isle of Echoes**, supports walking, activating the tavern
-hotspot, setting world state, and completing a localized dialogue flow.
+The sample game, **The Isle of Echoes**, supports walking, activating hotspots,
+collecting inventory, using an item, changing scenes, and completing localized
+dialogue flows.
 
 ## Why This Exists
 
@@ -62,12 +65,12 @@ system browser.
 The current sample is intentionally small, but it already demonstrates the
 core point-and-click loop end to end:
 
-`scene -> hotspot -> inventory -> item use -> flow -> state update`
+`scene -> hotspot -> inventory -> item use -> flow -> state update -> transition`
 
 In **The Isle of Echoes**, the player can walk the dock, inspect the tavern
-door, collect the rusty hook, use it on the tavern entrance, and see the world
-state update through the same deterministic runtime used by the editor preview
-and web player.
+door, collect the rusty hook, use it on the tavern entrance, enter the tavern,
+and see the world state update through the same deterministic runtime used by
+the editor preview and web player.
 
 ## Verify
 
@@ -76,6 +79,7 @@ pnpm test
 pnpm test:e2e
 pnpm typecheck
 pnpm validate:sample
+pnpm validate:starter
 pnpm build
 ```
 
@@ -103,5 +107,7 @@ packages/cli           Project validation commands
 ```
 
 See [Architecture](docs/architecture.md), [Project Format](docs/project-format.md),
-the technical [Roadmap](docs/roadmap.md), and the
-[Content-Driven Roadmap](docs/content-driven-roadmap.md).
+the [Authoring Tutorial](docs/authoring-tutorial.md),
+[AI Prompt Pack Guide](docs/ai-prompt-pack-guide.md),
+[Character Gym Guide](docs/character-gym-guide.md), the technical
+[Roadmap](docs/roadmap.md), and the [Content-Driven Roadmap](docs/content-driven-roadmap.md).

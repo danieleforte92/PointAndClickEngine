@@ -81,4 +81,24 @@ describe("deterministic command/event core", () => {
     ]);
     expect(result.state.sequence).toBe(1);
   });
+
+  it("changes scenes as a replayable state transition", () => {
+    const initial = createInitialState("dock", { x: 10, y: 20 });
+    const result = executeCommand(initial, {
+      type: "scene/change",
+      sceneId: "tavern",
+      player: { x: 300, y: 580 }
+    });
+
+    expect(result.events).toEqual([
+      {
+        type: "scene/changed",
+        sceneId: "tavern",
+        player: { x: 300, y: 580 }
+      }
+    ]);
+    expect(result.state.sceneId).toBe("tavern");
+    expect(result.state.player).toEqual({ x: 300, y: 580 });
+    expect(replay(initial, result.events)).toEqual(result.state);
+  });
 });

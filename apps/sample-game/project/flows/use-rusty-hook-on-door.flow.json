@@ -16,6 +16,16 @@
       "type": "line",
       "speakerId": "mara",
       "textKey": "dialogue.tavern.use-hook.01",
+      "next": "enter-tavern"
+    },
+    {
+      "id": "enter-tavern",
+      "type": "change-scene",
+      "targetSceneId": "new-scene",
+      "playerStart": {
+        "x": 350,
+        "y": 585
+      },
       "next": "end"
     },
     {

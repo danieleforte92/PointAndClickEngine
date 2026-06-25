@@ -1,0 +1,157 @@
+{
+  "schemaVersion": 1,
+  "id": "new-scene",
+  "name": "Lantern Room",
+  "type": "layered-2d",
+  "size": {
+    "width": 1280,
+    "height": 720
+  },
+  "background": "#241d2b",
+  "player": {
+    "animationPackId": "mara",
+    "scaleFar": 0.68,
+    "scaleNear": 1.12,
+    "walkSpeed": 320
+  },
+  "playerStart": {
+    "x": 350,
+    "y": 585
+  },
+  "walkArea": {
+    "points": [
+      {
+        "x": 120,
+        "y": 500
+      },
+      {
+        "x": 1160,
+        "y": 500
+      },
+      {
+        "x": 1180,
+        "y": 660
+      },
+      {
+        "x": 180,
+        "y": 675
+      }
+    ]
+  },
+  "actors": [
+    {
+      "id": "sleeping-keeper",
+      "role": "npc",
+      "labelKey": "actor.sleeping-keeper",
+      "animationPackId": "mara",
+      "bounds": {
+        "x": 850,
+        "y": 400,
+        "width": 96,
+        "height": 128
+      },
+      "depth": 8,
+      "interactSpot": {
+        "x": 830,
+        "y": 585
+      },
+      "lookSpot": {
+        "x": 895,
+        "y": 430
+      },
+      "actions": {
+        "talkFlowId": "talk-tavern-door",
+        "useItemFlows": []
+      }
+    }
+  ],
+  "pickups": [],
+  "shapes": [
+    {
+      "id": "back-wall",
+      "shape": "rect",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1280,
+        "height": 520
+      },
+      "fill": "#2f2637",
+      "depth": 0
+    },
+    {
+      "id": "floor",
+      "shape": "rect",
+      "bounds": {
+        "x": 0,
+        "y": 520,
+        "width": 1280,
+        "height": 200
+      },
+      "fill": "#4a332d",
+      "depth": 1
+    },
+    {
+      "id": "hearth",
+      "shape": "rect",
+      "bounds": {
+        "x": 520,
+        "y": 270,
+        "width": 240,
+        "height": 210
+      },
+      "fill": "#6b3e35",
+      "depth": 3
+    },
+    {
+      "id": "lantern-glow",
+      "shape": "ellipse",
+      "bounds": {
+        "x": 560,
+        "y": 170,
+        "width": 160,
+        "height": 120
+      },
+      "fill": "#d79b55",
+      "depth": 4
+    },
+    {
+      "id": "counter",
+      "shape": "rect",
+      "bounds": {
+        "x": 730,
+        "y": 520,
+        "width": 380,
+        "height": 90
+      },
+      "fill": "#5a3b30",
+      "depth": 9
+    }
+  ],
+  "hotspots": [
+    {
+      "id": "door-to-dock",
+      "labelKey": "hotspot.door-to-dock",
+      "bounds": {
+        "x": 160,
+        "y": 315,
+        "width": 140,
+        "height": 230
+      },
+      "interactSpot": {
+        "x": 300,
+        "y": 585
+      },
+      "lookSpot": {
+        "x": 230,
+        "y": 410
+      },
+      "actions": {
+        "lookFlowId": "look-tavern-door",
+        "useFlowId": "return-to-dock",
+        "useItemFlows": []
+      },
+      "cursor": "enter"
+    }
+  ]
+}

@@ -88,6 +88,7 @@ export const ProjectManifestSchema = Type.Object(
     items: Type.Array(ManifestDocumentReferenceSchema),
     assets: Type.Optional(Type.Array(ManifestDocumentReferenceSchema)),
     promptPacks: Type.Optional(Type.Array(ManifestDocumentReferenceSchema)),
+    animationPacks: Type.Optional(Type.Array(ManifestDocumentReferenceSchema)),
     locales: Type.Array(
       Type.Object(
         {
@@ -171,6 +172,7 @@ export const SceneActorSchema = Type.Object(
     role: SceneActorRoleSchema,
     labelKey: Type.String({ minLength: 1 }),
     assetId: Type.Optional(Id),
+    animationPackId: Type.Optional(Id),
     bounds: RectSchema,
     depth: Type.Number(),
     visibleWhen: Type.Optional(ConditionExpressionSchema),
@@ -184,6 +186,7 @@ export const SceneActorSchema = Type.Object(
 export const ScenePlayerConfigSchema = Type.Object(
   {
     assetId: Type.Optional(Id),
+    animationPackId: Type.Optional(Id),
     scaleFar: Type.Optional(Type.Number({ minimum: 0.05 })),
     scaleNear: Type.Optional(Type.Number({ minimum: 0.05 })),
     walkSpeed: Type.Optional(Type.Number({ minimum: 1 }))
@@ -260,6 +263,17 @@ const FlowSetFlagNodeSchema = Type.Object(
   { additionalProperties: false }
 );
 
+const FlowChangeSceneNodeSchema = Type.Object(
+  {
+    id: Id,
+    type: Type.Literal("change-scene"),
+    targetSceneId: Id,
+    playerStart: Type.Optional(Vector2Schema),
+    next: Id
+  },
+  { additionalProperties: false }
+);
+
 const FlowEndNodeSchema = Type.Object(
   {
     id: Id,
@@ -271,6 +285,7 @@ const FlowEndNodeSchema = Type.Object(
 export const FlowNodeSchema = Type.Union([
   FlowLineNodeSchema,
   FlowSetFlagNodeSchema,
+  FlowChangeSceneNodeSchema,
   FlowEndNodeSchema
 ]);
 
@@ -314,6 +329,43 @@ export const AssetDocumentSchema = Type.Object(
     kind: AssetKindSchema,
     path: ProjectPath,
     source: AssetSourceSchema
+  },
+  { additionalProperties: false }
+);
+
+export const AnimationPackClipSchema = Type.Object(
+  {
+    id: Id,
+    frames: Type.Array(Type.Integer({ minimum: 0 }), { minItems: 1 }),
+    fps: Type.Number({ exclusiveMinimum: 0 }),
+    loop: Type.Boolean()
+  },
+  { additionalProperties: false }
+);
+
+export const AnimationPackDocumentSchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    id: Id,
+    name: Type.String({ minLength: 1 }),
+    assetId: Id,
+    frame: Type.Object(
+      {
+        width: Type.Integer({ minimum: 1 }),
+        height: Type.Integer({ minimum: 1 })
+      },
+      { additionalProperties: false }
+    ),
+    grid: Type.Object(
+      {
+        columns: Type.Integer({ minimum: 1 }),
+        rows: Type.Integer({ minimum: 1 })
+      },
+      { additionalProperties: false }
+    ),
+    footOrigin: Vector2Schema,
+    defaultFacing: Type.Union([Type.Literal("right"), Type.Literal("left")]),
+    clips: Type.Array(AnimationPackClipSchema, { minItems: 1 })
   },
   { additionalProperties: false }
 );
@@ -487,6 +539,8 @@ export type ItemDocument = Static<typeof ItemDocumentSchema>;
 export type AssetDocument = Static<typeof AssetDocumentSchema>;
 export type AssetKind = Static<typeof AssetKindSchema>;
 export type AssetSource = Static<typeof AssetSourceSchema>;
+export type AnimationPackClip = Static<typeof AnimationPackClipSchema>;
+export type AnimationPackDocument = Static<typeof AnimationPackDocumentSchema>;
 export type PromptPackContext = Static<typeof PromptPackContextSchema>;
 export type PromptPackGenerationTarget = Static<typeof PromptPackGenerationTargetSchema>;
 export type PromptPackOutputs = Static<typeof PromptPackOutputsSchema>;
@@ -501,5 +555,6 @@ export interface ProjectBundle {
   locales: Record<string, LocaleDocument>;
   items: Record<string, ItemDocument>;
   assets: Record<string, AssetDocument>;
+  animationPacks: Record<string, AnimationPackDocument>;
   promptPacks: Record<string, PromptPackDocument>;
 }

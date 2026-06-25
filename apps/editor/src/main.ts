@@ -5,6 +5,7 @@ import { createServer, type Server } from "node:http";
 import path from "node:path";
 import type {
   AssetDocument,
+  AnimationPackDocument,
   FlowDocument,
   Hotspot,
   ItemDocument,
@@ -371,7 +372,9 @@ async function summarizeProject(projectDirectory: string, bundle: ProjectBundle)
   const activePickup: ScenePickup | null = activeScene?.pickups[0] ?? null;
   const activeItem: ItemDocument | null = Object.values(bundle.items)[0] ?? null;
   const activeAsset: AssetDocument | null = Object.values(bundle.assets)[0] ?? null;
+  const activeAnimationPack: AnimationPackDocument | null = Object.values(bundle.animationPacks)[0] ?? null;
   const promptPacks: PromptPackDocument[] = Object.values(bundle.promptPacks);
+  const animationPacks: AnimationPackDocument[] = Object.values(bundle.animationPacks);
 
   return {
     activeActorId: activeActor?.id ?? null,
@@ -384,6 +387,8 @@ async function summarizeProject(projectDirectory: string, bundle: ProjectBundle)
     activeSceneId: activeScene?.id ?? bundle.manifest.initialSceneId,
     assetCount: Object.keys(bundle.assets).length,
     assets: Object.values(bundle.assets),
+    animationPackCount: animationPacks.length,
+    animationPacks,
     directory: projectDirectory,
     diagnostics,
     flowCount: Object.keys(bundle.flows).length,
@@ -399,6 +404,7 @@ async function summarizeProject(projectDirectory: string, bundle: ProjectBundle)
     scenes: Object.values(bundle.scenes),
     selectedAsset: activeAsset,
     selectedActor: activeActor,
+    selectedAnimationPack: activeAnimationPack,
     selectedFlow: activeFlow,
     selectedHotspot: activeHotspot,
     selectedItem: activeItem,

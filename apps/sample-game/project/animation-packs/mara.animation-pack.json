@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "mara",
+  "name": "Mara MVP Animation Pack",
+  "assetId": "mara-spritesheet",
+  "frame": {
+    "width": 64,
+    "height": 64
+  },
+  "grid": {
+    "columns": 3,
+    "rows": 2
+  },
+  "footOrigin": {
+    "x": 32,
+    "y": 63
+  },
+  "defaultFacing": "right",
+  "clips": [
+    {
+      "id": "idle",
+      "frames": [0, 1, 0, 2],
+      "fps": 4,
+      "loop": true
+    },
+    {
+      "id": "walk",
+      "frames": [3, 4, 5, 4],
+      "fps": 8,
+      "loop": true
+    },
+    {
+      "id": "talk",
+      "frames": [0, 1],
+      "fps": 6,
+      "loop": true
+    }
+  ]
+}

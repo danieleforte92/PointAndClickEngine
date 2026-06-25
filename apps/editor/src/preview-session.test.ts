@@ -21,6 +21,7 @@ const manifest: ProjectManifest = {
   flows: [{ id: "look-door", path: "flows/look-door.flow.json" }],
   items: [{ id: "rusty-hook", path: "items/rusty-hook.item.json" }],
   assets: [],
+  animationPacks: [],
   promptPacks: [],
   locales: [{ locale: "en", path: "locales/en.json" }]
 };
@@ -122,6 +123,8 @@ const snapshot: EditorProjectSnapshot = {
   activeSceneId: scene.id,
   assetCount: 0,
   assets: [],
+  animationPackCount: 0,
+  animationPacks: [],
   diagnostics: [],
   directory: "D:/Work/PointAndClickEngine/apps/sample-game/project",
   flowCount: 1,
@@ -135,6 +138,7 @@ const snapshot: EditorProjectSnapshot = {
   promptPacks: [],
   selectedAsset: null,
   selectedActor: scene.actors[0]!,
+  selectedAnimationPack: null,
   sceneCount: 1,
   scenes: [scene],
   selectedFlow: flow,
@@ -152,6 +156,7 @@ describe("buildDraftProjectBundle", () => {
       background: "#654321",
       height: "810",
       name: "Moonlit Dock Revised",
+      playerAnimationPackId: "",
       playerAssetId: "",
       playerScaleFar: "0.55",
       playerScaleNear: "1.12",
@@ -184,6 +189,7 @@ describe("buildDraftProjectBundle", () => {
       y: "330"
     };
     session.actorDrafts[`${scene.id}::actor::radio`] = {
+      animationPackId: "",
       assetId: "",
       cursor: "",
       depth: "9",
