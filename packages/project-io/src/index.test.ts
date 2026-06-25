@@ -50,7 +50,15 @@ describe("loadProjectFromDirectory", () => {
           height: 225
         },
         cursor: "enter",
-        labelKey: "hotspot.tavern-entrance-updated"
+        interactSpot: {
+          x: 890,
+          y: 585
+        },
+        labelKey: "hotspot.tavern-entrance-updated",
+        lookSpot: {
+          x: 900,
+          y: 350
+        }
       },
       sceneId: "moonlit-dock"
     });
@@ -75,7 +83,15 @@ describe("loadProjectFromDirectory", () => {
         height: 225
       },
       cursor: "enter",
-      labelKey: "hotspot.tavern-entrance-updated"
+      interactSpot: {
+        x: 890,
+        y: 585
+      },
+      labelKey: "hotspot.tavern-entrance-updated",
+      lookSpot: {
+        x: 900,
+        y: 350
+      }
     });
 
     const scenePath = path.join(projectRoot, "scenes", "moonlit-dock.scene.json");

@@ -14,7 +14,7 @@ import type {
 import {
   buildFlowNodes,
   buildActorFromDraft,
-  buildHotspotUseItemFlows,
+  buildHotspotFromDraft,
   parseNumber,
   parsePositiveNumber,
   type EditorSessionState
@@ -84,41 +84,7 @@ function applySceneDrafts(
 function applyHotspotDraft(scene: Layered2DScene, hotspotId: string, draft: EditorSessionState["hotspotDrafts"][string]) {
   return scene.hotspots.map((hotspot): Hotspot => {
     if (hotspot.id !== hotspotId) return hotspot;
-
-    const x = parseNumber(draft.x);
-    const y = parseNumber(draft.y);
-    const width = parsePositiveNumber(draft.width);
-    const height = parsePositiveNumber(draft.height);
-
-    const nextHotspot: Hotspot = {
-      ...hotspot,
-      labelKey: draft.labelKey,
-      bounds:
-        x === null || y === null || width === null || height === null
-          ? hotspot.bounds
-          : { x, y, width, height },
-      actions: {
-        useItemFlows: buildHotspotUseItemFlows(draft.useItemFlows)
-      }
-    };
-
-    const nextCursor = draft.cursor.trim();
-    if (nextCursor === "look" || nextCursor === "talk" || nextCursor === "use" || nextCursor === "enter") {
-      nextHotspot.cursor = nextCursor;
-    } else {
-      delete nextHotspot.cursor;
-    }
-    if (draft.lookFlowId.trim()) {
-      nextHotspot.actions.lookFlowId = draft.lookFlowId.trim();
-    }
-    if (draft.talkFlowId.trim()) {
-      nextHotspot.actions.talkFlowId = draft.talkFlowId.trim();
-    }
-    if (draft.useFlowId.trim()) {
-      nextHotspot.actions.useFlowId = draft.useFlowId.trim();
-    }
-
-    return nextHotspot;
+    return buildHotspotFromDraft(hotspot, draft);
   });
 }
 

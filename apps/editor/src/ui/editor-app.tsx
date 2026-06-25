@@ -27,8 +27,8 @@ import {
   workspaceCapabilities
 } from "../editor-capabilities";
 import {
-  buildHotspotUseItemFlows,
   buildActorFromDraft,
+  buildHotspotFromDraft,
   buildFlowNodes,
   buildRecoverySnapshot,
   clampScenePoint,
@@ -461,6 +461,7 @@ function buildGuardrail(
 
 function summarizeHotspotViewportIssues(
   hotspot: Hotspot,
+  scene: Layered2DScene,
   availableFlowIdsSet: Set<string>,
   availableItemIdsSet: Set<string>,
   defaultLocaleId: string,
@@ -502,6 +503,13 @@ function summarizeHotspotViewportIssues(
       blockingIssues.push(`Override ${index + 1} flow "${flowId}" no longer exists.`);
     }
   });
+
+  if (!scenePointIsInside(hotspot.interactSpot, scene.size)) {
+    blockingIssues.push("Interact spot is outside the scene.");
+  }
+  if (!scenePointIsInside(hotspot.lookSpot, scene.size)) {
+    blockingIssues.push("Look spot is outside the scene.");
+  }
 
   return {
     detail: [...blockingIssues, ...warningIssues][0] ?? "Ready to save.",
@@ -652,7 +660,7 @@ type ViewportInteraction =
     }
   | {
       baseSession: EditorSessionState;
-      kind: "actor-interact-spot" | "actor-look-spot";
+      kind: "actor-interact-spot" | "actor-look-spot" | "hotspot-interact-spot" | "hotspot-look-spot";
       startPoint: ScenePointDraftValue;
       startPosition: ScenePointDraftValue;
     }
@@ -711,7 +719,7 @@ function sceneToolLabel(tool: SceneTool): string {
 function sceneToolHint(tool: SceneTool): string {
   switch (tool) {
     case "select":
-      return "Click hotspots and pickups to inspect them without moving the scene.";
+      return "Click actors, hotspots, and pickups to inspect them without moving scene geometry.";
     case "hotspot":
       return "Drag the selected hotspot to move it, or use the lower-right handle to resize it.";
     case "actor":
@@ -721,7 +729,7 @@ function sceneToolHint(tool: SceneTool): string {
     case "player-start":
       return "Drag the character marker to choose the player start position.";
     case "walk-area":
-      return "Drag walk points to reshape the polygon, or click an edge to insert a new point.";
+      return "Drag walk points, click an edge to insert a point, or Shift-click a point to remove it.";
   }
 }
 
@@ -865,34 +873,12 @@ export function EditorApp() {
       return selectedScene?.hotspots ?? [];
     }
 
-    const x = parseNumber(currentHotspotDraft.x);
-    const y = parseNumber(currentHotspotDraft.y);
-    const width = parsePositiveNumber(currentHotspotDraft.width);
-    const height = parsePositiveNumber(currentHotspotDraft.height);
-    if (x === null || y === null || width === null || height === null) {
-      return selectedScene.hotspots;
-    }
-
-    const bounds = moveSceneRect(
-      { x, y, width, height },
-      { x: 0, y: 0 },
-      selectedScene.size
-    );
-
     return selectedScene.hotspots.map((hotspot) =>
-      hotspot.id === selectedHotspot.id
-        ? (() => {
-            const cursor = currentHotspotDraft.cursor.trim();
-            return {
-              ...hotspot,
-              ...(cursor ? { cursor: cursor as CursorValue } : {}),
-              bounds,
-              labelKey: currentHotspotDraft.labelKey
-            };
-          })()
-        : hotspot
+      hotspot.id === selectedHotspot.id ? buildHotspotFromDraft(hotspot, currentHotspotDraft) : hotspot
     );
   }, [currentHotspotDraft, selectedHotspot, selectedScene]);
+  const previewSelectedHotspot =
+    selectedHotspot ? previewHotspots.find((hotspot) => hotspot.id === selectedHotspot.id) ?? selectedHotspot : null;
   const previewActors = useMemo(() => {
     if (!selectedScene || !selectedActor) {
       return selectedScene?.actors ?? [];
@@ -1002,19 +988,29 @@ export function EditorApp() {
   );
   const previewHotspotIssueMap = useMemo(
     () =>
-      Object.fromEntries(
-        previewHotspots.map((hotspot) => [
-          hotspot.id,
-          summarizeHotspotViewportIssues(
-            hotspot,
-            availableFlowIdsSet,
-            availableItemIdsSet,
-            defaultLocaleId,
-            defaultLocaleStrings
+      selectedScene
+        ? Object.fromEntries(
+            previewHotspots.map((hotspot) => [
+              hotspot.id,
+              summarizeHotspotViewportIssues(
+                hotspot,
+                selectedScene,
+                availableFlowIdsSet,
+                availableItemIdsSet,
+                defaultLocaleId,
+                defaultLocaleStrings
+              )
+            ])
           )
-        ])
-      ),
-    [availableFlowIdsSet, availableItemIdsSet, defaultLocaleId, defaultLocaleStrings, previewHotspots]
+        : {},
+    [
+      availableFlowIdsSet,
+      availableItemIdsSet,
+      defaultLocaleId,
+      defaultLocaleStrings,
+      previewHotspots,
+      selectedScene
+    ]
   );
   const previewPickupIssueMap = useMemo(
     () =>
@@ -1098,6 +1094,36 @@ export function EditorApp() {
       }
     });
 
+    const interactSpot =
+      currentHotspotDraft.interactSpotEnabled &&
+      parseNumber(currentHotspotDraft.interactSpotX) !== null &&
+      parseNumber(currentHotspotDraft.interactSpotY) !== null
+        ? {
+            x: parseNumber(currentHotspotDraft.interactSpotX)!,
+            y: parseNumber(currentHotspotDraft.interactSpotY)!
+          }
+        : undefined;
+    const lookSpot =
+      currentHotspotDraft.lookSpotEnabled &&
+      parseNumber(currentHotspotDraft.lookSpotX) !== null &&
+      parseNumber(currentHotspotDraft.lookSpotY) !== null
+        ? {
+            x: parseNumber(currentHotspotDraft.lookSpotX)!,
+            y: parseNumber(currentHotspotDraft.lookSpotY)!
+          }
+        : undefined;
+
+    if (currentHotspotDraft.interactSpotEnabled && !interactSpot) {
+      blockingIssues.push("Interact spot must use valid X/Y numbers.");
+    } else if (selectedScene && !scenePointIsInside(interactSpot, selectedScene.size)) {
+      blockingIssues.push("Interact spot is outside the scene.");
+    }
+    if (currentHotspotDraft.lookSpotEnabled && !lookSpot) {
+      blockingIssues.push("Look spot must use valid X/Y numbers.");
+    } else if (selectedScene && !scenePointIsInside(lookSpot, selectedScene.size)) {
+      blockingIssues.push("Look spot is outside the scene.");
+    }
+
     return buildGuardrail(
       blockingIssues,
       warningIssues,
@@ -1108,12 +1134,19 @@ export function EditorApp() {
     availableFlowIdsSet,
     availableItemIdsSet,
     currentHotspotDraft.labelKey,
+    currentHotspotDraft.interactSpotEnabled,
+    currentHotspotDraft.interactSpotX,
+    currentHotspotDraft.interactSpotY,
     currentHotspotDraft.lookFlowId,
+    currentHotspotDraft.lookSpotEnabled,
+    currentHotspotDraft.lookSpotX,
+    currentHotspotDraft.lookSpotY,
     currentHotspotDraft.talkFlowId,
     currentHotspotDraft.useFlowId,
     currentHotspotDraft.useItemFlows,
     defaultLocaleId,
-    defaultLocaleStrings
+    defaultLocaleStrings,
+    selectedScene
   ]);
   const actorGuardrail = useMemo(() => {
     const blockingIssues: string[] = [];
@@ -1295,6 +1328,30 @@ export function EditorApp() {
     !!currentHotspotDraft.talkFlowId.trim() && !availableFlowIdsSet.has(currentHotspotDraft.talkFlowId.trim());
   const hotspotUseFlowMissing =
     !!currentHotspotDraft.useFlowId.trim() && !availableFlowIdsSet.has(currentHotspotDraft.useFlowId.trim());
+  const hotspotInteractSpotInvalid =
+    currentHotspotDraft.interactSpotEnabled &&
+    (parseNumber(currentHotspotDraft.interactSpotX) === null ||
+      parseNumber(currentHotspotDraft.interactSpotY) === null ||
+      (!!selectedScene &&
+        !scenePointIsInside(
+          {
+            x: parseNumber(currentHotspotDraft.interactSpotX) ?? Number.NaN,
+            y: parseNumber(currentHotspotDraft.interactSpotY) ?? Number.NaN
+          },
+          selectedScene.size
+        )));
+  const hotspotLookSpotInvalid =
+    currentHotspotDraft.lookSpotEnabled &&
+    (parseNumber(currentHotspotDraft.lookSpotX) === null ||
+      parseNumber(currentHotspotDraft.lookSpotY) === null ||
+      (!!selectedScene &&
+        !scenePointIsInside(
+          {
+            x: parseNumber(currentHotspotDraft.lookSpotX) ?? Number.NaN,
+            y: parseNumber(currentHotspotDraft.lookSpotY) ?? Number.NaN
+          },
+          selectedScene.size
+        )));
   const hotspotOverrideIssues = currentHotspotDraft.useItemFlows.map((entry) => {
     const itemId = entry.itemId.trim();
     const flowId = entry.flowId.trim();
@@ -1336,14 +1393,18 @@ export function EditorApp() {
         ? { kind: "talk-flow" as const }
         : hotspotUseFlowMissing
           ? { kind: "use-flow" as const }
-          : firstHotspotOverrideIssue
-            ? {
+          : hotspotInteractSpotInvalid
+            ? { kind: "interact-spot" as const }
+            : hotspotLookSpotInvalid
+              ? { kind: "look-spot" as const }
+              : firstHotspotOverrideIssue
+                ? {
                 kind: firstHotspotOverrideIssue.missingItem || firstHotspotOverrideIssue.incomplete
                   ? ("override-item" as const)
                   : ("override-flow" as const),
                 index: firstHotspotOverrideIssueIndex
               }
-            : null;
+                : null;
   const firstPickupIssueTarget = pickupItemMissing
     ? { kind: "item" as const }
     : pickupLabelMissing
@@ -1367,6 +1428,12 @@ export function EditorApp() {
         return;
       case "use-flow":
         focusEditorField(hotspotUseFlowRef.current);
+        return;
+      case "interact-spot":
+      case "look-spot":
+        setWorkspace("scene");
+        setActiveSceneTool("hotspot");
+        viewportRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
         return;
       case "override-item":
         focusEditorField(hotspotOverrideItemRefs.current[firstHotspotIssueTarget.index] ?? null);
@@ -1450,6 +1517,30 @@ export function EditorApp() {
           width: String(bounds.width),
           x: String(bounds.x),
           y: String(bounds.y)
+        }
+      }
+    }));
+  };
+
+  const setHotspotDraftSpot = (
+    spot: "interact" | "look",
+    point: ScenePointDraftValue
+  ) => {
+    if (!selectedScene || !selectedHotspot) return;
+    const key = createHotspotKey(selectedScene.id, selectedHotspot.id);
+    const xKey = spot === "interact" ? "interactSpotX" : "lookSpotX";
+    const yKey = spot === "interact" ? "interactSpotY" : "lookSpotY";
+    const enabledKey = spot === "interact" ? "interactSpotEnabled" : "lookSpotEnabled";
+
+    updatePresentWithoutHistory((current) => ({
+      ...current,
+      hotspotDrafts: {
+        ...current.hotspotDrafts,
+        [key]: {
+          ...(current.hotspotDrafts[key] ?? createHotspotDraft(selectedHotspot)),
+          [enabledKey]: true,
+          [xKey]: String(point.x),
+          [yKey]: String(point.y)
         }
       }
     }));
@@ -1609,6 +1700,32 @@ export function EditorApp() {
         x: hotspot.bounds.x,
         y: hotspot.bounds.y
       }
+    });
+  };
+
+  const startHotspotSpotInteraction = (
+    spot: "interact" | "look",
+    point: ScenePointDraftValue,
+    event: ReactPointerEvent
+  ) => {
+    if (
+      !selectedScene ||
+      !canEditViewportScene ||
+      activeSceneTool !== "hotspot" ||
+      !selectedHotspot
+    )
+      return;
+
+    const startPoint = scenePointFromClient(event.clientX, event.clientY);
+    if (!startPoint) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    setViewportInteraction({
+      baseSession: cloneSessionState(history.present),
+      kind: spot === "interact" ? "hotspot-interact-spot" : "hotspot-look-spot",
+      startPoint,
+      startPosition: point
     });
   };
 
@@ -1891,6 +2008,22 @@ export function EditorApp() {
 
       if (viewportInteraction.kind === "actor-look-spot") {
         setActorDraftSpot(
+          "look",
+          moveScenePoint(viewportInteraction.startPosition, delta, selectedScene.size)
+        );
+        return;
+      }
+
+      if (viewportInteraction.kind === "hotspot-interact-spot") {
+        setHotspotDraftSpot(
+          "interact",
+          moveScenePoint(viewportInteraction.startPosition, delta, selectedScene.size)
+        );
+        return;
+      }
+
+      if (viewportInteraction.kind === "hotspot-look-spot") {
+        setHotspotDraftSpot(
           "look",
           moveScenePoint(viewportInteraction.startPosition, delta, selectedScene.size)
         );
@@ -2871,9 +3004,6 @@ export function EditorApp() {
     const width = parsePositiveNumber(currentHotspotDraft.width);
     const height = parsePositiveNumber(currentHotspotDraft.height);
     const labelKey = currentHotspotDraft.labelKey.trim();
-    const lookFlowId = currentHotspotDraft.lookFlowId.trim();
-    const talkFlowId = currentHotspotDraft.talkFlowId.trim();
-    const useFlowId = currentHotspotDraft.useFlowId.trim();
     const cursor = currentHotspotDraft.cursor.trim();
 
     if (x === null || y === null || width === null || height === null) {
@@ -2895,28 +3025,16 @@ export function EditorApp() {
 
     setStatus(`Saving ${selectedHotspot.id}...`);
     try {
+      const nextHotspot = buildHotspotFromDraft(selectedHotspot, currentHotspotDraft);
       const patch = {
-        actions: {
-          lookFlowId: lookFlowId || undefined,
-          talkFlowId: talkFlowId || undefined,
-          useFlowId: useFlowId || undefined,
-          useItemFlows: buildHotspotUseItemFlows(currentHotspotDraft.useItemFlows)
-        },
-        bounds: { x, y, width, height },
-        labelKey
-      } as {
-        actions: {
-          lookFlowId?: string;
-          talkFlowId?: string;
-          useFlowId?: string;
-          useItemFlows: Array<{ itemId: string; flowId: string }>;
-        };
-        bounds: { x: number; y: number; width: number; height: number };
-        cursor?: CursorValue;
-        labelKey: string;
+        actions: nextHotspot.actions,
+        bounds: nextHotspot.bounds,
+        interactSpot: currentHotspotDraft.interactSpotEnabled ? nextHotspot.interactSpot ?? null : null,
+        labelKey: nextHotspot.labelKey,
+        lookSpot: currentHotspotDraft.lookSpotEnabled ? nextHotspot.lookSpot ?? null : null
       };
-      if (cursor !== "") {
-        patch.cursor = cursor as CursorValue;
+      if (nextHotspot.cursor) {
+        Object.assign(patch, { cursor: nextHotspot.cursor });
       }
 
       const snapshot = await window.pointClick.applyCommand({
@@ -3916,6 +4034,38 @@ export function EditorApp() {
                     );
                   })()
                 ))}
+                {previewSelectedHotspot?.interactSpot ? (
+                  <button
+                    className="viewport-spot hotspot-interact-spot"
+                    type="button"
+                    style={{
+                      left: `${(previewSelectedHotspot.interactSpot.x / selectedScene.size.width) * 100}%`,
+                      top: `${(previewSelectedHotspot.interactSpot.y / selectedScene.size.height) * 100}%`
+                    }}
+                    title="Hotspot interact spot"
+                    onPointerDown={(event) =>
+                      startHotspotSpotInteraction("interact", previewSelectedHotspot.interactSpot!, event)
+                    }
+                  >
+                    I
+                  </button>
+                ) : null}
+                {previewSelectedHotspot?.lookSpot ? (
+                  <button
+                    className="viewport-spot hotspot-look-spot"
+                    type="button"
+                    style={{
+                      left: `${(previewSelectedHotspot.lookSpot.x / selectedScene.size.width) * 100}%`,
+                      top: `${(previewSelectedHotspot.lookSpot.y / selectedScene.size.height) * 100}%`
+                    }}
+                    title="Hotspot look spot"
+                    onPointerDown={(event) =>
+                      startHotspotSpotInteraction("look", previewSelectedHotspot.lookSpot!, event)
+                    }
+                  >
+                    L
+                  </button>
+                ) : null}
                 {previewPickups.map((pickup) => (
                   (() => {
                     const pickupIssues = previewPickupIssueMap[pickup.id];
@@ -4563,6 +4713,57 @@ export function EditorApp() {
                       aria-label="Height"
                       value={currentHotspotDraft.height}
                       onChange={(event) => updateHotspotDraft("height", event.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="field-group">
+                  <span>Interaction spots</span>
+                  <label className="checkbox-line">
+                    <input
+                      checked={currentHotspotDraft.interactSpotEnabled}
+                      type="checkbox"
+                      onChange={(event) =>
+                        updateHotspotDraft("interactSpotEnabled", event.target.checked)
+                      }
+                    />
+                    Interact spot
+                  </label>
+                  <div className="four-fields">
+                    <input
+                      aria-label="Hotspot interact spot X"
+                      disabled={!currentHotspotDraft.interactSpotEnabled}
+                      value={currentHotspotDraft.interactSpotX}
+                      onChange={(event) => updateHotspotDraft("interactSpotX", event.target.value)}
+                    />
+                    <input
+                      aria-label="Hotspot interact spot Y"
+                      disabled={!currentHotspotDraft.interactSpotEnabled}
+                      value={currentHotspotDraft.interactSpotY}
+                      onChange={(event) => updateHotspotDraft("interactSpotY", event.target.value)}
+                    />
+                  </div>
+                  <label className="checkbox-line">
+                    <input
+                      checked={currentHotspotDraft.lookSpotEnabled}
+                      type="checkbox"
+                      onChange={(event) =>
+                        updateHotspotDraft("lookSpotEnabled", event.target.checked)
+                      }
+                    />
+                    Look spot
+                  </label>
+                  <div className="four-fields">
+                    <input
+                      aria-label="Hotspot look spot X"
+                      disabled={!currentHotspotDraft.lookSpotEnabled}
+                      value={currentHotspotDraft.lookSpotX}
+                      onChange={(event) => updateHotspotDraft("lookSpotX", event.target.value)}
+                    />
+                    <input
+                      aria-label="Hotspot look spot Y"
+                      disabled={!currentHotspotDraft.lookSpotEnabled}
+                      value={currentHotspotDraft.lookSpotY}
+                      onChange={(event) => updateHotspotDraft("lookSpotY", event.target.value)}
                     />
                   </div>
                 </div>

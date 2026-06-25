@@ -9,6 +9,8 @@ import {
   createActorKey,
   createFlowDraft,
   createHistoryState,
+  createHotspotDraft,
+  createHotspotKey,
   createSceneDraft,
   getDirtyState,
   initializeEditorSession,
@@ -180,6 +182,21 @@ describe("editor-session recovery", () => {
     expect(recovery?.session.sceneDrafts["moonlit-dock"]?.background).toBe("#204060");
     expect(recovery?.session.actorDrafts[createActorKey("moonlit-dock", "radio")]?.depth).toBe("12");
     expect(recovery?.session.flowDrafts["inspect-tavern-door"]).toBeUndefined();
+  });
+
+  it("tracks hotspot spot draft changes as dirty state", () => {
+    const session = initializeEditorSession(project);
+    const key = createHotspotKey("moonlit-dock", "tavern-entrance");
+    session.hotspotDrafts[key] = {
+      ...createHotspotDraft(sceneDocument.hotspots[0] ?? null),
+      interactSpotEnabled: true,
+      interactSpotX: "910",
+      interactSpotY: "560"
+    };
+
+    const dirty = getDirtyState(project, session);
+    expect(dirty.hotspotKeys.has(key)).toBe(true);
+    expect(dirty.count).toBe(1);
   });
 
   it("restores drafts for a matching project", () => {

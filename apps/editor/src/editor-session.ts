@@ -21,8 +21,14 @@ export type DraftNodeType = "line" | "set-flag" | "end";
 export interface HotspotDraft {
   cursor: string;
   height: string;
+  interactSpotEnabled: boolean;
+  interactSpotX: string;
+  interactSpotY: string;
   labelKey: string;
   lookFlowId: string;
+  lookSpotEnabled: boolean;
+  lookSpotX: string;
+  lookSpotY: string;
   talkFlowId: string;
   useFlowId: string;
   useItemFlows: Array<{ itemId: string; flowId: string }>;
@@ -194,8 +200,14 @@ export function createHotspotDraft(hotspot: Hotspot | null): HotspotDraft {
   return {
     cursor: hotspot?.cursor ?? "",
     height: hotspot ? String(hotspot.bounds.height) : "",
+    interactSpotEnabled: hotspot?.interactSpot !== undefined,
+    interactSpotX: hotspot?.interactSpot ? String(hotspot.interactSpot.x) : "",
+    interactSpotY: hotspot?.interactSpot ? String(hotspot.interactSpot.y) : "",
     labelKey: hotspot?.labelKey ?? "",
     lookFlowId: hotspot?.actions.lookFlowId ?? "",
+    lookSpotEnabled: hotspot?.lookSpot !== undefined,
+    lookSpotX: hotspot?.lookSpot ? String(hotspot.lookSpot.x) : "",
+    lookSpotY: hotspot?.lookSpot ? String(hotspot.lookSpot.y) : "",
     talkFlowId: hotspot?.actions.talkFlowId ?? "",
     useFlowId: hotspot?.actions.useFlowId ?? "",
     useItemFlows:
@@ -340,6 +352,54 @@ export function buildHotspotUseItemFlows(
       flowId: entry.flowId.trim()
     }))
     .filter((entry) => entry.itemId.length > 0 && entry.flowId.length > 0);
+}
+
+export function buildHotspotFromDraft(hotspot: Hotspot, draft: HotspotDraft): Hotspot {
+  const x = parseNumber(draft.x);
+  const y = parseNumber(draft.y);
+  const width = parsePositiveNumber(draft.width);
+  const height = parsePositiveNumber(draft.height);
+  const interactSpotX = parseNumber(draft.interactSpotX);
+  const interactSpotY = parseNumber(draft.interactSpotY);
+  const lookSpotX = parseNumber(draft.lookSpotX);
+  const lookSpotY = parseNumber(draft.lookSpotY);
+
+  const nextHotspot: Hotspot = {
+    ...hotspot,
+    actions: {
+      useItemFlows: buildHotspotUseItemFlows(draft.useItemFlows)
+    },
+    bounds:
+      x === null || y === null || width === null || height === null
+        ? hotspot.bounds
+        : { x, y, width, height },
+    labelKey: draft.labelKey
+  };
+
+  const cursor = draft.cursor.trim();
+  if (cursor === "look" || cursor === "talk" || cursor === "use" || cursor === "enter") {
+    nextHotspot.cursor = cursor;
+  } else {
+    delete nextHotspot.cursor;
+  }
+
+  if (draft.lookFlowId.trim()) nextHotspot.actions.lookFlowId = draft.lookFlowId.trim();
+  if (draft.talkFlowId.trim()) nextHotspot.actions.talkFlowId = draft.talkFlowId.trim();
+  if (draft.useFlowId.trim()) nextHotspot.actions.useFlowId = draft.useFlowId.trim();
+
+  if (draft.interactSpotEnabled && interactSpotX !== null && interactSpotY !== null) {
+    nextHotspot.interactSpot = { x: interactSpotX, y: interactSpotY };
+  } else {
+    delete nextHotspot.interactSpot;
+  }
+
+  if (draft.lookSpotEnabled && lookSpotX !== null && lookSpotY !== null) {
+    nextHotspot.lookSpot = { x: lookSpotX, y: lookSpotY };
+  } else {
+    delete nextHotspot.lookSpot;
+  }
+
+  return nextHotspot;
 }
 
 export function buildActorFromDraft(actor: SceneActor, draft: ActorDraft): SceneActor {

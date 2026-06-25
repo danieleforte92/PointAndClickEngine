@@ -728,6 +728,14 @@ button {
   background: #7ab4f0;
 }
 
+.hotspot-interact-spot {
+  background: #e2ad60;
+}
+
+.hotspot-look-spot {
+  background: #7ab4f0;
+}
+
 .checkbox-line {
   display: flex;
   flex-direction: row;

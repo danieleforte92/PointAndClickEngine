@@ -162,8 +162,14 @@ describe("buildDraftProjectBundle", () => {
     session.hotspotDrafts[`${scene.id}::tavern-door`] = {
       cursor: "enter",
       height: "210",
+      interactSpotEnabled: true,
+      interactSpotX: "930",
+      interactSpotY: "565",
       labelKey: "hotspot.tavern-door.updated",
       lookFlowId: "look-door",
+      lookSpotEnabled: true,
+      lookSpotX: "940",
+      lookSpotY: "355",
       talkFlowId: "",
       useFlowId: "",
       useItemFlows: [{ itemId: "rusty-hook", flowId: "look-door" }],
@@ -252,6 +258,8 @@ describe("buildDraftProjectBundle", () => {
     expect(nextHotspot).toMatchObject({
       labelKey: "hotspot.tavern-door.updated",
       cursor: "enter",
+      interactSpot: { x: 930, y: 565 },
+      lookSpot: { x: 940, y: 355 },
       actions: {
         lookFlowId: "look-door"
       }
