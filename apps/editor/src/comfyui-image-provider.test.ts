@@ -98,4 +98,125 @@ describe("generateComfyUIImage", () => {
     });
     expect([...result.bytes]).toEqual([137, 80, 78, 71]);
   });
+
+  it("patches a custom API workflow and injects prompt nodes when they are missing", async () => {
+    const calls: Array<{ body?: Record<string, any>; url: string }> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      calls.push({
+        url,
+        body: init?.body ? JSON.parse(String(init.body)) : undefined
+      });
+
+      if (url.endsWith("/prompt")) {
+        return {
+          ok: true,
+          json: async () => ({ prompt_id: "prompt-custom" })
+        } as Response;
+      }
+
+      if (url.endsWith("/history/prompt-custom")) {
+        return {
+          ok: true,
+          json: async () => ({
+            "prompt-custom": {
+              outputs: {
+                "7": {
+                  images: [{ filename: "Asset_00001_.png", subfolder: "", type: "output" }]
+                }
+              }
+            }
+          })
+        } as Response;
+      }
+
+      if (url.includes("/view?")) {
+        return {
+          headers: new Headers({ "content-type": "image/png" }),
+          ok: true,
+          arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer
+        } as Response;
+      }
+
+      throw new Error(`Unexpected URL ${url}`);
+    }) as typeof fetch;
+
+    await generateComfyUIImage(
+      {
+        height: 720,
+        negativePrompt: "messy details",
+        prompt: "A readable tavern background.",
+        seed: 99,
+        targetId: "tavern-background",
+        width: 1280
+      },
+      {
+        pollIntervalMs: 1,
+        timeoutMs: 1_000,
+        workflowJson: {
+          "1": {
+            inputs: {
+              ckpt_name: "SDXL-TURBO\\sd_xl_turbo_1.0_fp16.safetensors"
+            },
+            class_type: "CheckpointLoaderSimple"
+          },
+          "2": {
+            inputs: {
+              width: 1024,
+              height: 1024,
+              batch_size: 1
+            },
+            class_type: "EmptyLatentImage"
+          },
+          "3": {
+            inputs: {
+              seed: 0,
+              steps: 4,
+              cfg: 2,
+              sampler_name: "euler",
+              scheduler: "sgm_uniform",
+              denoise: 1,
+              model: ["1", 0],
+              latent_image: ["2", 0]
+            },
+            class_type: "KSampler"
+          },
+          "7": {
+            inputs: {
+              filename_prefix: "Asset_",
+              images: ["3", 0]
+            },
+            class_type: "SaveImage"
+          }
+        }
+      },
+      {
+        fetchImpl,
+        sleep: async () => {}
+      }
+    );
+
+    expect(calls[0]?.body).toBeDefined();
+    const workflow = calls[0]!.body!.prompt as Record<string, any>;
+    expect(workflow["2"].inputs).toMatchObject({ height: 720, width: 1280 });
+    expect(workflow["3"].inputs).toMatchObject({
+      negative: ["9", 0],
+      positive: ["8", 0],
+      seed: 99
+    });
+    expect(workflow["8"]).toMatchObject({
+      class_type: "CLIPTextEncode",
+      inputs: {
+        clip: ["1", 1],
+        text: "A readable tavern background."
+      }
+    });
+    expect(workflow["9"]).toMatchObject({
+      class_type: "CLIPTextEncode",
+      inputs: {
+        clip: ["1", 1],
+        text: "messy details"
+      }
+    });
+    expect(workflow["7"].inputs.filename_prefix).toBe("pointclick_tavern-background");
+  });
 });

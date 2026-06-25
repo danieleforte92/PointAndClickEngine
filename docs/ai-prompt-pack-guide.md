@@ -64,7 +64,8 @@ a time and import the resulting PNG into the project asset library.
 1. Start ComfyUI locally.
 2. In the editor AI workspace, use **ComfyUI Image Generation**.
 3. Set the base URL to `http://127.0.0.1:8188`.
-4. Enter the exact checkpoint filename visible in ComfyUI, including extension.
+4. Enter the exact checkpoint filename visible in ComfyUI, including extension,
+   or provide a ComfyUI workflow API JSON path.
 5. Choose a generation target from the active prompt pack.
 6. Optionally set a seed.
 7. Click **Generate And Import Asset**.
@@ -72,6 +73,24 @@ a time and import the resulting PNG into the project asset library.
 The editor queues a small text-to-image workflow through `POST /prompt`, polls
 `GET /history/{prompt_id}`, downloads the generated image through `/view`, saves
 it under `assets/imported`, and registers a normal image asset document.
+
+### Custom ComfyUI API Workflows
+
+The **Workflow API JSON path** field accepts either an absolute path or a path
+relative to the current project directory or editor working directory.
+
+When a custom workflow is provided, the editor patches:
+
+- `CheckpointLoaderSimple.inputs.ckpt_name` when a checkpoint override is set;
+- `EmptyLatentImage.inputs.width` and `height`;
+- every numeric `inputs.seed`;
+- `SaveImage.inputs.filename_prefix`;
+- existing `CLIPTextEncode.inputs.text` prompt nodes.
+
+If the workflow has no `CLIPTextEncode` nodes but has `CheckpointLoaderSimple`
+and standard `KSampler` nodes, the provider injects positive and negative prompt
+nodes and wires them into the sampler. This supports small API exports such as
+SDXL Turbo workflows that were saved without prompt text nodes.
 
 Keep ComfyUI and LM Studio bound to localhost for this workflow. Do not expose
 either local server to a public network without authentication and firewalling.

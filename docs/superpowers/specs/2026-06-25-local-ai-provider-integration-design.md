@@ -50,6 +50,11 @@ ComfyUI defaults:
   `GET /view?...`
 - workflow: generated from a small text-to-image template with configurable
   dimensions, seed, prompt, and negative prompt
+- custom API workflow path: optional; patch checkpoint, dimensions, seeds,
+  filename prefix, and prompt nodes before queueing
+- prompt injection: when an API workflow has no `CLIPTextEncode` prompt nodes
+  but exposes a checkpoint and standard `KSampler`, inject positive and negative
+  prompt nodes and wire them to the sampler
 
 ## Editor UX
 

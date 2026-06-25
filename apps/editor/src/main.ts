@@ -570,12 +570,38 @@ async function generatePromptPack(
   });
 }
 
+async function readComfyWorkflowJson(projectDirectory: string, workflowPath: string) {
+  const trimmedPath = workflowPath.trim();
+  if (!trimmedPath) return undefined;
+
+  const candidates = path.isAbsolute(trimmedPath)
+    ? [trimmedPath]
+    : [path.resolve(projectDirectory, trimmedPath), path.resolve(process.cwd(), trimmedPath)];
+
+  let lastError: unknown = null;
+  for (const candidate of candidates) {
+    try {
+      const contents = await readFile(candidate, "utf8");
+      return JSON.parse(contents) as unknown;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  const searched = candidates.map((candidate) => `"${candidate}"`).join(", ");
+  const detail = lastError instanceof Error ? ` ${lastError.message}` : "";
+  throw new Error(`Unable to read ComfyUI workflow API JSON. Searched: ${searched}.${detail}`);
+}
+
 async function generateImageAsset(request: GenerateImageAssetRequest) {
   if (request.providerId !== "comfyui") {
     throw new Error(`Unsupported image provider "${request.providerId}"`);
   }
 
   const projectDirectory = currentProjectPath();
+  const workflowJson = request.workflowPath
+    ? await readComfyWorkflowJson(projectDirectory, request.workflowPath)
+    : undefined;
   const result = await generateComfyUIImage(
     {
       height: request.height,
@@ -586,8 +612,9 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
       ...(request.seed !== undefined ? { seed: request.seed } : {})
     },
     {
-      checkpointName: request.checkpointName,
-      ...(request.baseUrl ? { baseUrl: request.baseUrl } : {})
+      ...(request.baseUrl ? { baseUrl: request.baseUrl } : {}),
+      ...(request.checkpointName ? { checkpointName: request.checkpointName } : {}),
+      ...(workflowJson ? { workflowJson } : {})
     }
   );
 

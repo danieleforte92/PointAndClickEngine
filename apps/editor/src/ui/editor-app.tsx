@@ -848,6 +848,7 @@ export function EditorApp() {
   const [guidedSceneGameplayFocus, setGuidedSceneGameplayFocus] = useState("");
   const [comfyUiBaseUrl, setComfyUiBaseUrl] = useState("http://127.0.0.1:8188");
   const [comfyUiCheckpoint, setComfyUiCheckpoint] = useState("");
+  const [comfyUiWorkflowPath, setComfyUiWorkflowPath] = useState("");
   const [comfyUiSeed, setComfyUiSeed] = useState("");
   const [selectedGenerationTargetId, setSelectedGenerationTargetId] = useState("");
   const [imageGenerationState, setImageGenerationState] = useState<"idle" | "running">("idle");
@@ -2619,8 +2620,9 @@ export function EditorApp() {
     if (!project || !activeImagePromptPack || !selectedGenerationTarget) return;
 
     const checkpointName = comfyUiCheckpoint.trim();
-    if (!checkpointName) {
-      setStatus("ComfyUI needs a checkpoint filename, for example the exact .safetensors file shown in ComfyUI.");
+    const workflowPath = comfyUiWorkflowPath.trim();
+    if (!checkpointName && !workflowPath) {
+      setStatus("ComfyUI needs a checkpoint filename or a workflow API JSON path.");
       return;
     }
 
@@ -2635,7 +2637,6 @@ export function EditorApp() {
     setStatus(`Generating ${selectedGenerationTarget.id} with ComfyUI...`);
     try {
       const imageRequest = {
-        checkpointName,
         height: selectedGenerationDimensions.height,
         negativePrompt: activeImagePromptPack.outputs.negativePrompt,
         prompt: selectedGenerationPrompt,
@@ -2643,7 +2644,9 @@ export function EditorApp() {
         targetId: selectedGenerationTarget.id,
         width: selectedGenerationDimensions.width,
         ...(comfyUiBaseUrl.trim() ? { baseUrl: comfyUiBaseUrl.trim() } : {}),
-        ...(parsedSeed !== null ? { seed: parsedSeed } : {})
+        ...(checkpointName ? { checkpointName } : {}),
+        ...(parsedSeed !== null ? { seed: parsedSeed } : {}),
+        ...(workflowPath ? { workflowPath } : {})
       };
       const job = await window.pointClick.generateImageAsset(imageRequest);
       setProject(job.snapshot);
@@ -4749,9 +4752,17 @@ export function EditorApp() {
                     />
                   </label>
                   <label className="prompt-studio-field">
-                    Checkpoint filename
+                    Workflow API JSON path
                     <input
-                      placeholder="Exact .safetensors checkpoint name from ComfyUI"
+                      placeholder="Optional, e.g. ImgGenSDXLTurbo.json or an absolute path"
+                      value={comfyUiWorkflowPath}
+                      onChange={(event) => setComfyUiWorkflowPath(event.target.value)}
+                    />
+                  </label>
+                  <label className="prompt-studio-field">
+                    Checkpoint filename / override
+                    <input
+                      placeholder="Required without workflow path; optional override with workflow path"
                       value={comfyUiCheckpoint}
                       onChange={(event) => setComfyUiCheckpoint(event.target.value)}
                     />
@@ -4799,10 +4810,17 @@ export function EditorApp() {
                   </button>
                 </div>
                 {selectedGenerationTarget ? (
-                  <p>
-                    {selectedGenerationDimensions.width} x {selectedGenerationDimensions.height} /{" "}
-                    {selectedGenerationTarget.transparent ? "transparent target" : "opaque target"}
-                  </p>
+                  <>
+                    <p>
+                      {selectedGenerationDimensions.width} x {selectedGenerationDimensions.height} /{" "}
+                      {selectedGenerationTarget.transparent ? "transparent target" : "opaque target"}
+                    </p>
+                    <p>
+                      Custom workflow mode patches checkpoint, size, seed, save prefix, and prompt text. If no
+                      `CLIPTextEncode` nodes exist, the provider injects positive/negative prompt nodes for standard
+                      `KSampler` nodes.
+                    </p>
+                  </>
                 ) : null}
               </section>
               <section className="overview-card prompt-output-card">

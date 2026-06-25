@@ -2,7 +2,7 @@ import type { EditorProjectSnapshot } from "./preload";
 
 export interface GenerateImageAssetRequest {
   baseUrl?: string;
-  checkpointName: string;
+  checkpointName?: string;
   height: number;
   negativePrompt?: string;
   prompt: string;
@@ -10,6 +10,7 @@ export interface GenerateImageAssetRequest {
   seed?: number;
   targetId: string;
   width: number;
+  workflowPath?: string;
 }
 
 export interface GeneratedImageAssetJob {
