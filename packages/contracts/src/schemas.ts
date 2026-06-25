@@ -181,6 +181,16 @@ export const SceneActorSchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const ScenePlayerConfigSchema = Type.Object(
+  {
+    assetId: Type.Optional(Id),
+    scaleFar: Type.Optional(Type.Number({ minimum: 0.05 })),
+    scaleNear: Type.Optional(Type.Number({ minimum: 0.05 })),
+    walkSpeed: Type.Optional(Type.Number({ minimum: 1 }))
+  },
+  { additionalProperties: false }
+);
+
 export const Layered2DSceneSchema = Type.Object(
   {
     schemaVersion: Type.Literal(1),
@@ -195,6 +205,7 @@ export const Layered2DSceneSchema = Type.Object(
       { additionalProperties: false }
     ),
     background: Type.String({ minLength: 1 }),
+    player: Type.Optional(ScenePlayerConfigSchema),
     playerStart: Vector2Schema,
     walkArea: Polygon2Schema,
     actors: Type.Array(SceneActorSchema),
@@ -465,6 +476,7 @@ export type Hotspot = Static<typeof HotspotSchema>;
 export type ScenePickup = Static<typeof ScenePickupSchema>;
 export type SceneActorRole = Static<typeof SceneActorRoleSchema>;
 export type SceneActor = Static<typeof SceneActorSchema>;
+export type ScenePlayerConfig = Static<typeof ScenePlayerConfigSchema>;
 export type Layered2DScene = Static<typeof Layered2DSceneSchema>;
 export type Hybrid3DScene = Static<typeof Hybrid3DSceneSchema>;
 export type SceneDocument = Static<typeof SceneDocumentSchema>;

@@ -10,6 +10,7 @@ import type {
   Polygon2,
   SceneActor,
   SceneActorRole,
+  ScenePlayerConfig,
   ScenePickup,
   SceneDocument
 } from "@pointclick/contracts";
@@ -83,8 +84,12 @@ export interface SceneDraft {
   background: string;
   height: string;
   name: string;
+  playerAssetId: string;
+  playerScaleFar: string;
+  playerScaleNear: string;
   playerStartX: string;
   playerStartY: string;
+  playerWalkSpeed: string;
   width: string;
   walkAreaPoints: Array<{ x: string; y: string }>;
 }
@@ -278,12 +283,17 @@ export function createItemDraft(item: ItemDocument | null): ItemDraft {
 }
 
 export function createSceneDraft(scene: Layered2DScene | null): SceneDraft {
+  const player = createScenePlayerConfig(scene?.player);
   return {
     background: scene?.background ?? "",
     height: scene ? String(scene.size.height) : "",
     name: scene?.name ?? "",
+    playerAssetId: player.assetId ?? "",
+    playerScaleFar: String(player.scaleFar),
+    playerScaleNear: String(player.scaleNear),
     playerStartX: scene ? String(scene.playerStart.x) : "",
     playerStartY: scene ? String(scene.playerStart.y) : "",
+    playerWalkSpeed: String(player.walkSpeed),
     width: scene ? String(scene.size.width) : "",
     walkAreaPoints:
       scene?.walkArea.points.map((point) => ({
@@ -294,6 +304,15 @@ export function createSceneDraft(scene: Layered2DScene | null): SceneDraft {
         { x: "100", y: "0" },
         { x: "100", y: "100" }
       ]
+  };
+}
+
+export function createScenePlayerConfig(player?: ScenePlayerConfig | null): Required<ScenePlayerConfig> {
+  return {
+    assetId: player?.assetId ?? "",
+    scaleFar: player?.scaleFar ?? 0.62,
+    scaleNear: player?.scaleNear ?? 1.08,
+    walkSpeed: player?.walkSpeed ?? 320
   };
 }
 

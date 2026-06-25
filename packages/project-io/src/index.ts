@@ -17,6 +17,7 @@ import {
   type ProjectManifest,
   type Rect,
   type SceneActor,
+  type ScenePlayerConfig,
   type ScenePickup,
   type SceneDocument,
   type Vector2
@@ -60,6 +61,7 @@ export type ActorPatch = SceneActor;
 export interface ScenePatch {
   background: string;
   name: string;
+  player?: ScenePlayerConfig;
   playerStart: Vector2;
   size: { height: number; width: number };
   walkArea: Polygon2;
@@ -555,6 +557,17 @@ export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[
       );
     }
 
+    if (scene.player?.assetId && !bundle.assets[scene.player.assetId]) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "scene.player-asset-missing",
+          `Scene "${scene.id}" player references missing asset "${scene.player.assetId}".`,
+          { documentId: scene.id, path: `scenes/${scene.id}/player/assetId` }
+        )
+      );
+    }
+
     for (const hotspot of scene.hotspots) {
       if (defaultLocale && !(hotspot.labelKey in defaultLocale.strings)) {
         diagnostics.push(
@@ -982,18 +995,34 @@ function findItemReferences(
 
 function findAssetReferences(
   bundle: ProjectBundle,
-  assetPath: string
-): Array<{ documentId: string; path: string; use: "sceneBackground" }> {
-  const references: Array<{ documentId: string; path: string; use: "sceneBackground" }> = [];
+  asset: AssetDocument
+): Array<{ documentId: string; path: string; use: "sceneBackground" | "scenePlayer" | "sceneActor" }> {
+  const references: Array<{ documentId: string; path: string; use: "sceneBackground" | "scenePlayer" | "sceneActor" }> = [];
 
   for (const scene of Object.values(bundle.scenes)) {
     if (scene.type !== "layered-2d") continue;
-    if (scene.background === assetPath) {
+    if (scene.background === asset.path) {
       references.push({
         documentId: scene.id,
         path: `scenes/${scene.id}/background`,
         use: "sceneBackground"
       });
+    }
+    if (scene.player?.assetId === asset.id) {
+      references.push({
+        documentId: scene.id,
+        path: `scenes/${scene.id}/player/assetId`,
+        use: "scenePlayer"
+      });
+    }
+    for (const actor of scene.actors) {
+      if (actor.assetId === asset.id) {
+        references.push({
+          documentId: actor.id,
+          path: `scenes/${scene.id}/actors/${actor.id}/assetId`,
+          use: "sceneActor"
+        });
+      }
     }
   }
 
@@ -1069,6 +1098,7 @@ function patchScene(scene: Layered2DScene, patch: ScenePatch): Layered2DScene {
     ...scene,
     background: patch.background,
     name: patch.name,
+    ...(patch.player ? { player: patch.player } : {}),
     playerStart: patch.playerStart,
     size: patch.size,
     walkArea: patch.walkArea
@@ -1738,7 +1768,7 @@ export async function applyProjectCommand(
       throw new Error(`Asset "${command.assetId}" was not found in the loaded project`);
     }
 
-    const references = findAssetReferences(project.bundle, asset.path);
+    const references = findAssetReferences(project.bundle, asset);
     if (references.length > 0) {
       throw new Error(
         `Asset "${command.assetId}" is still referenced by ${references

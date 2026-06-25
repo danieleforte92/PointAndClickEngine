@@ -152,8 +152,12 @@ describe("buildDraftProjectBundle", () => {
       background: "#654321",
       height: "810",
       name: "Moonlit Dock Revised",
+      playerAssetId: "",
+      playerScaleFar: "0.55",
+      playerScaleNear: "1.12",
       playerStartX: "480",
       playerStartY: "575",
+      playerWalkSpeed: "360",
       width: "1440",
       walkAreaPoints: [
         { x: "0", y: "480" },
@@ -255,6 +259,7 @@ describe("buildDraftProjectBundle", () => {
     expect(nextScene).toMatchObject({
       background: "#654321",
       name: "Moonlit Dock Revised",
+      player: { scaleFar: 0.55, scaleNear: 1.12, walkSpeed: 360 },
       playerStart: { x: 480, y: 575 },
       size: { width: 1440, height: 810 }
     });

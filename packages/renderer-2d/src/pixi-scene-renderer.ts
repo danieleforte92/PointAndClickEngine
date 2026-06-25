@@ -26,6 +26,9 @@ export class PixiSceneRenderer {
   private readonly actorTargets = new Map<string, Container>();
   private readonly player = new Container();
   private readonly pickupTargets = new Map<string, Graphics>();
+  private playerAnimationFrame: number | null = null;
+  private playerFacing: 1 | -1 = 1;
+  private playerPosition: Vector2 = { x: 0, y: 0 };
   private pendingPlayerPosition: Vector2 = { x: 0, y: 0 };
   private mounted = false;
 
@@ -33,7 +36,10 @@ export class PixiSceneRenderer {
     private readonly scene: Layered2DScene,
     private readonly handlers: SceneInteractionHandlers,
     private readonly options: SceneRenderOptions = {}
-  ) {}
+  ) {
+    this.pendingPlayerPosition = { ...scene.playerStart };
+    this.playerPosition = { ...scene.playerStart };
+  }
 
   async mount(host: HTMLElement): Promise<void> {
     if (isHexColor(this.scene.background)) {
@@ -135,17 +141,10 @@ export class PixiSceneRenderer {
       this.app.stage.addChild(target);
     }
 
-    const shadow = new Graphics().ellipse(0, 38, 30, 10).fill({ color: 0x071019, alpha: 0.45 });
-    const body = new Graphics().roundRect(-16, -32, 32, 66, 14).fill(0xd98b52);
-    const coat = new Graphics().poly([-22, 30, 0, -5, 22, 30]).fill(0x263a55);
-    const head = new Graphics().circle(0, -47, 15).fill(0xe7b47d);
-    const hair = new Graphics().arc(0, -49, 16, Math.PI, Math.PI * 2).stroke({
-      color: 0x251c28,
-      width: 9
-    });
-    this.player.addChild(shadow, body, coat, head, hair);
+    await this.createPlayerVisual();
     this.player.zIndex = 50;
-    this.player.position.set(this.pendingPlayerPosition.x, this.pendingPlayerPosition.y);
+    this.playerPosition = { ...this.pendingPlayerPosition };
+    this.applyPlayerTransform(this.pendingPlayerPosition);
     this.app.stage.addChild(this.player);
     this.app.stage.sortableChildren = true;
     this.mounted = true;
@@ -172,13 +171,104 @@ export class PixiSceneRenderer {
   renderPlayer(position: Vector2): void {
     this.pendingPlayerPosition = { ...position };
     if (!this.mounted) return;
-    this.player.position.set(position.x, position.y);
+    this.animatePlayerTo(position);
   }
 
   destroy(): void {
     if (!this.mounted) return;
+    if (this.playerAnimationFrame !== null) {
+      cancelAnimationFrame(this.playerAnimationFrame);
+      this.playerAnimationFrame = null;
+    }
     this.app.destroy(true, { children: true });
     this.mounted = false;
+  }
+
+  private async createPlayerVisual(): Promise<void> {
+    this.player.removeChildren();
+
+    const asset = this.scene.player?.assetId ? this.options.assets?.[this.scene.player.assetId] : null;
+    if (asset) {
+      try {
+        const assetUrl = new URL(asset.path, this.options.assetBaseUrl ?? window.location.href).toString();
+        const texture = await Assets.load(assetUrl);
+        const sprite = new Sprite(texture);
+        sprite.anchor.set(0.5, 1);
+        sprite.height = 128;
+        sprite.width = (texture.width / texture.height) * sprite.height;
+        this.player.addChild(sprite);
+        return;
+      } catch {
+        // Fall through to the generated marker so the player remains visible while authoring.
+      }
+    }
+
+    const shadow = new Graphics().ellipse(0, 38, 30, 10).fill({ color: 0x071019, alpha: 0.45 });
+    const body = new Graphics().roundRect(-16, -32, 32, 66, 14).fill(0xd98b52);
+    const coat = new Graphics().poly([-22, 30, 0, -5, 22, 30]).fill(0x263a55);
+    const head = new Graphics().circle(0, -47, 15).fill(0xe7b47d);
+    const hair = new Graphics().arc(0, -49, 16, Math.PI, Math.PI * 2).stroke({
+      color: 0x251c28,
+      width: 9
+    });
+    this.player.addChild(shadow, body, coat, head, hair);
+  }
+
+  private animatePlayerTo(target: Vector2): void {
+    if (this.playerAnimationFrame !== null) {
+      cancelAnimationFrame(this.playerAnimationFrame);
+      this.playerAnimationFrame = null;
+    }
+
+    const start = { ...this.playerPosition };
+    const distance = Math.hypot(target.x - start.x, target.y - start.y);
+    if (distance < 1) {
+      this.playerPosition = { ...target };
+      this.applyPlayerTransform(target);
+      return;
+    }
+
+    this.playerFacing = target.x < start.x ? -1 : 1;
+    const walkSpeed = this.scene.player?.walkSpeed ?? 320;
+    const duration = Math.max(120, Math.min(2400, (distance / walkSpeed) * 1000));
+    const startedAt = performance.now();
+
+    const step = (now: number) => {
+      const t = Math.min(1, (now - startedAt) / duration);
+      const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      const position = {
+        x: start.x + (target.x - start.x) * eased,
+        y: start.y + (target.y - start.y) * eased
+      };
+      this.playerPosition = position;
+      this.applyPlayerTransform(position);
+
+      if (t < 1) {
+        this.playerAnimationFrame = requestAnimationFrame(step);
+      } else {
+        this.playerAnimationFrame = null;
+      }
+    };
+
+    this.playerAnimationFrame = requestAnimationFrame(step);
+  }
+
+  private applyPlayerTransform(position: Vector2): void {
+    const scale = this.playerScaleAt(position);
+    this.player.position.set(position.x, position.y);
+    this.player.scale.set(scale * this.playerFacing, scale);
+  }
+
+  private playerScaleAt(position: Vector2): number {
+    const ys = this.scene.walkArea.points.map((point) => point.y);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const far = this.scene.player?.scaleFar ?? 0.62;
+    const near = this.scene.player?.scaleNear ?? 1.08;
+    if (maxY <= minY) return near;
+
+    const t = Math.max(0, Math.min(1, (position.y - minY) / (maxY - minY)));
+    return far + (near - far) * t;
   }
 
   private async createActorTarget(actor: SceneActor): Promise<Container> {

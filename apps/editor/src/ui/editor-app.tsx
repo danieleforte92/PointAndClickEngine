@@ -43,6 +43,7 @@ import {
   createNewFlowNode,
   createPickupDraft,
   createSceneDraft,
+  createScenePlayerConfig,
   createHotspotKey,
   createPickupKey,
   cursorOptions,
@@ -303,6 +304,11 @@ function createDefaultSceneDocument(snapshot: EditorProjectSnapshot, sceneId: st
     hotspots: [],
     id: sceneId,
     name: "New Scene",
+    player: {
+      scaleFar: 0.62,
+      scaleNear: 1.08,
+      walkSpeed: 320
+    },
     playerStart: {
       x: Math.floor(width / 2),
       y: Math.floor(height * 0.8)
@@ -980,17 +986,46 @@ export function EditorApp() {
     () => new Map((project?.assets ?? []).map((asset) => [asset.id, asset.path])),
     [project]
   );
+  const previewPlayerConfig = useMemo(() => {
+    const defaults = createScenePlayerConfig(selectedScene?.player);
+    const scaleFar = parsePositiveNumber(currentSceneDraft.playerScaleFar);
+    const scaleNear = parsePositiveNumber(currentSceneDraft.playerScaleNear);
+    const walkSpeed = parsePositiveNumber(currentSceneDraft.playerWalkSpeed);
+    return {
+      ...(currentSceneDraft.playerAssetId.trim()
+        ? { assetId: currentSceneDraft.playerAssetId.trim() }
+        : {}),
+      scaleFar: scaleFar ?? defaults.scaleFar,
+      scaleNear: scaleNear ?? defaults.scaleNear,
+      walkSpeed: walkSpeed ?? defaults.walkSpeed
+    };
+  }, [
+    currentSceneDraft.playerAssetId,
+    currentSceneDraft.playerScaleFar,
+    currentSceneDraft.playerScaleNear,
+    currentSceneDraft.playerWalkSpeed,
+    selectedScene?.player
+  ]);
+  const previewPlayerAssetPath = previewPlayerConfig.assetId
+    ? assetPathById.get(previewPlayerConfig.assetId)
+    : undefined;
+  const previewPlayerAssetUrl = previewPlayerAssetPath
+    ? assetPreviewUrls[previewPlayerAssetPath]
+    : undefined;
   const previewAssetPaths = useMemo(() => {
     const paths = new Set<string>();
     if (previewSceneBackground && !isHexColor(previewSceneBackground)) {
       paths.add(previewSceneBackground);
+    }
+    if (previewPlayerAssetPath) {
+      paths.add(previewPlayerAssetPath);
     }
     for (const actor of previewActors) {
       const assetPath = actor.assetId ? assetPathById.get(actor.assetId) : null;
       if (assetPath) paths.add(assetPath);
     }
     return [...paths];
-  }, [assetPathById, previewActors, previewSceneBackground]);
+  }, [assetPathById, previewActors, previewPlayerAssetPath, previewSceneBackground]);
 
   useEffect(() => {
     if (!project) return;
@@ -3148,6 +3183,10 @@ export function EditorApp() {
 
     const playerStartX = parseNumber(currentSceneDraft.playerStartX);
     const playerStartY = parseNumber(currentSceneDraft.playerStartY);
+    const playerScaleFar = parsePositiveNumber(currentSceneDraft.playerScaleFar);
+    const playerScaleNear = parsePositiveNumber(currentSceneDraft.playerScaleNear);
+    const playerWalkSpeed = parsePositiveNumber(currentSceneDraft.playerWalkSpeed);
+    const playerAssetId = currentSceneDraft.playerAssetId.trim();
     const sceneWidth = parsePositiveNumber(currentSceneDraft.width);
     const sceneHeight = parsePositiveNumber(currentSceneDraft.height);
     const name = currentSceneDraft.name.trim();
@@ -3168,6 +3207,14 @@ export function EditorApp() {
     }
     if (playerStartX === null || playerStartY === null) {
       setStatus("Scene coordinates must be valid numbers");
+      return;
+    }
+    if (playerAssetId && !availableAssetIdsSet.has(playerAssetId)) {
+      setStatus(`Player asset "${playerAssetId}" no longer exists`);
+      return;
+    }
+    if (playerScaleFar === null || playerScaleNear === null || playerWalkSpeed === null) {
+      setStatus("Player scale and walk speed must use positive numbers");
       return;
     }
     if (sceneWidth === null || sceneHeight === null) {
@@ -3194,6 +3241,12 @@ export function EditorApp() {
         patch: {
           background,
           name,
+          player: {
+            ...(playerAssetId ? { assetId: playerAssetId } : {}),
+            scaleFar: playerScaleFar,
+            scaleNear: playerScaleNear,
+            walkSpeed: playerWalkSpeed
+          },
           playerStart: {
             x: playerStartX,
             y: playerStartY
@@ -4117,9 +4170,13 @@ export function EditorApp() {
                   </button>
                 ) : null}
                 <div
-                  className="character"
+                  className={`character ${previewPlayerAssetUrl ? "has-player-asset" : ""}`}
                   onPointerDown={startPlayerStartInteraction}
                     style={{
+                      backgroundImage: previewPlayerAssetUrl ? `url("${previewPlayerAssetUrl}")` : undefined,
+                      backgroundPosition: previewPlayerAssetUrl ? "center bottom" : undefined,
+                      backgroundRepeat: previewPlayerAssetUrl ? "no-repeat" : undefined,
+                      backgroundSize: previewPlayerAssetUrl ? "contain" : undefined,
                       left: `${((previewPlayerStart ?? selectedScene.playerStart).x / previewSceneSize.width) * 100}%`,
                       top: `${((previewPlayerStart ?? selectedScene.playerStart).y / previewSceneSize.height) * 100}%`
                     }}
@@ -5297,7 +5354,21 @@ export function EditorApp() {
                   </div>
                 </div>
                 <div className="field-group">
-                  <span>Player start</span>
+                  <span>Player</span>
+                  <label>
+                    Player asset
+                    <select
+                      value={currentSceneDraft.playerAssetId}
+                      onChange={(event) => updateSceneDraft("playerAssetId", event.target.value)}
+                    >
+                      <option value="">Generated marker</option>
+                      {availableAssetIds.map((assetId) => (
+                        <option key={`player-asset-${assetId}`} value={assetId}>
+                          {assetId}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <div className="four-fields">
                     <input
                       aria-label="Player start X"
@@ -5310,6 +5381,27 @@ export function EditorApp() {
                       onChange={(event) => updateSceneDraft("playerStartY", event.target.value)}
                     />
                   </div>
+                  <div className="four-fields">
+                    <input
+                      aria-label="Player far scale"
+                      value={currentSceneDraft.playerScaleFar}
+                      onChange={(event) => updateSceneDraft("playerScaleFar", event.target.value)}
+                    />
+                    <input
+                      aria-label="Player near scale"
+                      value={currentSceneDraft.playerScaleNear}
+                      onChange={(event) => updateSceneDraft("playerScaleNear", event.target.value)}
+                    />
+                  </div>
+                  <input
+                    aria-label="Player walk speed"
+                    value={currentSceneDraft.playerWalkSpeed}
+                    onChange={(event) => updateSceneDraft("playerWalkSpeed", event.target.value)}
+                  />
+                  <p className="inspector-copy">
+                    Far scale applies near the top of the walk area; near scale applies near the
+                    bottom. Walk speed is measured in scene pixels per second.
+                  </p>
                 </div>
                 <div className="field-group">
                   <span>Walk area</span>

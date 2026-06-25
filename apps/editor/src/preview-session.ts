@@ -15,6 +15,7 @@ import {
   buildFlowNodes,
   buildActorFromDraft,
   buildHotspotFromDraft,
+  createScenePlayerConfig,
   parseNumber,
   parsePositiveNumber,
   type EditorSessionState
@@ -67,11 +68,21 @@ function applySceneDrafts(
     const playerStartY = parseNumber(draft.playerStartY);
     const width = parsePositiveNumber(draft.width);
     const height = parsePositiveNumber(draft.height);
+    const scaleFar = parsePositiveNumber(draft.playerScaleFar);
+    const scaleNear = parsePositiveNumber(draft.playerScaleNear);
+    const walkSpeed = parsePositiveNumber(draft.playerWalkSpeed);
+    const playerDefaults = createScenePlayerConfig(scene.player);
 
     nextScenes[sceneId] = {
       ...scene,
       background: draft.background,
       name: draft.name,
+      player: {
+        ...(draft.playerAssetId.trim() ? { assetId: draft.playerAssetId.trim() } : {}),
+        scaleFar: scaleFar ?? playerDefaults.scaleFar,
+        scaleNear: scaleNear ?? playerDefaults.scaleNear,
+        walkSpeed: walkSpeed ?? playerDefaults.walkSpeed
+      },
       playerStart:
         playerStartX === null || playerStartY === null
           ? scene.playerStart
