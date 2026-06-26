@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildAnimationFrameSliceCells,
   buildAnimationClipPreviewState,
   chooseAnimationPreviewClip,
   describeImageTargetWorkflow,
@@ -85,6 +86,18 @@ describe("Character Gym preview helpers", () => {
 
     expect(issue).toContain("frame 8");
   });
+
+  it("builds visual frame slicing cells from the draft grid", () => {
+    const cells = buildAnimationFrameSliceCells(baseDraft);
+
+    expect(cells).toHaveLength(6);
+    expect(cells[4]).toMatchObject({
+      column: 1,
+      frame: 4,
+      row: 1
+    });
+    expect(cells[4]?.backgroundSize).toBe("300% 200%");
+  });
 });
 
 describe("ComfyUI target workflow guidance", () => {
@@ -99,6 +112,20 @@ describe("ComfyUI target workflow guidance", () => {
     expect(describeImageTargetWorkflow(target({ transparent: true }), basePreset)).toMatchObject({
       label: "Alpha workflow expected",
       mode: "transparent"
+    });
+  });
+
+  it("uses explicit background mode for alpha targets", () => {
+    expect(describeImageTargetWorkflow(target({ backgroundMode: "transparent-alpha" }), basePreset)).toMatchObject({
+      label: "Alpha workflow expected",
+      mode: "transparent"
+    });
+  });
+
+  it("uses explicit background mode for chroma targets", () => {
+    expect(describeImageTargetWorkflow(target({ backgroundMode: "chroma-blue" }), basePreset)).toMatchObject({
+      label: "Chroma workflow expected",
+      mode: "chroma"
     });
   });
 

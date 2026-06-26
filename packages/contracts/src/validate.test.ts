@@ -213,6 +213,106 @@ describe("project contracts", () => {
     expect(result).toEqual({ valid: true, errors: [] });
   });
 
+  it("accepts explicit generation target output contracts", () => {
+    const result = validateDocument("promptPack", {
+      schemaVersion: 1,
+      id: "dock-art",
+      name: "Dock Art Direction",
+      sceneId: "dock",
+      artBrief: "A moonlit dock with readable adventure-game props.",
+      context: {
+        projectTitle: "Sample",
+        sceneId: "dock",
+        sceneName: "Dock",
+        sceneSize: { width: 1280, height: 720 },
+        artBrief: "A moonlit dock with readable adventure-game props.",
+        locale: "en",
+        labels: {},
+        hotspots: [],
+        actors: [{ id: "keeper", role: "npc", labelKey: "actor.keeper" }],
+        pickups: [],
+        items: []
+      },
+      outputs: {
+        sceneBackgroundPrompt: "Paint a clean moonlit dock background.",
+        propPrompts: [],
+        characterReferencePrompts: [
+          { id: "keeper-sprite-sheet", prompt: "A keeper sprite sheet on chroma blue." }
+        ],
+        animationNotes: ["Keep the player pivot at the feet."],
+        negativePrompt: "blurry, cropped, unreadable",
+        styleNotes: ["Readable silhouettes"],
+        generationTargets: [
+          {
+            id: "keeper-sprite-sheet",
+            sourceEntityKind: "actor",
+            sourceEntityId: "keeper",
+            backgroundMode: "chroma-blue",
+            expectedAlpha: false,
+            chromaColor: "#00A2FF",
+            intendedUse: "sprite-sheet",
+            marginPercent: 4,
+            safetyNegativePrompt: "transparent alpha, cropped feet"
+          }
+        ]
+      },
+      suggestedActors: [],
+      provenance: {
+        provider: "mock",
+        model: "mock-prompt-pack-v1",
+        generatedAt: "2026-06-24T12:00:00.000Z"
+      }
+    });
+
+    expect(result).toEqual({ valid: true, errors: [] });
+  });
+
+  it("accepts legacy transparent prompt pack targets", () => {
+    const result = validateDocument("promptPack", {
+      schemaVersion: 1,
+      id: "dock-art",
+      name: "Dock Art Direction",
+      sceneId: "dock",
+      artBrief: "",
+      context: {
+        projectTitle: "Sample",
+        sceneId: "dock",
+        sceneName: "Dock",
+        sceneSize: { width: 1280, height: 720 },
+        artBrief: "",
+        locale: "en",
+        labels: {},
+        hotspots: [],
+        actors: [],
+        pickups: [],
+        items: []
+      },
+      outputs: {
+        sceneBackgroundPrompt: "Paint a clean moonlit dock background.",
+        propPrompts: [{ id: "rusty-hook", prompt: "A rusty hook on transparent background." }],
+        characterReferencePrompts: [],
+        animationNotes: [],
+        negativePrompt: "",
+        styleNotes: [],
+        generationTargets: [
+          {
+            id: "rusty-hook-prop",
+            intendedUse: "prop",
+            transparent: true
+          }
+        ]
+      },
+      suggestedActors: [],
+      provenance: {
+        provider: "mock",
+        model: "mock-prompt-pack-v1",
+        generatedAt: "2026-06-24T12:00:00.000Z"
+      }
+    });
+
+    expect(result).toEqual({ valid: true, errors: [] });
+  });
+
   it("rejects prompt pack suggested actors with invalid ids", () => {
     const result = validateDocument("promptPack", {
       schemaVersion: 1,

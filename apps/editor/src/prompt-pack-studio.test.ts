@@ -176,9 +176,19 @@ describe("Prompt Pack Studio", () => {
     expect(first).toEqual(second);
     expect(promptPack.id).toBe("mock-moonlit-dock-art");
     expect(promptPack.outputs.propPrompts.map((prompt) => prompt.id)).toEqual(["dock-hook", "radio"]);
-    expect(promptPack.outputs.characterReferencePrompts.map((prompt) => prompt.id)).toEqual(["keeper"]);
+    expect(promptPack.outputs.characterReferencePrompts.map((prompt) => prompt.id)).toEqual([
+      "keeper",
+      "keeper-sprite-sheet"
+    ]);
     expect(promptPack.outputs.generationTargets.map((target) => target.id)).toContain(
       "moonlit-dock-background"
+    );
+    expect(promptPack.outputs.generationTargets).toContainEqual(
+      expect.objectContaining({
+        id: "keeper-sprite-sheet",
+        backgroundMode: "chroma-blue",
+        intendedUse: "sprite-sheet"
+      })
     );
     expect(validateDocument("promptPack", promptPack)).toEqual({ valid: true, errors: [] });
   });

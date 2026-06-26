@@ -434,8 +434,32 @@ export const PromptPackGenerationTargetSchema = Type.Object(
       Type.Literal("scene-background"),
       Type.Literal("prop"),
       Type.Literal("character-reference"),
-      Type.Literal("animation-reference")
+      Type.Literal("animation-reference"),
+      Type.Literal("sprite-sheet")
     ]),
+    sourceEntityKind: Type.Optional(
+      Type.Union([
+        Type.Literal("scene"),
+        Type.Literal("actor"),
+        Type.Literal("pickup"),
+        Type.Literal("player"),
+        Type.Literal("item")
+      ])
+    ),
+    sourceEntityId: Type.Optional(Id),
+    backgroundMode: Type.Optional(
+      Type.Union([
+        Type.Literal("opaque-scene"),
+        Type.Literal("transparent-alpha"),
+        Type.Literal("chroma-blue"),
+        Type.Literal("chroma-green"),
+        Type.Literal("reference-only")
+      ])
+    ),
+    expectedAlpha: Type.Optional(Type.Boolean()),
+    chromaColor: Type.Optional(Type.Union([Type.Literal("#00A2FF"), Type.Literal("#00FF00")])),
+    marginPercent: Type.Optional(Type.Number({ minimum: 0, maximum: 50 })),
+    safetyNegativePrompt: Type.Optional(Type.String()),
     width: Type.Optional(Type.Integer({ minimum: 1 })),
     height: Type.Optional(Type.Integer({ minimum: 1 })),
     aspectRatio: Type.Optional(Type.String({ minLength: 1 })),

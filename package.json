@@ -19,7 +19,8 @@
     "build": "pnpm -r --if-present build",
     "validate:sample": "tsx packages/cli/src/index.ts validate apps/sample-game/project",
     "validate:starter": "tsx packages/cli/src/index.ts validate apps/starter-game/project",
-    "check": "pnpm test && pnpm typecheck && pnpm validate:sample && pnpm validate:starter && pnpm build"
+    "check:release": "node scripts/check-release.mjs",
+    "check": "pnpm test && pnpm typecheck && pnpm validate:sample && pnpm validate:starter && pnpm build && pnpm check:release"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0",

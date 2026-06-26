@@ -50,11 +50,14 @@ The Creator Alpha editor exposes these controls without manual JSON edits:
 - set foot origin and default facing;
 - edit `idle`, `walk`, and `talk` clips with frame lists, fps, and loop flag;
 - preview the focused clip as an animation while editing draft values;
+- inspect the spritesheet as a frame grid and click frames into the focused clip;
 - assign the pack to the current scene player or selected actor.
 
 The clip preview uses the current draft and updates before saving. Focus or edit
 a clip row to preview that clip; otherwise the editor previews `idle` or the
-first available clip. Visual frame slicing remains follow-up UX work.
+first available clip. The frame slicing grid uses the draft frame size and
+column/row values, so update those fields first if the sprite cells do not line
+up with the imported sheet.
 
 ## AI Asset Studio Connection
 
