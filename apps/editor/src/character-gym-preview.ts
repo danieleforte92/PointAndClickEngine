@@ -31,6 +31,11 @@ export interface AnimationClipPreviewState {
   width: number;
 }
 
+export interface AnimationFrameSliceCell extends AnimationClipPreviewFrame {
+  backgroundPosition: string;
+  backgroundSize: string;
+}
+
 export interface ComfyOutputPresetLike {
   id: string;
   label: string;
@@ -127,6 +132,30 @@ export function buildAnimationClipPreviewState(
     status: `${clip.id} frame ${frame}`,
     width: frameWidth
   };
+}
+
+export function buildAnimationFrameSliceCells(draft: AnimationPreviewDraft): AnimationFrameSliceCell[] {
+  const gridColumns = parsePositiveInteger(draft.gridColumns);
+  const gridRows = parsePositiveInteger(draft.gridRows);
+  if (!gridColumns || !gridRows) {
+    return [];
+  }
+
+  const frameCount = gridColumns * gridRows;
+  return Array.from({ length: frameCount }, (_, frame) => {
+    const column = frame % gridColumns;
+    const row = Math.floor(frame / gridColumns);
+
+    return {
+      backgroundPosition: `${gridColumns === 1 ? 0 : (column / (gridColumns - 1)) * 100}% ${
+        gridRows === 1 ? 0 : (row / (gridRows - 1)) * 100
+      }%`,
+      backgroundSize: `${gridColumns * 100}% ${gridRows * 100}%`,
+      column,
+      frame,
+      row
+    };
+  });
 }
 
 export function animationPreviewIssue(

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildAnimationFrameSliceCells,
   buildAnimationClipPreviewState,
   chooseAnimationPreviewClip,
   describeImageTargetWorkflow,
@@ -84,6 +85,18 @@ describe("Character Gym preview helpers", () => {
     );
 
     expect(issue).toContain("frame 8");
+  });
+
+  it("builds visual frame slicing cells from the draft grid", () => {
+    const cells = buildAnimationFrameSliceCells(baseDraft);
+
+    expect(cells).toHaveLength(6);
+    expect(cells[4]).toMatchObject({
+      column: 1,
+      frame: 4,
+      row: 1
+    });
+    expect(cells[4]?.backgroundSize).toBe("300% 200%");
   });
 });
 

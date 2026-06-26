@@ -79,7 +79,7 @@ Make player and actor animation authorable, not just loadable.
 - Animation packs can be assigned to the current player draft or selected actor
   draft from the editor UI.
 - Renderer fallback remains visible when assets or packs are missing.
-- Next: animated clip preview and visual frame slicing.
+- Animated clip preview and visual frame slicing are available in Asset Studio.
 
 Done when the sample player and one actor can be edited, assigned, validated,
 and played from the editor; clip preview completes the polish pass.

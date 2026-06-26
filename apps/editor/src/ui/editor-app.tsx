@@ -105,8 +105,10 @@ import {
 import {
   animationPreviewIssue,
   buildAnimationClipPreviewState,
+  buildAnimationFrameSliceCells,
   chooseAnimationPreviewClip,
-  describeImageTargetWorkflow
+  describeImageTargetWorkflow,
+  parsePreviewFrameList
 } from "../character-gym-preview";
 import {
   buildGuidedArtBrief,
@@ -122,8 +124,13 @@ import {
   visualStylePresets
 } from "../prompt-pack-presets";
 import type { EditorProjectSnapshot } from "../preload";
-import type { EditorValidationReport, EditorValidationRunState } from "../validation-report";
-import { createValidationReport } from "../validation-report";
+import type {
+  BuildReadinessIssue,
+  BuildReadinessTarget,
+  EditorValidationReport,
+  EditorValidationRunState
+} from "../validation-report";
+import { createBuildReadinessIssues, createValidationReport } from "../validation-report";
 
 const emptyHistory = createHistoryState(
   initializeEditorSession({
@@ -823,6 +830,7 @@ type ViewportInteraction =
     };
 
 type SceneTool = "select" | "actor" | "hotspot" | "pickup" | "player-start" | "walk-area";
+type SceneInspectorTarget = "scene" | "player";
 
 function sceneToolFromCapability(capabilityId: string): SceneTool | null {
   switch (capabilityId) {
@@ -980,6 +988,7 @@ export function EditorApp() {
   const [validationStatus, setValidationStatus] = useState("Validation uses saved project files.");
   const [viewportInteraction, setViewportInteraction] = useState<ViewportInteraction | null>(null);
   const [activeSceneTool, setActiveSceneTool] = useState<SceneTool>("select");
+  const [sceneInspectorTarget, setSceneInspectorTarget] = useState<SceneInspectorTarget>("scene");
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const hotspotLabelInputRef = useRef<HTMLInputElement | null>(null);
   const hotspotLookFlowRef = useRef<HTMLSelectElement | null>(null);
@@ -1269,6 +1278,22 @@ export function EditorApp() {
   const currentValidationReport =
     validationReport ??
     (project ? createValidationReport(project.directory, project.diagnostics, "") : null);
+  const buildReadinessIssues = useMemo(
+    () => createBuildReadinessIssues(currentValidationReport?.diagnostics ?? []),
+    [currentValidationReport]
+  );
+  const buildBlockingIssues = buildReadinessIssues.filter((issue) => issue.severity === "error");
+  const buildWarningIssues = buildReadinessIssues.filter((issue) => issue.severity === "warning");
+  const buildReadinessTone =
+    buildBlockingIssues.length > 0 ? "error" : buildWarningIssues.length > 0 || dirtyState.count > 0 ? "warn" : "good";
+  const buildReadinessSummary =
+    buildBlockingIssues.length > 0
+      ? `${buildBlockingIssues.length} blocker(s) before preview`
+      : buildWarningIssues.length > 0
+        ? `${buildWarningIssues.length} warning(s) to review`
+        : dirtyState.count > 0
+          ? `${dirtyState.count} unsaved draft change(s)`
+          : "Preview ready";
   const previewReadinessLabel =
     currentValidationReport?.summary.errorCount
       ? "Preview blocked for saved project content"
@@ -1282,6 +1307,15 @@ export function EditorApp() {
   const canEditViewportScene = workspace === "scene" && !!selectedScene;
   const selectedSceneToolLabel = sceneToolLabel(activeSceneTool);
   const selectedSceneToolHint = sceneToolHint(activeSceneTool);
+  const isPlayerInspectorSelected =
+    workspace === "scene" &&
+    sceneInspectorTarget === "player" &&
+    !selectedActor &&
+    !selectedHotspot &&
+    !selectedPickup &&
+    !selectedFlow &&
+    !selectedLocale &&
+    !selectedItem;
   const previewSceneBackground = selectedScene
     ? currentSceneDraft.background.trim() || selectedScene.background
     : "";
@@ -1307,6 +1341,14 @@ export function EditorApp() {
     animationPackDraft,
     animationPreviewClip,
     animationPreviewElapsedMs
+  );
+  const animationSliceCells = useMemo(
+    () => buildAnimationFrameSliceCells(animationPackDraft),
+    [animationPackDraft.gridColumns, animationPackDraft.gridRows]
+  );
+  const animationPreviewClipFrameSet = useMemo(
+    () => new Set(animationPreviewClip ? parsePreviewFrameList(animationPreviewClip.frames) ?? [] : []),
+    [animationPreviewClip?.frames]
   );
   const animationPreviewStatus =
     animationPreviewIssue(animationPackDraft, animationPreviewClip, animationPreviewAssetUrl) ??
@@ -2329,6 +2371,7 @@ export function EditorApp() {
 
     event.preventDefault();
     event.stopPropagation();
+    selectPlayerInScene();
     setViewportInteraction({
       baseSession: cloneSessionState(history.present),
       kind: "player-start",
@@ -2740,6 +2783,28 @@ export function EditorApp() {
         clipIndex === index ? { ...clip, ...patch } : clip
       )
     }));
+  };
+
+  const appendFrameToAnimationClip = (frame: number) => {
+    const clipId = animationPreviewClip?.id ?? animationPackDraft.clips[0]?.id ?? null;
+    if (!clipId) {
+      setStatus("Add a clip before selecting frames from the spritesheet.");
+      return;
+    }
+
+    setSelectedAnimationClipPreviewId(clipId);
+    setAnimationPackDraft((current) => ({
+      ...current,
+      clips: current.clips.map((clip) => {
+        if (clip.id !== clipId) return clip;
+        const frames = parsePreviewFrameList(clip.frames);
+        return {
+          ...clip,
+          frames: frames ? [...frames, frame].join(", ") : String(frame)
+        };
+      })
+    }));
+    setStatus(`Added frame ${frame} to clip ${clipId}.`);
   };
 
   const buildAnimationPackFromDraft = (): AnimationPackDocument | null => {
@@ -3545,6 +3610,7 @@ export function EditorApp() {
   const selectScene = (sceneId: string) => {
     setWorkspace("scene");
     setActiveSceneTool("walk-area");
+    setSceneInspectorTarget("scene");
     updateSessionSelection((current) => ({
       ...current,
       activeActorId: null,
@@ -3557,8 +3623,26 @@ export function EditorApp() {
     }));
   };
 
+  const selectPlayerInScene = () => {
+    if (!selectedScene) return;
+    setWorkspace("scene");
+    setActiveSceneTool("player-start");
+    setSceneInspectorTarget("player");
+    updateSessionSelection((current) => ({
+      ...current,
+      activeActorId: null,
+      activeFlowId: null,
+      activeHotspotId: null,
+      activeItemId: null,
+      activeLocale: null,
+      activePickupId: null,
+      activeSceneId: selectedScene.id
+    }));
+  };
+
   const selectPlayerScene = (sceneId: string) => {
     setWorkspace("player");
+    setSceneInspectorTarget("player");
     updateSessionSelection((current) => ({
       ...current,
       activeActorId: null,
@@ -3574,6 +3658,7 @@ export function EditorApp() {
   const selectHotspot = (hotspot: Hotspot) => {
     setWorkspace("scene");
     setActiveSceneTool("hotspot");
+    setSceneInspectorTarget("scene");
     updateSessionSelection((current) => ({
       ...current,
       activeActorId: null,
@@ -3588,6 +3673,7 @@ export function EditorApp() {
   const selectPickup = (pickup: ScenePickup) => {
     setWorkspace("scene");
     setActiveSceneTool("pickup");
+    setSceneInspectorTarget("scene");
     updateSessionSelection((current) => ({
       ...current,
       activeActorId: null,
@@ -3602,6 +3688,7 @@ export function EditorApp() {
   const selectActor = (actor: SceneActor) => {
     setWorkspace("scene");
     setActiveSceneTool("actor");
+    setSceneInspectorTarget("scene");
     updateSessionSelection((current) => ({
       ...current,
       activeActorId: actor.id,
@@ -3614,6 +3701,7 @@ export function EditorApp() {
   };
 
   const selectLocale = (locale: LocaleDocument) => {
+    setSceneInspectorTarget("scene");
     updateSessionSelection((current) => ({
       ...current,
       activeActorId: null,
@@ -3626,6 +3714,7 @@ export function EditorApp() {
   };
 
   const selectFlow = (flow: FlowDocument) => {
+    setSceneInspectorTarget("scene");
     updateSessionSelection((current) => ({
       ...current,
       activeActorId: null,
@@ -3638,6 +3727,7 @@ export function EditorApp() {
   };
 
   const selectItem = (item: ItemDocument) => {
+    setSceneInspectorTarget("scene");
     updateSessionSelection((current) => ({
       ...current,
       activeActorId: null,
@@ -3647,6 +3737,111 @@ export function EditorApp() {
       activeLocale: null,
       activePickupId: null
     }));
+  };
+
+  const canOpenBuildReadinessTarget = (target: BuildReadinessTarget | undefined): boolean => {
+    if (!project || !target) return false;
+    switch (target.kind) {
+      case "scene":
+      case "player":
+        return project.scenes.some((scene) => scene.id === target.sceneId);
+      case "hotspot": {
+        const scene = project.scenes.find((entry) => entry.id === target.sceneId);
+        return !!scene?.hotspots.some((hotspot) => hotspot.id === target.hotspotId);
+      }
+      case "pickup": {
+        const scene = project.scenes.find((entry) => entry.id === target.sceneId);
+        return scene?.type === "layered-2d" && scene.pickups.some((pickup) => pickup.id === target.pickupId);
+      }
+      case "actor": {
+        const scene = project.scenes.find((entry) => entry.id === target.sceneId);
+        return scene?.type === "layered-2d" && scene.actors.some((actor) => actor.id === target.actorId);
+      }
+      case "flow":
+        return project.flows.some((flow) => flow.id === target.flowId);
+      case "item":
+        return project.items.some((item) => item.id === target.itemId);
+      case "asset":
+        return project.assets.some((asset) => asset.id === target.assetId);
+      case "animation-pack":
+        return project.animationPacks.some((animationPack) => animationPack.id === target.animationPackId);
+    }
+  };
+
+  const openBuildReadinessIssue = (issue: BuildReadinessIssue) => {
+    const target = issue.target;
+    if (!project || !target || !canOpenBuildReadinessTarget(target)) return;
+
+    if (target.kind === "asset") {
+      setWorkspace("assets");
+      setSelectedAssetId(target.assetId);
+      setStatus(`Opened asset ${target.assetId} from build readiness.`);
+      return;
+    }
+
+    if (target.kind === "animation-pack") {
+      setWorkspace("assets");
+      setSelectedAnimationPackId(target.animationPackId);
+      setStatus(`Opened animation pack ${target.animationPackId} from build readiness.`);
+      return;
+    }
+
+    if (target.kind === "flow") {
+      setWorkspace("narrative");
+      setSceneInspectorTarget("scene");
+      updateSessionSelection((current) => ({
+        ...current,
+        activeActorId: null,
+        activeFlowId: target.flowId,
+        activeHotspotId: null,
+        activeItemId: null,
+        activeLocale: null,
+        activePickupId: null
+      }));
+      setStatus(`Opened flow ${target.flowId} from build readiness.`);
+      return;
+    }
+
+    if (target.kind === "item") {
+      setWorkspace("narrative");
+      setSceneInspectorTarget("scene");
+      updateSessionSelection((current) => ({
+        ...current,
+        activeActorId: null,
+        activeFlowId: null,
+        activeHotspotId: null,
+        activeItemId: target.itemId,
+        activeLocale: null,
+        activePickupId: null
+      }));
+      setStatus(`Opened item ${target.itemId} from build readiness.`);
+      return;
+    }
+
+    setWorkspace("scene");
+    setSceneInspectorTarget(target.kind === "player" ? "player" : "scene");
+    setActiveSceneTool(
+      target.kind === "player"
+        ? "player-start"
+        : target.kind === "hotspot"
+          ? "hotspot"
+          : target.kind === "pickup"
+            ? "pickup"
+            : target.kind === "actor"
+              ? "actor"
+              : "walk-area"
+    );
+    updateSessionSelection((current) => ({
+      ...current,
+      activeActorId: target.kind === "actor" ? target.actorId : null,
+      activeFlowId: null,
+      activeHotspotId: target.kind === "hotspot" ? target.hotspotId : null,
+      activeItemId: null,
+      activeLocale: null,
+      activePickupId: target.kind === "pickup" ? target.pickupId : null,
+      activeSceneId: "sceneId" in target ? target.sceneId : current.activeSceneId
+    }));
+    setStatus(`Opened ${issue.code} from build readiness.`);
   };
 
   const updateHotspotDraft = <K extends keyof typeof currentHotspotDraft>(
@@ -4447,9 +4642,9 @@ export function EditorApp() {
             ))}
             {selectedScene ? (
               <button
-                className={`tree-item tree-child ${workspace === "player" ? "selected" : ""}`}
+                className={`tree-item tree-child ${workspace === "player" || isPlayerInspectorSelected ? "selected" : ""}`}
                 type="button"
-                onClick={() => setWorkspace("player")}
+                onClick={selectPlayerInScene}
               >
                 <span className="scene-dot muted" /> Player
                 {dirtyState.sceneIds.has(selectedScene.id) ? <span className="dirty-mark">*</span> : null}
@@ -4893,6 +5088,24 @@ export function EditorApp() {
             </div>
           ) : workspace === "build" ? (
             <div className="workspace-overview build-workspace">
+              <section className={`overview-card build-readiness-card ${buildReadinessTone}`}>
+                <div>
+                  <span className="overview-label">Preview readiness</span>
+                  <strong>{buildReadinessSummary}</strong>
+                  <p>
+                    {buildBlockingIssues.length > 0
+                      ? "Resolve blocking saved-project diagnostics before relying on preview."
+                      : buildWarningIssues.length > 0
+                        ? "Preview can run, but these saved-project warnings should be reviewed."
+                        : dirtyState.count > 0
+                          ? "Preview can include draft changes, while validation still reflects saved files."
+                          : "Saved validation and preview target currently match."}
+                  </p>
+                </div>
+                <span className={`capability-badge ${buildReadinessTone}`}>
+                  {buildReadinessTone === "error" ? "Blocked" : buildReadinessTone === "warn" ? "Review" : "Ready"}
+                </span>
+              </section>
               <section className="overview-card">
                 <span className="overview-label">Project validation</span>
                 <strong>{validationSummaryLabel(currentValidationReport)}</strong>
@@ -4909,41 +5122,67 @@ export function EditorApp() {
                 </div>
               </section>
               <section className="overview-card">
-                <span className="overview-label">Last validation</span>
-                <strong>{formatValidationTimestamp(validationReport?.ranAt ?? null)}</strong>
-                <p>Saved target: {project?.directory ?? "No project loaded"}</p>
-              </section>
-              <section className="overview-card">
-                <span className="overview-label">Preview readiness</span>
+                <span className="overview-label">Validation freshness</span>
                 <strong>{previewReadinessLabel}</strong>
                 <p>
                   {dirtyState.count > 0
                     ? `${dirtyState.count} draft change(s) exist outside saved-file validation.`
                     : "Saved validation and preview target currently match."}
                 </p>
+                <p className="diagnostic-meta">Last run: {formatValidationTimestamp(validationReport?.ranAt ?? null)}</p>
+                <p className="diagnostic-meta">Saved target: {project?.directory ?? "No project loaded"}</p>
               </section>
-              <section className="overview-card">
-                <span className="overview-label">Diagnostics</span>
-                <div className="diagnostic-list">
-                  {currentValidationReport?.diagnostics.length ? (
-                    currentValidationReport.diagnostics.map((diagnostic, index) => (
-                      <div className={`diagnostic-item ${diagnostic.severity}`} key={`${diagnostic.code}-${index}`}>
-                        <div>
-                          <strong>{diagnostic.code}</strong>
-                          <p>{diagnostic.message}</p>
-                          {diagnostic.path ? <p className="diagnostic-meta">{diagnostic.path}</p> : null}
-                        </div>
-                        <span
-                          className={`capability-badge ${
-                            diagnostic.severity === "error" ? "warn" : "muted"
-                          }`}
-                        >
-                          {diagnostic.severity}
-                        </span>
+              <section className="overview-card build-issues-card">
+                <span className="overview-label">Action checklist</span>
+                <strong>
+                  {buildReadinessIssues.length || dirtyState.count > 0
+                    ? "Issues to review"
+                    : "No diagnostics found for the saved project"}
+                </strong>
+                <div className="diagnostic-list readiness-list">
+                  {dirtyState.count > 0 ? (
+                    <div className="diagnostic-item warning readiness-item">
+                      <div>
+                        <strong>Unsaved draft changes</strong>
+                        <p>{dirtyState.count} draft change(s) can be previewed, but validation uses saved files.</p>
                       </div>
-                    ))
+                      <span className="capability-badge warn">Draft</span>
+                    </div>
+                  ) : null}
+                  {buildReadinessIssues.length ? (
+                    buildReadinessIssues.map((issue) => {
+                      const canOpenIssue = canOpenBuildReadinessTarget(issue.target);
+                      return (
+                      <div className={`diagnostic-item ${issue.severity} readiness-item`} key={issue.id}>
+                        <div>
+                          <strong>{issue.code}</strong>
+                          <p>{issue.message}</p>
+                          {issue.path ? <p className="diagnostic-meta">{issue.path}</p> : null}
+                        </div>
+                        <div className="readiness-actions">
+                          <span
+                            className={`capability-badge ${
+                              issue.severity === "error" ? "warn" : "muted"
+                            }`}
+                          >
+                            {issue.severity}
+                          </span>
+                          {issue.actionLabel ? (
+                            <button
+                              className="secondary-action compact-action"
+                              disabled={!canOpenIssue}
+                              type="button"
+                              onClick={() => openBuildReadinessIssue(issue)}
+                            >
+                              {issue.actionLabel}
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                      );
+                    })
                   ) : (
-                    <p>No diagnostics found for the saved project.</p>
+                    dirtyState.count === 0 ? <p>No diagnostics found for the saved project.</p> : null
                   )}
                 </div>
               </section>
@@ -5659,6 +5898,64 @@ export function EditorApp() {
                     </div>
                     <p>{animationPreviewStatus}</p>
                   </div>
+                  <div className="character-gym-slicer-panel">
+                    <div className="character-gym-preview-header">
+                      <div>
+                        <span className="overview-label">Frame slicing</span>
+                        <strong>{animationSliceCells.length} frame(s)</strong>
+                      </div>
+                      <span className={`target-mode-pill ${animationPreviewAssetUrl ? "good" : "warn"}`}>
+                        {animationPreviewAssetUrl ? "Click to append" : "No sheet"}
+                      </span>
+                    </div>
+                    {animationPreviewAssetUrl && animationSliceCells.length ? (
+                      <div
+                        className="character-gym-slicer-grid"
+                        style={{
+                          gridTemplateColumns: `repeat(${Math.max(
+                            1,
+                            Number(animationPackDraft.gridColumns) || 1
+                          )}, minmax(42px, 1fr))`
+                        }}
+                      >
+                        {animationSliceCells.map((cell) => (
+                          <button
+                            className={`character-gym-slice-cell ${
+                              animationPreviewClipFrameSet.has(cell.frame) ? "is-in-clip" : ""
+                            } ${animationPreviewState?.frame.frame === cell.frame ? "is-current" : ""}`}
+                            key={`slice-frame-${cell.frame}`}
+                            title={`Add frame ${cell.frame} to ${animationPreviewClip?.id ?? "clip"}`}
+                            type="button"
+                            onClick={() => appendFrameToAnimationClip(cell.frame)}
+                          >
+                            <span
+                              aria-hidden="true"
+                              className="character-gym-slice-thumb"
+                              style={{
+                                aspectRatio: `${Math.max(
+                                  1,
+                                  animationPreviewState?.width ?? (Number(animationPackDraft.frameWidth) || 1)
+                                )} / ${Math.max(
+                                  1,
+                                  animationPreviewState?.height ?? (Number(animationPackDraft.frameHeight) || 1)
+                                )}`,
+                                backgroundImage: `url("${animationPreviewAssetUrl}")`,
+                                backgroundPosition: cell.backgroundPosition,
+                                backgroundSize: cell.backgroundSize
+                              }}
+                            />
+                            <span>{cell.frame}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="character-gym-preview-empty">Select a spritesheet and grid</div>
+                    )}
+                    <p>
+                      Click a frame to append it to the focused clip sequence. Repeated clicks keep repeated
+                      animation frames.
+                    </p>
+                  </div>
                   <div className="clip-editor-list">
                     {animationPackDraft.clips.map((clip, index) => (
                       <div
@@ -6015,7 +6312,18 @@ export function EditorApp() {
                   </button>
                 ) : null}
                 <div
-                  className={`character ${previewPlayerAssetUrl ? "has-player-asset" : ""}`}
+                  className={`character ${previewPlayerAssetUrl ? "has-player-asset" : ""} ${
+                    isPlayerInspectorSelected ? "selected" : ""
+                  }`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={selectPlayerInScene}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      selectPlayerInScene();
+                    }
+                  }}
                   onPointerDown={startPlayerStartInteraction}
                     style={{
                       backgroundImage: previewPlayerAssetUrl ? `url("${previewPlayerAssetUrl}")` : undefined,
@@ -6187,6 +6495,8 @@ export function EditorApp() {
                 ? "Flow"
                 : selectedLocale
                   ? "Locale"
+                  : isPlayerInspectorSelected
+                    ? "Player"
                   : selectedHotspot
                     ? "Hotspot"
                     : selectedPickup
@@ -6289,6 +6599,110 @@ export function EditorApp() {
                 </p>
                 <p className="inspector-copy">Preview note: {previewReadinessLabel}</p>
               </div>
+            ) : isPlayerInspectorSelected ? (
+              <>
+                <div className="context-setup-card">
+                  <span className={`capability-badge ${playerAssetMissing || playerAnimationPackMissing ? "error" : "good"}`}>
+                    Player setup
+                  </span>
+                  <strong>{selectedScene ? `${selectedScene.name} player` : "Scene player"}</strong>
+                  <p>
+                    Configure the playable character without leaving Scene. Player animation packs should include
+                    `idle` and `walk`; `talk` is useful for dialogue scenes.
+                  </p>
+                  <div className="context-action-row">
+                    <button type="button" onClick={() => setActiveSceneTool("player-start")}>
+                      Edit start in viewport
+                    </button>
+                    <button type="button" onClick={createAnimationPackDraftFromSelection}>
+                      Create player pack
+                    </button>
+                  </div>
+                </div>
+                <label>
+                  Player asset
+                  <select
+                    className={playerAssetMissing ? "field-input-invalid" : ""}
+                    value={currentSceneDraft.playerAssetId}
+                    onChange={(event) => updateSceneDraft("playerAssetId", event.target.value)}
+                  >
+                    <option value="">Generated marker</option>
+                    {availableAssetIds.map((assetId) => (
+                      <option key={`scene-player-asset-${assetId}`} value={assetId}>
+                        {assetId}
+                      </option>
+                    ))}
+                  </select>
+                  {playerAssetMissing ? (
+                    <small className="field-hint error">Selected player asset no longer exists.</small>
+                  ) : null}
+                </label>
+                <label>
+                  Player animation pack
+                  <select
+                    className={playerAnimationPackMissing ? "field-input-invalid" : ""}
+                    value={currentSceneDraft.playerAnimationPackId}
+                    onChange={(event) => updateSceneDraft("playerAnimationPackId", event.target.value)}
+                  >
+                    <option value="">None</option>
+                    {project?.animationPacks.map((animationPack) => {
+                      const clipIds = new Set(animationPack.clips.map((clip) => clip.id));
+                      const suffix = clipIds.has("idle") && clipIds.has("walk") ? " - player ready" : "";
+                      return (
+                        <option key={`scene-player-pack-${animationPack.id}`} value={animationPack.id}>
+                          {animationPack.id}
+                          {suffix}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  {playerAnimationPackMissing ? (
+                    <small className="field-hint error">Selected player animation pack no longer exists.</small>
+                  ) : null}
+                </label>
+                <div className="field-group">
+                  <span>Start and movement</span>
+                  <div className="four-fields">
+                    <input
+                      aria-label="Player start X"
+                      value={currentSceneDraft.playerStartX}
+                      onChange={(event) => updateSceneDraft("playerStartX", event.target.value)}
+                    />
+                    <input
+                      aria-label="Player start Y"
+                      value={currentSceneDraft.playerStartY}
+                      onChange={(event) => updateSceneDraft("playerStartY", event.target.value)}
+                    />
+                  </div>
+                  <div className="four-fields">
+                    <input
+                      aria-label="Player far scale"
+                      value={currentSceneDraft.playerScaleFar}
+                      onChange={(event) => updateSceneDraft("playerScaleFar", event.target.value)}
+                    />
+                    <input
+                      aria-label="Player near scale"
+                      value={currentSceneDraft.playerScaleNear}
+                      onChange={(event) => updateSceneDraft("playerScaleNear", event.target.value)}
+                    />
+                  </div>
+                  <input
+                    aria-label="Player walk speed"
+                    value={currentSceneDraft.playerWalkSpeed}
+                    onChange={(event) => updateSceneDraft("playerWalkSpeed", event.target.value)}
+                  />
+                </div>
+                <div className="flow-link">
+                  <span>Playable character</span>
+                  <strong>
+                    {currentSceneDraft.playerAnimationPackId.trim() || currentSceneDraft.playerAssetId.trim() || "debug marker"}
+                    {selectedScene && dirtyState.sceneIds.has(selectedScene.id) ? " - unsaved draft" : ""}
+                  </strong>
+                  <button type="button" onClick={applySceneChanges}>
+                    Apply player changes -&gt;
+                  </button>
+                </div>
+              </>
             ) : selectedFlow && currentFlowDraft ? (
               <>
                 <label>
@@ -6623,6 +7037,27 @@ export function EditorApp() {
               </>
             ) : selectedActor ? (
               <>
+                <div className="context-setup-card">
+                  <span className={`capability-badge ${actorAssetMissing || actorAnimationPackMissing ? "error" : "good"}`}>
+                    {currentActorDraft.role}
+                  </span>
+                  <strong>{selectedActor.id}</strong>
+                  <p>
+                    {currentActorDraft.role === "npc"
+                      ? "NPCs usually need an asset, an optional animation pack with idle/talk clips, and dialogue flows."
+                      : currentActorDraft.role === "prop" || currentActorDraft.role === "decoration"
+                        ? "Props and decorations can stay static; add an animation pack only when the object should move."
+                        : "Assign visual and interaction references for this scene actor."}
+                  </p>
+                  <div className="context-action-row">
+                    <button type="button" onClick={() => setActiveSceneTool("actor")}>
+                      Edit in viewport
+                    </button>
+                    <button type="button" onClick={createAnimationPackDraftFromSelection}>
+                      Create actor pack
+                    </button>
+                  </div>
+                </div>
                 <label>
                   Actor
                   <input value={selectedActor.id} readOnly />
@@ -6859,6 +7294,24 @@ export function EditorApp() {
               </>
             ) : selectedHotspot ? (
               <>
+                <div className="context-setup-card">
+                  <span className={`capability-badge ${hotspotGuardrail.tone}`}>Hotspot</span>
+                  <strong>{selectedHotspot.id}</strong>
+                  <p>
+                    Hotspots are interaction areas, so asset and animation setup stays out of the critical path.
+                    Bind label, cursor, spots, and verb flows here.
+                  </p>
+                  <div className="context-action-row">
+                    <button type="button" onClick={() => setActiveSceneTool("hotspot")}>
+                      Edit bounds
+                    </button>
+                    {firstHotspotIssueTarget ? (
+                      <button type="button" onClick={focusFirstHotspotIssue}>
+                        Jump to issue
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
                 <label>
                   Name
                   <input value={selectedHotspot.id} readOnly />
@@ -7144,6 +7597,24 @@ export function EditorApp() {
               </>
             ) : selectedPickup ? (
               <>
+                <div className="context-setup-card">
+                  <span className={`capability-badge ${pickupGuardrail.tone}`}>Pickup</span>
+                  <strong>{selectedPickup.id}</strong>
+                  <p>
+                    Pickups bind scene geometry to an inventory item and pickup flow. Visual sprite assignment is
+                    handled by the scene pickup bounds in this data model.
+                  </p>
+                  <div className="context-action-row">
+                    <button type="button" onClick={() => setActiveSceneTool("pickup")}>
+                      Edit pickup bounds
+                    </button>
+                    {firstPickupIssueTarget ? (
+                      <button type="button" onClick={focusFirstPickupIssue}>
+                        Jump to issue
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
                 <label>
                   Pickup
                   <input value={selectedPickup.id} readOnly />
