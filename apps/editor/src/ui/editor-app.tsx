@@ -24,11 +24,30 @@ import {
   type PointerEvent as ReactPointerEvent
 } from "react";
 import {
+  CheckCircle2,
+  ExternalLink,
+  FilePlus2,
+  FolderOpen,
+  Image,
+  Package,
+  Plus,
+  Trash2,
+  UserRound,
+  WandSparkles
+} from "lucide-react";
+import {
   capabilityBadgeLabel,
   capabilityStatusTone,
-  toolCapabilities,
   workspaceCapabilities
 } from "../editor-capabilities";
+import {
+  iconSize,
+  SceneToolIcon,
+  TopbarActions,
+  toolCapabilities,
+  WorkspaceRail,
+  WorkspaceTabs
+} from "./editor-shell";
 import {
   buildActorFromDraft,
   buildHotspotFromDraft,
@@ -4327,56 +4346,21 @@ export function EditorApp() {
           </div>
         </div>
 
-        <nav className="workspace-tabs" aria-label="Workspaces">
-          {workspaceCapabilities.map((item) => (
-            <button
-              className={workspace === item.workspace ? "active" : ""}
-              key={item.id}
-              title={item.detail}
-              type="button"
-              onClick={() => setWorkspace(item.workspace)}
-            >
-              <span>{item.label}</span>
-              <span className={`capability-badge ${capabilityStatusTone(item.status)}`}>
-                {capabilityBadgeLabel(item.status)}
-              </span>
-            </button>
-          ))}
-        </nav>
+        <WorkspaceTabs activeWorkspace={workspace} onWorkspaceChange={setWorkspace} />
 
-        <div className="preview-actions">
-          <button
-            className="secondary-action"
-            disabled={!canUndo}
-            type="button"
-            onClick={() => replaceSession((current) => undoHistory(current))}
-          >
-            Undo
-          </button>
-          <button
-            className="secondary-action"
-            disabled={!canRedo}
-            type="button"
-            onClick={() => replaceSession((current) => redoHistory(current))}
-          >
-            Redo
-          </button>
-          <button className="secondary-action" type="button" onClick={openProject}>
-            Open Project
-          </button>
-          <button className="secondary-action" type="button" onClick={createProjectFromStarter}>
-            New From Starter
-          </button>
-          <button className="secondary-action" type="button" onClick={createBlankProject}>
-            Blank Project
-          </button>
-          <button className="secondary-action" disabled={!project} type="button" onClick={openBrowser}>
-            Open in Browser
-          </button>
-          <button className="play-action" disabled={!project} type="button" onClick={play}>
-            <span>&#9654;</span> {dirtyState.count > 0 ? "Play Draft Preview" : "Play Project"}
-          </button>
-        </div>
+        <TopbarActions
+          canRedo={canRedo}
+          canUndo={canUndo}
+          hasProject={!!project}
+          isDirty={dirtyState.count > 0}
+          onCreateBlankProject={createBlankProject}
+          onCreateProjectFromStarter={createProjectFromStarter}
+          onOpenBrowser={openBrowser}
+          onOpenProject={openProject}
+          onPlay={play}
+          onRedo={() => replaceSession((current) => redoHistory(current))}
+          onUndo={() => replaceSession((current) => undoHistory(current))}
+        />
       </header>
 
       {pendingRecovery ? (
@@ -4438,10 +4422,12 @@ export function EditorApp() {
           <div className="panel-heading">
             <span>Project</span>
             <button type="button" aria-label="Open project" onClick={openProject}>
-              Open
+              <FolderOpen size={13} />
             </button>
           </div>
           <div className="tree">
+            <WorkspaceRail activeWorkspace={workspace} onWorkspaceChange={setWorkspace} />
+            <div className="tree-section-label">Current scene</div>
             <div className="tree-group open">Scenes</div>
             {project ? (
               <button className="tree-item tree-child" type="button" onClick={createScene}>
@@ -4526,6 +4512,7 @@ export function EditorApp() {
                 ) : null}
               </button>
             ))}
+            <div className="tree-section-label">Project content</div>
             <div className="tree-group open">Flows ({project?.flowCount ?? 0})</div>
             {project ? (
               <button className="tree-item tree-child" type="button" onClick={createFlow}>
@@ -4560,6 +4547,7 @@ export function EditorApp() {
                 {dirtyState.itemIds.has(item.id) ? <span className="dirty-mark">*</span> : null}
               </button>
             ))}
+            <div className="tree-section-label">Production library</div>
             <div className="tree-group open">Assets ({project?.assetCount ?? 0})</div>
             {project?.assets.map((asset) => (
               <button
@@ -4656,20 +4644,29 @@ export function EditorApp() {
                     }
                   }}
                 >
-                  {tool.label}
+                  <SceneToolIcon toolId={tool.id} />
+                  <span>{tool.label}</span>
                 </button>
               ))}
             </div>
             <div className="canvas-meta">
-              {workspace === "overview"
-                ? "Editor overview and capability status"
-                : workspace === "scene" && selectedScene
-                  ? `Layered 2D - ${sceneLabel} - ${selectedScene.hotspots.length} hotspot(s) - ${selectedScene.pickups.length} pickup(s) - Tool: ${selectedSceneToolLabel}`
-                  : workspace === "narrative"
-                    ? "Structured flow and locale editing"
-                    : workspace === "player" && selectedScene
-                      ? `Player - ${selectedScene.name} - ${previewPlayerConfig.walkSpeed}px/s`
-                    : workspaceCapability.summary}
+              <span className="canvas-meta-primary">
+                {workspace === "scene" && selectedScene ? sceneLabel : workspaceCapability.label}
+              </span>
+              <span>
+                {workspace === "overview"
+                  ? "Editor overview and capability status"
+                  : workspace === "scene" && selectedScene
+                    ? `${selectedScene.hotspots.length} hotspot(s) / ${selectedScene.pickups.length} pickup(s) / ${selectedScene.actors.length} actor(s)`
+                    : workspace === "narrative"
+                      ? "Structured flow and locale editing"
+                      : workspace === "player" && selectedScene
+                        ? `${selectedScene.name} / ${previewPlayerConfig.walkSpeed}px/s`
+                        : workspaceCapability.summary}
+              </span>
+              <span className={`capability-badge compact ${capabilityStatusTone(workspaceCapability.status)}`}>
+                {workspace === "scene" ? selectedSceneToolLabel : capabilityBadgeLabel(workspaceCapability.status)}
+              </span>
             </div>
           </div>
 
@@ -5437,18 +5434,18 @@ export function EditorApp() {
               </section>
             </div>
           ) : workspace === "assets" ? (
-            <div className="workspace-overview build-workspace">
-              <section className="overview-card">
+            <div className="workspace-overview build-workspace asset-workspace">
+              <section className="overview-card asset-library-card">
                 <span className="overview-label">Project library</span>
                 <strong>{project?.assetCount ?? 0} registered asset(s)</strong>
                 <p>{selectedAsset ? `${selectedAsset.id} selected` : "Import images into the project library."}</p>
                 <div className="build-actions">
-                  <button className="play-action" disabled={!project} type="button" onClick={importAssets}>
-                    Import Assets
+                  <button className="play-action compact-action" disabled={!project} type="button" onClick={importAssets}>
+                    <Image size={iconSize} /> Import Assets
                   </button>
                 </div>
               </section>
-              <section className="overview-card">
+              <section className="overview-card asset-detail-card">
                 <span className="overview-label">Selected asset</span>
                 <strong>{selectedAsset?.id ?? "No asset selected"}</strong>
                 <p>
@@ -5466,8 +5463,8 @@ export function EditorApp() {
                       />
                     </label>
                     <div className="build-actions">
-                      <button className="secondary-action" type="button" onClick={applyAssetRelink}>
-                        Relink Asset
+                      <button className="secondary-action compact-action" type="button" onClick={applyAssetRelink}>
+                        <ExternalLink size={iconSize} /> Relink Asset
                       </button>
                     </div>
                   </div>
@@ -5502,25 +5499,25 @@ export function EditorApp() {
                 {selectedAsset ? (
                   <div className="build-actions">
                     <button
-                      className="secondary-action"
+                      className="secondary-action compact-action"
                       disabled={!selectedScene || selectedAsset.kind !== "image" || selectedAssetHealth === "missing"}
                       type="button"
                       onClick={assignAssetBackground}
                     >
-                      Set As Scene Background
+                      <Image size={iconSize} /> Set As Background
                     </button>
                     <button
-                      className="secondary-action"
+                      className="secondary-action compact-action"
                       disabled={selectedAssetUsage.length > 0}
                       type="button"
                       onClick={deleteSelectedAsset}
                     >
-                      Delete Unused Asset
+                      <Trash2 size={iconSize} /> Delete Unused
                     </button>
                   </div>
                 ) : null}
               </section>
-              <section className="overview-card prompt-studio-card">
+              <section className="overview-card prompt-studio-card character-gym-card">
                 <span className="overview-label">Character Gym</span>
                 <strong>{selectedAnimationPack?.id ?? animationPackDraft.id}</strong>
                 <p>
@@ -5730,11 +5727,11 @@ export function EditorApp() {
                     ))}
                   </div>
                 </div>
-                <div className="build-actions">
-                  <button className="secondary-action" type="button" onClick={createAnimationPackDraftFromSelection}>
-                    New Pack
+                <div className="build-actions character-gym-actions">
+                  <button className="secondary-action compact-action" type="button" onClick={createAnimationPackDraftFromSelection}>
+                    <FilePlus2 size={iconSize} /> New Pack
                   </button>
-                  <button className="secondary-action" type="button" onClick={() =>
+                  <button className="secondary-action compact-action" type="button" onClick={() =>
                     setAnimationPackDraft((current) => ({
                       ...current,
                       clips: [
@@ -5748,190 +5745,55 @@ export function EditorApp() {
                       ]
                     }))
                   }>
-                    Add Clip
+                    <Plus size={iconSize} /> Add Clip
                   </button>
-                  <button className="play-action" disabled={!project} type="button" onClick={saveAnimationPackDraft}>
-                    Save Animation Pack
+                  <button className="play-action compact-action" disabled={!project} type="button" onClick={saveAnimationPackDraft}>
+                    <CheckCircle2 size={iconSize} /> Save Pack
                   </button>
                   <button
-                    className="secondary-action"
+                    className="secondary-action compact-action"
                     disabled={!selectedScene}
                     type="button"
                     onClick={assignAnimationPackToPlayerDraft}
                   >
-                    Assign To Player Draft
+                    <UserRound size={iconSize} /> Assign Player
                   </button>
                   <button
-                    className="secondary-action"
+                    className="secondary-action compact-action"
                     disabled={!selectedActor}
                     type="button"
                     onClick={assignAnimationPackToActorDraft}
                   >
-                    Assign To Actor Draft
+                    <Package size={iconSize} /> Assign Actor
                   </button>
                 </div>
               </section>
-              <section className="overview-card prompt-studio-card">
-                <span className="overview-label">Prompt Pack Studio</span>
-                <strong>{promptPackScene ? `${promptPackScene.name} AI brief` : "No layered scene"}</strong>
-                <p>Generate a prompt pack from the current draft scene context.</p>
-                <div className="prompt-studio-controls">
-                  <label className="prompt-studio-field">
-                    Provider
-                    <select
-                      value={promptProviderId}
-                      onChange={(event) => setPromptProviderId(event.target.value as PromptProviderId)}
-                    >
-                      {promptProviderDescriptors.map((provider) => (
-                        <option key={provider.id} value={provider.id}>
-                          {provider.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {promptProviderId === "openai" ? (
-                    <>
-                      <label className="prompt-studio-field">
-                        OpenAI API key
-                        <input
-                          placeholder="Uses OPENAI_API_KEY if empty"
-                          type="password"
-                          value={openAiApiKey}
-                          onChange={(event) => setOpenAiApiKey(event.target.value)}
-                        />
-                      </label>
-                      <label className="prompt-studio-field">
-                        Model
-                        <input
-                          value={openAiModel}
-                          onChange={(event) => setOpenAiModel(event.target.value)}
-                        />
-                      </label>
-                    </>
-                  ) : null}
-                  {promptProviderId === "lmstudio" ? (
-                    <>
-                      <label className="prompt-studio-field">
-                        LM Studio base URL
-                        <input
-                          value={lmStudioBaseUrl}
-                          onChange={(event) => setLmStudioBaseUrl(event.target.value)}
-                        />
-                      </label>
-                      <label className="prompt-studio-field">
-                        Model
-                        <input
-                          value={lmStudioModel}
-                          onChange={(event) => setLmStudioModel(event.target.value)}
-                        />
-                      </label>
-                    </>
-                  ) : null}
-                  <label className="prompt-studio-field">
-                    Scene
-                    <select
-                      disabled={!project || layeredScenes.length === 0}
-                      value={promptPackScene?.id ?? ""}
-                      onChange={(event) => setPromptPackSceneId(event.target.value)}
-                    >
-                      {layeredScenes.map((scene) => (
-                        <option key={scene.id} value={scene.id}>
-                          {scene.name} ({scene.id})
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="prompt-studio-field">
-                    Art brief
-                    <textarea
-                      value={promptPackBrief}
-                      onChange={(event) => setPromptPackBrief(event.target.value)}
-                    />
-                  </label>
-                </div>
-                <div className="build-actions">
-                  <button
-                    className="play-action"
-                    disabled={!project || !promptPackScene || promptPackGenerationState === "running"}
-                    type="button"
-                    onClick={generatePromptPack}
-                  >
-                    {promptPackGenerationState === "running" ? "Generating..." : "Generate Prompt Pack"}
-                  </button>
-                  <button
-                    className="secondary-action"
-                    disabled={!promptPackCandidate}
-                    type="button"
-                    onClick={saveApprovedPromptPack}
-                  >
-                    Save Approved Pack
-                  </button>
-                </div>
-              </section>
-              <section className="overview-card">
-                <span className="overview-label">Extracted context</span>
-                <strong>
-                  {promptPackContext
-                    ? `${promptPackContext.hotspots.length} hotspot(s), ${promptPackContext.pickups.length} pickup(s), ${promptPackContext.actors.length} actor(s)`
-                    : "No context"}
-                </strong>
+              <section className="overview-card ai-handoff-card">
+                <span className="overview-label">AI source material</span>
+                <strong>{promptPackScene ? `${promptPackScene.name} prompt packs` : "No layered scene"}</strong>
                 <p>
-                  {promptPackContext
-                    ? `${promptPackContext.sceneSize.width} x ${promptPackContext.sceneSize.height} - ${promptPackContext.locale}`
-                    : "Choose a layered scene to inspect AI prompt context."}
+                  Prompt packs, provider settings, and ComfyUI imports now live in the AI workspace. Asset Studio keeps
+                  the approved library and animation authoring focused.
                 </p>
-                {promptPackContext ? (
-                  <div className="prompt-chip-list">
-                    {Object.entries(promptPackContext.labels).map(([key, value]) => (
-                      <span className="prompt-chip" key={key} title={key}>
-                        {value}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-              </section>
-              <section className="overview-card prompt-output-card">
-                <span className="overview-label">Candidate output</span>
-                <strong>{promptPackCandidate?.promptPack.id ?? "No candidate generated"}</strong>
-                <p>{promptPackCandidate?.summary ?? "Generate a mock pack to review prompt outputs."}</p>
-                {promptPackCandidate ? (
-                  <div className="prompt-output-list">
-                    <div className="prompt-output-item">
-                      <strong>Background</strong>
-                      <p>{promptPackCandidate.promptPack.outputs.sceneBackgroundPrompt}</p>
-                    </div>
-                    {promptPackCandidate.promptPack.outputs.propPrompts.map((prompt) => (
-                      <div className="prompt-output-item" key={prompt.id}>
-                        <strong>Prop: {prompt.id}</strong>
-                        <p>{prompt.prompt}</p>
-                      </div>
-                    ))}
-                    {promptPackCandidate.promptPack.outputs.characterReferencePrompts.map((prompt) => (
-                      <div className="prompt-output-item" key={prompt.id}>
-                        <strong>Character: {prompt.id}</strong>
-                        <p>{prompt.prompt}</p>
-                      </div>
-                    ))}
-                    <div className="prompt-output-item">
-                      <strong>Animation notes</strong>
-                      <p>{textList(promptPackCandidate.promptPack.outputs.animationNotes)}</p>
-                    </div>
-                    <div className="prompt-output-item">
-                      <strong>Negative prompt</strong>
-                      <p>{promptPackCandidate.promptPack.outputs.negativePrompt}</p>
-                    </div>
-                    <div className="prompt-output-item">
-                      <strong>Provenance</strong>
+                <div className="diagnostic-list">
+                  <div className="diagnostic-item">
+                    <div>
+                      <strong>{promptPackContext ? "Scene context ready" : "Choose a scene in AI"}</strong>
                       <p>
-                        {promptPackCandidate.promptPack.provenance.provider} /{" "}
-                        {promptPackCandidate.promptPack.provenance.model} /{" "}
-                        {promptPackCandidate.promptPack.provenance.inputHash}
+                        {promptPackContext
+                          ? `${promptPackContext.hotspots.length} hotspot(s), ${promptPackContext.pickups.length} pickup(s), ${promptPackContext.actors.length} actor(s)`
+                          : "AI can extract scene labels and generation targets once a layered scene is selected."}
                       </p>
                     </div>
                   </div>
-                ) : null}
+                </div>
+                <div className="build-actions">
+                  <button className="secondary-action compact-action" type="button" onClick={() => setWorkspace("ai")}>
+                    <WandSparkles size={iconSize} /> Open AI Studio
+                  </button>
+                </div>
               </section>
-              <section className="overview-card">
+              <section className="overview-card saved-packs-card">
                 <span className="overview-label">Saved prompt packs</span>
                 <strong>{project?.promptPackCount ?? 0} pack(s)</strong>
                 <p>

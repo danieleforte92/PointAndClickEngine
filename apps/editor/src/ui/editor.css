@@ -41,9 +41,9 @@ button {
 .topbar {
   height: 64px;
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto minmax(260px, 1fr);
+  grid-template-columns: minmax(220px, 280px) minmax(420px, 1fr) minmax(360px, auto);
   align-items: center;
-  gap: 24px;
+  gap: 14px;
   padding: 0 18px;
   border-bottom: 1px solid #2c3b45;
   background: rgba(20, 29, 38, 0.96);
@@ -93,7 +93,14 @@ button {
 .workspace-tabs {
   align-self: stretch;
   gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
   -webkit-app-region: no-drag;
+}
+
+.workspace-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .workspace-tabs button,
@@ -108,13 +115,29 @@ button {
   height: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 16px;
+  gap: 7px;
+  padding: 0 10px;
   color: #819aa6;
   border-bottom: 2px solid transparent;
   background: transparent;
   font-size: 0.76rem;
   font-weight: 700;
+  white-space: nowrap;
+}
+
+.workspace-tabs button svg,
+.compact-action svg,
+.icon-action svg,
+.toolset button svg,
+.workspace-rail svg {
+  flex: 0 0 auto;
+  stroke-width: 2;
+}
+
+.workspace-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .workspace-tabs button:hover,
@@ -125,13 +148,29 @@ button {
 
 .preview-actions {
   justify-content: flex-end;
-  gap: 8px;
+  gap: 7px;
+  min-width: 0;
   -webkit-app-region: no-drag;
 }
 
 .preview-actions button:disabled {
   cursor: default;
   opacity: 0.45;
+}
+
+.action-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 4px;
+  border: 1px solid #2b3a44;
+  border-radius: 6px;
+  background: #141e27;
+}
+
+.project-cluster {
+  max-width: 300px;
 }
 
 .capability-badge {
@@ -145,6 +184,12 @@ button {
   font-weight: 900;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.capability-badge.compact {
+  min-height: 16px;
+  padding: 0 5px;
+  font-size: 0.48rem;
 }
 
 .capability-badge.good {
@@ -174,6 +219,31 @@ button {
   border-radius: 4px 10px 4px 10px;
   font-size: 0.72rem;
   font-weight: 800;
+}
+
+.compact-action,
+.icon-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.compact-action {
+  min-width: 0;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.icon-action {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: #aac0c8;
+  border: 1px solid #3d505c;
+  border-radius: 4px;
+  background: #1a2630;
+  cursor: pointer;
 }
 
 .secondary-action {
@@ -359,6 +429,47 @@ button {
   padding: 10px 8px;
 }
 
+.workspace-rail {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid #263640;
+}
+
+.workspace-rail button {
+  min-width: 0;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #8fa5ae;
+  border: 1px solid #2d3e48;
+  border-radius: 4px;
+  background: #131d26;
+  font-size: 0.66rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.workspace-rail button:hover,
+.workspace-rail button.active {
+  color: #e2ecee;
+  border-color: #506a77;
+  background: #22313c;
+}
+
+.tree-section-label {
+  margin: 14px 7px 6px;
+  color: #607985;
+  font-size: 0.54rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
 .tree,
 .canvas-panel > :not(.canvas-toolbar):not(.timeline-strip),
 .inspector-content {
@@ -518,21 +629,35 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 0 10px;
   border-bottom: 1px solid #2b3a44;
 }
 
 .toolset {
   display: flex;
-  gap: 3px;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.toolset::-webkit-scrollbar {
+  display: none;
 }
 
 .toolset button {
-  padding: 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
   color: #8299a3;
   border-radius: 3px;
   background: transparent;
   font-size: 0.66rem;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .toolset button:disabled {
@@ -546,9 +671,30 @@ button {
 }
 
 .canvas-meta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 180px;
+  max-width: 50%;
+  overflow: hidden;
   color: #66818d;
   font-family: "Courier New", monospace;
   font-size: 0.62rem;
+}
+
+.canvas-meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-meta-primary {
+  color: #c1d0d5;
+  font-family: "Trebuchet MS", sans-serif;
+  font-size: 0.68rem;
+  font-weight: 900;
 }
 
 .scene-viewport {
@@ -1047,6 +1193,9 @@ button {
 }
 
 .build-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: 14px;
 }
 
@@ -1058,6 +1207,29 @@ button {
 
 .player-workspace {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.asset-workspace {
+  grid-template-columns: minmax(280px, 0.8fr) minmax(360px, 1.2fr);
+}
+
+.character-gym-card {
+  grid-column: 2;
+  grid-row: 1 / span 4;
+}
+
+.ai-handoff-card,
+.saved-packs-card {
+  grid-column: 1;
+}
+
+.asset-library-card,
+.asset-detail-card {
+  border-color: #3a4d57;
+}
+
+.character-gym-actions {
+  align-items: center;
 }
 
 .player-hero-card {
