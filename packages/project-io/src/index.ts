@@ -310,6 +310,28 @@ function slugifyId(value: string, fallback: string): string {
   return slug || fallback;
 }
 
+export function safeProjectPath(projectDirectory: string, relativePath: string, label = "Project path"): string {
+  const trimmedPath = relativePath.trim();
+  if (!trimmedPath) {
+    throw new Error(`${label} cannot be empty`);
+  }
+  if (path.isAbsolute(trimmedPath)) {
+    throw new Error(`${label} "${relativePath}" must be relative to the project`);
+  }
+
+  const root = path.resolve(projectDirectory);
+  const resolvedPath = path.resolve(root, trimmedPath);
+  const projectRelativePath = path.relative(root, resolvedPath);
+  if (
+    projectRelativePath === ".." ||
+    projectRelativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(projectRelativePath)
+  ) {
+    throw new Error(`${label} "${relativePath}" is outside the project`);
+  }
+  return resolvedPath;
+}
+
 function titleFromDirectory(projectDirectory: string): string {
   const name = path.basename(path.resolve(projectDirectory)).replace(/[-_]+/g, " ").trim();
   return name
@@ -865,7 +887,7 @@ export async function loadProjectFromDirectory(projectDirectory: string): Promis
 
   const scenes: Record<string, SceneDocument> = {};
   for (const reference of manifestValue.scenes) {
-    const value = await readJson(path.resolve(directory, reference.path));
+    const value = await readJson(safeProjectPath(directory, reference.path, `Scene reference "${reference.id}"`));
     assertDocument<SceneDocument>("scene", value);
     if (value.id !== reference.id) {
       throw new Error(`Scene reference "${reference.id}" points to document "${value.id}"`);
@@ -875,7 +897,7 @@ export async function loadProjectFromDirectory(projectDirectory: string): Promis
 
   const flows: Record<string, FlowDocument> = {};
   for (const reference of manifestValue.flows) {
-    const value = await readJson(path.resolve(directory, reference.path));
+    const value = await readJson(safeProjectPath(directory, reference.path, `Flow reference "${reference.id}"`));
     assertDocument<FlowDocument>("flow", value);
     if (value.id !== reference.id) {
       throw new Error(`Flow reference "${reference.id}" points to document "${value.id}"`);
@@ -885,7 +907,7 @@ export async function loadProjectFromDirectory(projectDirectory: string): Promis
 
   const locales: Record<string, LocaleDocument> = {};
   for (const reference of manifestValue.locales) {
-    const value = await readJson(path.resolve(directory, reference.path));
+    const value = await readJson(safeProjectPath(directory, reference.path, `Locale reference "${reference.locale}"`));
     assertDocument<LocaleDocument>("locale", value);
     if (value.locale !== reference.locale) {
       throw new Error(`Locale reference "${reference.locale}" points to document "${value.locale}"`);
@@ -895,7 +917,7 @@ export async function loadProjectFromDirectory(projectDirectory: string): Promis
 
   const items: Record<string, ItemDocument> = {};
   for (const reference of manifestValue.items) {
-    const value = await readJson(path.resolve(directory, reference.path));
+    const value = await readJson(safeProjectPath(directory, reference.path, `Item reference "${reference.id}"`));
     assertDocument<ItemDocument>("item", value);
     if (value.id !== reference.id) {
       throw new Error(`Item reference "${reference.id}" points to document "${value.id}"`);
@@ -905,7 +927,7 @@ export async function loadProjectFromDirectory(projectDirectory: string): Promis
 
   const assets: Record<string, AssetDocument> = {};
   for (const reference of manifestValue.assets ?? []) {
-    const value = await readJson(path.resolve(directory, reference.path));
+    const value = await readJson(safeProjectPath(directory, reference.path, `Asset reference "${reference.id}"`));
     assertDocument<AssetDocument>("asset", value);
     if (value.id !== reference.id) {
       throw new Error(`Asset reference "${reference.id}" points to document "${value.id}"`);
@@ -915,7 +937,9 @@ export async function loadProjectFromDirectory(projectDirectory: string): Promis
 
   const animationPacks: Record<string, AnimationPackDocument> = {};
   for (const reference of manifestValue.animationPacks ?? []) {
-    const value = await readJson(path.resolve(directory, reference.path));
+    const value = await readJson(
+      safeProjectPath(directory, reference.path, `Animation pack reference "${reference.id}"`)
+    );
     assertDocument<AnimationPackDocument>("animationPack", value);
     if (value.id !== reference.id) {
       throw new Error(`Animation pack reference "${reference.id}" points to document "${value.id}"`);
@@ -925,7 +949,7 @@ export async function loadProjectFromDirectory(projectDirectory: string): Promis
 
   const promptPacks: Record<string, PromptPackDocument> = {};
   for (const reference of manifestValue.promptPacks ?? []) {
-    const value = await readJson(path.resolve(directory, reference.path));
+    const value = await readJson(safeProjectPath(directory, reference.path, `Prompt pack reference "${reference.id}"`));
     assertDocument<PromptPackDocument>("promptPack", value);
     if (value.id !== reference.id) {
       throw new Error(`Prompt pack reference "${reference.id}" points to document "${value.id}"`);
@@ -1050,7 +1074,7 @@ function scenePathFor(project: LoadedProject, sceneId: string): string {
   if (!reference) {
     throw new Error(`Scene "${sceneId}" is not referenced by the project manifest`);
   }
-  return path.resolve(project.directory, reference.path);
+  return safeProjectPath(project.directory, reference.path, `Scene reference "${sceneId}"`);
 }
 
 function localePathFor(project: LoadedProject, locale: string): string {
@@ -1058,7 +1082,7 @@ function localePathFor(project: LoadedProject, locale: string): string {
   if (!reference) {
     throw new Error(`Locale "${locale}" is not referenced by the project manifest`);
   }
-  return path.resolve(project.directory, reference.path);
+  return safeProjectPath(project.directory, reference.path, `Locale reference "${locale}"`);
 }
 
 function flowPathFor(project: LoadedProject, flowId: string): string {
@@ -1066,7 +1090,7 @@ function flowPathFor(project: LoadedProject, flowId: string): string {
   if (!reference) {
     throw new Error(`Flow "${flowId}" is not referenced by the project manifest`);
   }
-  return path.resolve(project.directory, reference.path);
+  return safeProjectPath(project.directory, reference.path, `Flow reference "${flowId}"`);
 }
 
 function itemPathFor(project: LoadedProject, itemId: string): string {
@@ -1074,7 +1098,7 @@ function itemPathFor(project: LoadedProject, itemId: string): string {
   if (!reference) {
     throw new Error(`Item "${itemId}" is not referenced by the project manifest`);
   }
-  return path.resolve(project.directory, reference.path);
+  return safeProjectPath(project.directory, reference.path, `Item reference "${itemId}"`);
 }
 
 function assetPathFor(project: LoadedProject, assetId: string): string {
@@ -1082,11 +1106,11 @@ function assetPathFor(project: LoadedProject, assetId: string): string {
   if (!reference) {
     throw new Error(`Asset "${assetId}" is not referenced by the project manifest`);
   }
-  return path.resolve(project.directory, reference.path);
+  return safeProjectPath(project.directory, reference.path, `Asset reference "${assetId}"`);
 }
 
 function assetDocumentPathFor(projectDirectory: string, relativePath: string): string {
-  return path.resolve(projectDirectory, relativePath);
+  return safeProjectPath(projectDirectory, relativePath, "Asset document path");
 }
 
 function promptPackPathFor(project: LoadedProject, promptPackId: string): string {
@@ -1094,7 +1118,7 @@ function promptPackPathFor(project: LoadedProject, promptPackId: string): string
   if (!reference) {
     throw new Error(`Prompt pack "${promptPackId}" is not referenced by the project manifest`);
   }
-  return path.resolve(project.directory, reference.path);
+  return safeProjectPath(project.directory, reference.path, `Prompt pack reference "${promptPackId}"`);
 }
 
 function animationPackPathFor(project: LoadedProject, animationPackId: string): string {
@@ -1102,7 +1126,7 @@ function animationPackPathFor(project: LoadedProject, animationPackId: string): 
   if (!reference) {
     throw new Error(`Animation pack "${animationPackId}" is not referenced by the project manifest`);
   }
-  return path.resolve(project.directory, reference.path);
+  return safeProjectPath(project.directory, reference.path, `Animation pack reference "${animationPackId}"`);
 }
 
 function projectManifestPath(project: LoadedProject): string {
@@ -1592,7 +1616,7 @@ export async function validateProjectFiles(project: LoadedProject): Promise<Proj
   const diagnostics: ProjectDiagnostic[] = [];
 
   for (const asset of Object.values(project.bundle.assets)) {
-    const assetFilePath = path.resolve(project.directory, asset.path);
+    const assetFilePath = safeProjectPath(project.directory, asset.path, `Asset file "${asset.id}"`);
     try {
       await stat(assetFilePath);
     } catch (error) {
@@ -1693,7 +1717,7 @@ export async function applyProjectCommand(
       scenes: [...project.bundle.manifest.scenes, { id: command.scene.id, path: documentPath }]
     };
 
-    await writeJson(path.resolve(project.directory, documentPath), command.scene);
+    await writeJson(safeProjectPath(project.directory, documentPath, "Scene document path"), command.scene);
     assertDocument<ProjectManifest>("project", nextManifest);
     await writeJson(projectManifestPath(project), nextManifest);
   }
@@ -1876,7 +1900,7 @@ export async function applyProjectCommand(
       flows: [...project.bundle.manifest.flows, { id: command.flow.id, path: documentPath }]
     };
 
-    await writeJson(path.resolve(project.directory, documentPath), command.flow);
+    await writeJson(safeProjectPath(project.directory, documentPath, "Flow document path"), command.flow);
     assertDocument<ProjectManifest>("project", nextManifest);
     await writeJson(projectManifestPath(project), nextManifest);
   }
@@ -1940,7 +1964,7 @@ export async function applyProjectCommand(
       items: [...project.bundle.manifest.items, { id: command.item.id, path: documentPath }]
     };
 
-    await writeJson(path.resolve(project.directory, documentPath), command.item);
+    await writeJson(safeProjectPath(project.directory, documentPath, "Item document path"), command.item);
     assertDocument<ProjectManifest>("project", nextManifest);
     await writeJson(projectManifestPath(project), nextManifest);
   }
@@ -2082,7 +2106,7 @@ export async function applyProjectCommand(
 
     const nextManifest = upsertAnimationPackManifestReference(project.bundle.manifest, animationPack, documentPath);
     assertDocument<ProjectManifest>("project", nextManifest);
-    await writeJson(path.resolve(project.directory, documentPath), animationPack);
+    await writeJson(safeProjectPath(project.directory, documentPath, "Animation pack document path"), animationPack);
     await writeJson(projectManifestPath(project), nextManifest);
   }
 
@@ -2102,7 +2126,7 @@ export async function applyProjectCommand(
 
     const nextManifest = upsertPromptPackManifestReference(project.bundle.manifest, promptPack, documentPath);
     assertDocument<ProjectManifest>("project", nextManifest);
-    await writeJson(path.resolve(project.directory, documentPath), promptPack);
+    await writeJson(safeProjectPath(project.directory, documentPath, "Prompt pack document path"), promptPack);
     await writeJson(projectManifestPath(project), nextManifest);
   }
 

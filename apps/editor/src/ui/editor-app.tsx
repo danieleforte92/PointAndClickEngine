@@ -84,11 +84,13 @@ import {
   restoreSessionFromRecovery,
   sceneItems,
   type DraftNodeType,
+  type ActorDraft,
   type EditorHistoryState,
   type EditorRecoverySnapshot,
   type EditorSessionState,
   type FlowDraft,
   type FlowDraftNode,
+  type SceneDraft,
   type ScenePointDraftValue,
   type SceneRectDraftValue,
   sessionEquals,
@@ -123,6 +125,7 @@ import {
   settingPresets,
   visualStylePresets
 } from "../prompt-pack-presets";
+import { resolvePromptForGenerationTarget } from "../prompt-pack-targets";
 import type { EditorProjectSnapshot } from "../preload";
 import type {
   BuildReadinessIssue,
@@ -173,6 +176,26 @@ interface AnimationPackDraft {
   id: string;
   name: string;
   clips: AnimationClipDraft[];
+}
+
+type ImageGenerationEntityKind = "scene-background" | "actor" | "pickup" | "player" | "asset";
+
+interface ImageGenerationSceneContext {
+  entityId?: string;
+  entityKind: ImageGenerationEntityKind;
+  intendedUse: PromptPackGenerationTarget["intendedUse"];
+  sceneId: string;
+  targetId: string;
+}
+
+interface GeneratedAssetHandoff extends ImageGenerationSceneContext {
+  assetId: string;
+  assetPath: string;
+  backgroundMode?: PromptPackGenerationTarget["backgroundMode"];
+  expectedAlpha: boolean;
+  hasAlphaPixels: boolean;
+  outputWarning?: string;
+  seed: number;
 }
 
 function createAnimationPackDraft(
@@ -891,23 +914,47 @@ function focusEditorField(element: HTMLInputElement | HTMLSelectElement | null) 
   element.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
-function promptForGenerationTarget(promptPack: PromptPackDocument, target: PromptPackGenerationTarget) {
+function imageGenerationContextForTarget(
+  target: PromptPackGenerationTarget,
+  scene: Layered2DScene
+): ImageGenerationSceneContext {
   if (target.intendedUse === "scene-background") {
-    return promptPack.outputs.sceneBackgroundPrompt;
+    return {
+      entityKind: "scene-background",
+      intendedUse: target.intendedUse,
+      sceneId: scene.id,
+      targetId: target.id
+    };
   }
 
-  if (target.intendedUse === "character-reference" || target.intendedUse === "animation-reference") {
-    return (
-      promptPack.outputs.characterReferencePrompts.find((prompt) => prompt.id === target.id)?.prompt ??
-      promptPack.outputs.characterReferencePrompts.find((prompt) => target.id.startsWith(prompt.id))?.prompt ??
-      promptPack.outputs.sceneBackgroundPrompt
-    );
+  const pickup = scene.pickups.find((entry) => entry.id === target.id);
+  if (pickup) {
+    return {
+      entityId: pickup.id,
+      entityKind: "pickup",
+      intendedUse: target.intendedUse,
+      sceneId: scene.id,
+      targetId: target.id
+    };
   }
 
-  return (
-    promptPack.outputs.propPrompts.find((prompt) => prompt.id === target.id)?.prompt ??
-    promptPack.outputs.sceneBackgroundPrompt
-  );
+  const actor = scene.actors.find((entry) => target.id === entry.id || target.id.startsWith(`${entry.id}-`));
+  if (actor) {
+    return {
+      entityId: actor.id,
+      entityKind: "actor",
+      intendedUse: target.intendedUse,
+      sceneId: scene.id,
+      targetId: target.id
+    };
+  }
+
+  return {
+    entityKind: "asset",
+    intendedUse: target.intendedUse,
+    sceneId: scene.id,
+    targetId: target.id
+  };
 }
 
 function dimensionsForGenerationTarget(target: PromptPackGenerationTarget) {
@@ -982,6 +1029,9 @@ export function EditorApp() {
   );
   const [selectedGenerationTargetId, setSelectedGenerationTargetId] = useState("");
   const [imageGenerationState, setImageGenerationState] = useState<"idle" | "running">("idle");
+  const [activeImageGenerationContext, setActiveImageGenerationContext] =
+    useState<ImageGenerationSceneContext | null>(null);
+  const [lastGeneratedImageAsset, setLastGeneratedImageAsset] = useState<GeneratedAssetHandoff | null>(null);
   const [selectedPromptPackId, setSelectedPromptPackId] = useState<string | null>(null);
   const [validationRunState, setValidationRunState] = useState<EditorValidationRunState>("idle");
   const [validationReport, setValidationReport] = useState<EditorValidationReport | null>(null);
@@ -1251,11 +1301,16 @@ export function EditorApp() {
     imageGenerationTargets.find((target) => target.id === selectedGenerationTargetId) ??
     imageGenerationTargets[0] ??
     null;
+  const selectedImageGenerationContext =
+    selectedGenerationTarget && promptPackScene
+      ? imageGenerationContextForTarget(selectedGenerationTarget, promptPackScene)
+      : null;
   const selectedComfyOutputPreset = comfyOutputPresetById(comfyUiOutputPresetId);
-  const selectedGenerationPrompt =
+  const selectedGenerationPromptResolution =
     activeImagePromptPack && selectedGenerationTarget
-      ? promptForGenerationTarget(activeImagePromptPack, selectedGenerationTarget)
-      : "";
+      ? resolvePromptForGenerationTarget(activeImagePromptPack, selectedGenerationTarget)
+      : null;
+  const selectedGenerationPrompt = selectedGenerationPromptResolution?.prompt ?? "";
   const targetGenerationDimensions = selectedGenerationTarget
     ? dimensionsForGenerationTarget(selectedGenerationTarget)
     : { height: 512, width: 512 };
@@ -3134,17 +3189,23 @@ export function EditorApp() {
     }
 
     setImageGenerationState("running");
+    setActiveImageGenerationContext(selectedImageGenerationContext);
+    setLastGeneratedImageAsset(null);
     const queuedStatus = `Queueing ${selectedGenerationTarget.id} with ComfyUI (${selectedImageTargetWorkflow.label}). Krea workflows can take several minutes.`;
     setComfyUiGenerationStatus(queuedStatus);
     setStatus(queuedStatus);
     try {
       const imageRequest = {
+        expectedAlpha: selectedGenerationTarget.expectedAlpha ?? selectedGenerationTarget.transparent ?? false,
         height: selectedGenerationDimensions.height,
-        negativePrompt: activeImagePromptPack.outputs.negativePrompt,
+        negativePrompt: [selectedGenerationTarget.safetyNegativePrompt, activeImagePromptPack.outputs.negativePrompt]
+          .filter((part): part is string => Boolean(part?.trim()))
+          .join(", "),
         prompt: selectedGenerationPrompt,
         providerId: "comfyui" as const,
         targetId: selectedGenerationTarget.id,
         width: selectedGenerationDimensions.width,
+        ...(selectedGenerationTarget.backgroundMode ? { backgroundMode: selectedGenerationTarget.backgroundMode } : {}),
         ...(comfyUiBaseUrl.trim() ? { baseUrl: comfyUiBaseUrl.trim() } : {}),
         ...(checkpointName ? { checkpointName } : {}),
         ...(parsedSeed !== null ? { seed: parsedSeed } : {}),
@@ -3154,7 +3215,23 @@ export function EditorApp() {
       const job = await window.pointClick.generateImageAsset(imageRequest);
       setProject(job.snapshot);
       setSelectedAssetId(job.assetId);
-      const completedStatus = `Generated ${job.assetId} from ${job.targetId} with ComfyUI seed ${job.seed}`;
+      setLastGeneratedImageAsset(
+        selectedImageGenerationContext
+          ? {
+              ...selectedImageGenerationContext,
+              assetId: job.assetId,
+              assetPath: job.assetPath,
+              expectedAlpha: job.expectedAlpha,
+              hasAlphaPixels: job.hasAlphaPixels,
+              ...(job.backgroundMode ? { backgroundMode: job.backgroundMode } : {}),
+              ...(job.outputWarning ? { outputWarning: job.outputWarning } : {}),
+              seed: job.seed
+            }
+          : null
+      );
+      const completedStatus = job.outputWarning
+        ? `Generated ${job.assetId}, but alpha contract needs review.`
+        : `Generated ${job.assetId} from ${job.targetId} with ComfyUI seed ${job.seed}`;
       setComfyUiGenerationStatus(completedStatus);
       setStatus(completedStatus);
     } catch (error) {
@@ -3163,6 +3240,7 @@ export function EditorApp() {
       setStatus(message);
     } finally {
       setImageGenerationState("idle");
+      setActiveImageGenerationContext(null);
     }
   };
 
@@ -3892,6 +3970,132 @@ export function EditorApp() {
         }
       }
     }));
+  };
+
+  const updateSceneDraftBySceneId = (sceneId: string, patch: Partial<SceneDraft>) => {
+    const scene = project?.scenes.find((entry) => entry.id === sceneId);
+    if (!scene || scene.type !== "layered-2d") return false;
+    updateDraftWithHistory((current) => ({
+      ...current,
+      sceneDrafts: {
+        ...current.sceneDrafts,
+        [scene.id]: {
+          ...(current.sceneDrafts[scene.id] ?? createSceneDraft(scene)),
+          ...patch
+        }
+      }
+    }));
+    return true;
+  };
+
+  const updateActorDraftById = (sceneId: string, actorId: string, patch: Partial<ActorDraft>) => {
+    const scene = project?.scenes.find((entry) => entry.id === sceneId);
+    if (!scene || scene.type !== "layered-2d") return false;
+    const actor = scene.actors.find((entry) => entry.id === actorId);
+    if (!actor) return false;
+    const key = createActorKey(scene.id, actor.id);
+    updateDraftWithHistory((current) => ({
+      ...current,
+      actorDrafts: {
+        ...current.actorDrafts,
+        [key]: {
+          ...(current.actorDrafts[key] ?? createActorDraft(actor)),
+          ...patch
+        }
+      }
+    }));
+    return true;
+  };
+
+  const selectSceneEntityFromHandoff = (
+    sceneId: string,
+    selection: { actorId?: string; pickupId?: string; player?: boolean } = {}
+  ) => {
+    setWorkspace("scene");
+    setSceneInspectorTarget(selection.player ? "player" : "scene");
+    setActiveSceneTool(
+      selection.player ? "player-start" : selection.actorId ? "actor" : selection.pickupId ? "pickup" : "walk-area"
+    );
+    updateSessionSelection((current) => ({
+      ...current,
+      activeActorId: selection.actorId ?? null,
+      activeFlowId: null,
+      activeHotspotId: null,
+      activeItemId: null,
+      activeLocale: null,
+      activePickupId: selection.pickupId ?? null,
+      activeSceneId: sceneId
+    }));
+  };
+
+  const openImageGenerationForSceneTarget = (targetId: string) => {
+    if (!selectedScene) return;
+    setPromptPackSceneId(selectedScene.id);
+    setSelectedGenerationTargetId(targetId);
+    setWorkspace("ai");
+    setStatus(`Prepared AI generation target ${targetId}.`);
+  };
+
+  const assignGeneratedAssetToBackgroundDraft = () => {
+    if (!lastGeneratedImageAsset) return;
+    if (!updateSceneDraftBySceneId(lastGeneratedImageAsset.sceneId, { background: lastGeneratedImageAsset.assetPath })) {
+      setStatus("Generated asset could not be assigned to the scene background draft.");
+      return;
+    }
+    selectSceneEntityFromHandoff(lastGeneratedImageAsset.sceneId);
+    setStatus(`Set ${lastGeneratedImageAsset.assetId} as the background draft. Apply Scene Changes to save.`);
+  };
+
+  const assignGeneratedAssetToPlayerDraft = () => {
+    if (!lastGeneratedImageAsset) return;
+    if (!updateSceneDraftBySceneId(lastGeneratedImageAsset.sceneId, { playerAssetId: lastGeneratedImageAsset.assetId })) {
+      setStatus("Generated asset could not be assigned to the player draft.");
+      return;
+    }
+    selectSceneEntityFromHandoff(lastGeneratedImageAsset.sceneId, { player: true });
+    setStatus(`Assigned ${lastGeneratedImageAsset.assetId} to the player draft. Apply Player Changes to save.`);
+  };
+
+  const assignGeneratedAssetToActorDraft = () => {
+    if (!lastGeneratedImageAsset || lastGeneratedImageAsset.entityKind !== "actor" || !lastGeneratedImageAsset.entityId) {
+      setStatus("Generate an actor target before assigning the asset to an actor draft.");
+      return;
+    }
+    if (
+      !updateActorDraftById(lastGeneratedImageAsset.sceneId, lastGeneratedImageAsset.entityId, {
+        assetId: lastGeneratedImageAsset.assetId
+      })
+    ) {
+      setStatus("Generated asset could not be assigned to the actor draft.");
+      return;
+    }
+    selectSceneEntityFromHandoff(lastGeneratedImageAsset.sceneId, { actorId: lastGeneratedImageAsset.entityId });
+    setStatus(
+      `Assigned ${lastGeneratedImageAsset.assetId} to actor ${lastGeneratedImageAsset.entityId}. Apply Actor Changes to save.`
+    );
+  };
+
+  const useGeneratedAssetAsAnimationSheet = () => {
+    if (!lastGeneratedImageAsset) return;
+    const nextId = nextAnimationPackId(project);
+    setSelectedAnimationPackId(null);
+    setAnimationPackDraft({
+      ...createAnimationPackDraft(null, lastGeneratedImageAsset.assetId),
+      id: nextId,
+      name:
+        lastGeneratedImageAsset.entityKind === "actor" && lastGeneratedImageAsset.entityId
+          ? `${lastGeneratedImageAsset.entityId} Animation Pack`
+          : "Generated Animation Pack"
+    });
+    setWorkspace("assets");
+    setStatus(`Using ${lastGeneratedImageAsset.assetId} as the Character Gym spritesheet draft.`);
+  };
+
+  const openGeneratedAsset = () => {
+    if (!lastGeneratedImageAsset) return;
+    setSelectedAssetId(lastGeneratedImageAsset.assetId);
+    setWorkspace("assets");
+    setStatus(`Opened generated asset ${lastGeneratedImageAsset.assetId}.`);
   };
 
   const updatePickupDraft = <K extends keyof typeof currentPickupDraft>(
@@ -5564,6 +5768,12 @@ export function EditorApp() {
                     Prompt preview
                     <textarea readOnly value={selectedGenerationPrompt} />
                   </label>
+                  {selectedGenerationPromptResolution?.warning ? (
+                    <div className="contract-warning-card">
+                      <strong>Prompt routing warning</strong>
+                      <p>{selectedGenerationPromptResolution.warning}</p>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="build-actions">
                   <button
@@ -5588,6 +5798,76 @@ export function EditorApp() {
                     </div>
                   </div>
                 </div>
+                {lastGeneratedImageAsset ? (
+                  <div className="generation-handoff-card">
+                    <div>
+                      <span className="overview-label">Generated asset handoff</span>
+                      <strong>{lastGeneratedImageAsset.assetId}</strong>
+                      <p>
+                        Target {lastGeneratedImageAsset.targetId} imported from ComfyUI seed{" "}
+                        {lastGeneratedImageAsset.seed}. Assign it now or inspect the normal asset document.
+                      </p>
+                      <div
+                        className={`alpha-contract-strip ${
+                          lastGeneratedImageAsset.hasAlphaPixels ? "has-alpha" : "is-opaque"
+                        }`}
+                      >
+                        <span className="alpha-checkerboard" aria-hidden="true" />
+                        <span>
+                          {lastGeneratedImageAsset.backgroundMode ?? "legacy target"} ·{" "}
+                          {lastGeneratedImageAsset.hasAlphaPixels ? "alpha pixels detected" : "opaque bitmap"}
+                        </span>
+                      </div>
+                      {lastGeneratedImageAsset.outputWarning ? (
+                        <div className="contract-warning-card strong-warning">
+                          <strong>Alpha contract warning</strong>
+                          <p>{lastGeneratedImageAsset.outputWarning}</p>
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="generation-handoff-actions">
+                      <button className="secondary-action compact-action" type="button" onClick={openGeneratedAsset}>
+                        Open Asset
+                      </button>
+                      {lastGeneratedImageAsset.entityKind === "scene-background" ? (
+                        <button
+                          className="secondary-action compact-action"
+                          type="button"
+                          onClick={assignGeneratedAssetToBackgroundDraft}
+                        >
+                          Set Background Draft
+                        </button>
+                      ) : null}
+                      <button
+                        className="secondary-action compact-action"
+                        type="button"
+                        onClick={assignGeneratedAssetToPlayerDraft}
+                      >
+                        Assign To Player
+                      </button>
+                      {lastGeneratedImageAsset.entityKind === "actor" ? (
+                        <button
+                          className="secondary-action compact-action"
+                          type="button"
+                          onClick={assignGeneratedAssetToActorDraft}
+                        >
+                          Assign To Actor
+                        </button>
+                      ) : null}
+                      {lastGeneratedImageAsset.intendedUse === "animation-reference" ||
+                      lastGeneratedImageAsset.intendedUse === "sprite-sheet" ||
+                      lastGeneratedImageAsset.entityKind === "actor" ? (
+                        <button
+                          className="secondary-action compact-action"
+                          type="button"
+                          onClick={useGeneratedAssetAsAnimationSheet}
+                        >
+                          Use As Sheet
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
                 {selectedGenerationTarget ? (
                   <>
                     <div className="prompt-chip-list">
@@ -6115,7 +6395,13 @@ export function EditorApp() {
             </div>
           ) : (
             <div
-              className="scene-viewport"
+              className={`scene-viewport ${
+                selectedScene &&
+                activeImageGenerationContext?.entityKind === "scene-background" &&
+                activeImageGenerationContext.sceneId === selectedScene.id
+                  ? "is-generating-background"
+                  : ""
+              }`}
               ref={viewportRef}
               style={
                 selectedScene
@@ -6126,6 +6412,14 @@ export function EditorApp() {
                   : { background: "#24384a" }
               }
             >
+              {selectedScene &&
+              activeImageGenerationContext?.entityKind === "scene-background" &&
+              activeImageGenerationContext.sceneId === selectedScene.id ? (
+                <div className="viewport-generation-banner">
+                  <span className="viewport-generation-spinner" aria-hidden="true" />
+                  <strong>Generating background</strong>
+                </div>
+              ) : null}
               {selectedScene && workspace === "scene" ? (
                 <div className="viewport-instruction">
                   <strong>{selectedSceneToolLabel}</strong>
@@ -6234,9 +6528,13 @@ export function EditorApp() {
                     const actorIssues = previewActorIssueMap[actor.id];
                     const actorAssetPath = actor.assetId ? assetPathById.get(actor.assetId) : null;
                     const actorAssetUrl = actorAssetPath ? assetPreviewUrls[actorAssetPath] : undefined;
+                    const actorIsGenerating =
+                      activeImageGenerationContext?.entityKind === "actor" &&
+                      activeImageGenerationContext.sceneId === selectedScene.id &&
+                      activeImageGenerationContext.entityId === actor.id;
                     return (
                   <button
-                    className={`actor-box ${selectedActor?.id === actor.id ? "selected" : ""} ${actorIssues?.hasIssues ? `has-issues ${actorIssues.tone}` : ""}`}
+                    className={`actor-box ${selectedActor?.id === actor.id ? "selected" : ""} ${actorIssues?.hasIssues ? `has-issues ${actorIssues.tone}` : ""} ${actorIsGenerating ? "is-generating" : ""}`}
                     key={actor.id}
                     type="button"
                     onClick={() => selectActor(actor)}
@@ -6268,6 +6566,12 @@ export function EditorApp() {
                         </span>
                       ) : null}
                     </span>
+                    {actorIsGenerating ? (
+                      <span className="viewport-generation-indicator">
+                        <span className="viewport-generation-spinner" aria-hidden="true" />
+                        Generating
+                      </span>
+                    ) : null}
                     {selectedActor?.id === actor.id ? (
                       <span
                         className="viewport-resize-handle"
@@ -6311,10 +6615,15 @@ export function EditorApp() {
                     L
                   </button>
                 ) : null}
+                {(() => {
+                  const playerIsGenerating =
+                    activeImageGenerationContext?.entityKind === "player" &&
+                    activeImageGenerationContext.sceneId === selectedScene.id;
+                  return (
                 <div
                   className={`character ${previewPlayerAssetUrl ? "has-player-asset" : ""} ${
                     isPlayerInspectorSelected ? "selected" : ""
-                  }`}
+                  } ${playerIsGenerating ? "is-generating" : ""}`}
                   role="button"
                   tabIndex={0}
                   onClick={selectPlayerInScene}
@@ -6340,7 +6649,15 @@ export function EditorApp() {
                     }
                   >
                     <span />
+                    {playerIsGenerating ? (
+                      <span className="viewport-generation-indicator player-generation-indicator">
+                        <span className="viewport-generation-spinner" aria-hidden="true" />
+                        Generating
+                      </span>
+                    ) : null}
                 </div>
+                  );
+                })()}
                 {previewHotspots.map((hotspot) => (
                   (() => {
                     const hotspotIssues = previewHotspotIssueMap[hotspot.id];
@@ -6419,9 +6736,13 @@ export function EditorApp() {
                 {previewPickups.map((pickup) => (
                   (() => {
                     const pickupIssues = previewPickupIssueMap[pickup.id];
+                    const pickupIsGenerating =
+                      activeImageGenerationContext?.entityKind === "pickup" &&
+                      activeImageGenerationContext.sceneId === selectedScene.id &&
+                      activeImageGenerationContext.entityId === pickup.id;
                     return (
                   <button
-                    className={`pickup-box ${selectedPickup?.id === pickup.id ? "selected" : ""} ${pickupIssues?.hasIssues ? `has-issues ${pickupIssues.tone}` : ""}`}
+                    className={`pickup-box ${selectedPickup?.id === pickup.id ? "selected" : ""} ${pickupIssues?.hasIssues ? `has-issues ${pickupIssues.tone}` : ""} ${pickupIsGenerating ? "is-generating" : ""}`}
                     key={pickup.id}
                     type="button"
                     onClick={() => selectPickup(pickup)}
@@ -6448,6 +6769,12 @@ export function EditorApp() {
                         </span>
                       ) : null}
                     </span>
+                    {pickupIsGenerating ? (
+                      <span className="viewport-generation-indicator">
+                        <span className="viewport-generation-spinner" aria-hidden="true" />
+                        Generating
+                      </span>
+                    ) : null}
                     {selectedPickup?.id === pickup.id ? (
                       <span
                         className="viewport-resize-handle"
@@ -7056,6 +7383,17 @@ export function EditorApp() {
                     <button type="button" onClick={createAnimationPackDraftFromSelection}>
                       Create actor pack
                     </button>
+                    <button type="button" onClick={() => openImageGenerationForSceneTarget(selectedActor.id)}>
+                      Generate asset
+                    </button>
+                    {selectedActor.role === "npc" ? (
+                      <button
+                        type="button"
+                        onClick={() => openImageGenerationForSceneTarget(`${selectedActor.id}-sprite-sheet`)}
+                      >
+                        Generate sheet ref
+                      </button>
+                    ) : null}
                   </div>
                 </div>
                 <label>
@@ -7607,6 +7945,9 @@ export function EditorApp() {
                   <div className="context-action-row">
                     <button type="button" onClick={() => setActiveSceneTool("pickup")}>
                       Edit pickup bounds
+                    </button>
+                    <button type="button" onClick={() => openImageGenerationForSceneTarget(selectedPickup.id)}>
+                      Generate prop
                     </button>
                     {firstPickupIssueTarget ? (
                       <button type="button" onClick={focusFirstPickupIssue}>

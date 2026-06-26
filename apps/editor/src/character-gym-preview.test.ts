@@ -115,6 +115,20 @@ describe("ComfyUI target workflow guidance", () => {
     });
   });
 
+  it("uses explicit background mode for alpha targets", () => {
+    expect(describeImageTargetWorkflow(target({ backgroundMode: "transparent-alpha" }), basePreset)).toMatchObject({
+      label: "Alpha workflow expected",
+      mode: "transparent"
+    });
+  });
+
+  it("uses explicit background mode for chroma targets", () => {
+    expect(describeImageTargetWorkflow(target({ backgroundMode: "chroma-blue" }), basePreset)).toMatchObject({
+      label: "Chroma workflow expected",
+      mode: "chroma"
+    });
+  });
+
   it("prefers chroma guidance when target text requests a key color", () => {
     expect(
       describeImageTargetWorkflow(

@@ -114,7 +114,13 @@ function providerLabel(provider: PromptProviderId) {
 function targetForPickup(pickup: ScenePickup): PromptPackGenerationTarget {
   return {
     id: pickup.id,
+    backgroundMode: "transparent-alpha",
+    expectedAlpha: true,
     intendedUse: "prop",
+    marginPercent: 8,
+    safetyNegativePrompt: "background, floor shadow baked into alpha, cropped object, multiple objects",
+    sourceEntityId: pickup.id,
+    sourceEntityKind: "pickup",
     width: Math.max(1, Math.round(pickup.bounds.width)),
     height: Math.max(1, Math.round(pickup.bounds.height)),
     transparent: true
@@ -122,9 +128,19 @@ function targetForPickup(pickup: ScenePickup): PromptPackGenerationTarget {
 }
 
 function targetForActor(actor: SceneActor): PromptPackGenerationTarget {
+  const intendedUse = actor.role === "npc" ? "character-reference" : "prop";
   return {
     id: actor.id,
-    intendedUse: actor.role === "npc" ? "character-reference" : "prop",
+    backgroundMode: "transparent-alpha",
+    expectedAlpha: true,
+    intendedUse,
+    marginPercent: intendedUse === "prop" ? 8 : 12,
+    safetyNegativePrompt:
+      intendedUse === "prop"
+        ? "background, scenery, cropped object, multiple objects"
+        : "background, cropped feet, extra characters, duplicate character, inconsistent costume",
+    sourceEntityId: actor.id,
+    sourceEntityKind: "actor",
     width: Math.max(1, Math.round(actor.bounds.width)),
     height: Math.max(1, Math.round(actor.bounds.height)),
     transparent: true
@@ -187,22 +203,28 @@ function buildOutputs(scene: Layered2DScene, context: PromptPackContext): Prompt
   const propPrompts = [
     ...scene.pickups.map((pickup) => ({
       id: pickup.id,
-      prompt: `Transparent prop asset for "${labels[pickup.labelKey] ?? pickup.id}" in ${context.sceneName}. Match brief: ${context.artBrief}. Keep the object readable at ${Math.round(pickup.bounds.width)}x${Math.round(pickup.bounds.height)} pixels.`
+      prompt: `Transparent alpha prop asset for "${labels[pickup.labelKey] ?? pickup.id}" in ${context.sceneName}. Single isolated object, clean PNG alpha edge, 8 percent padding, readable at ${Math.round(pickup.bounds.width)}x${Math.round(pickup.bounds.height)} pixels. Match brief: ${context.artBrief}.`
     })),
     ...scene.actors
       .filter((actor) => actor.role !== "npc")
       .map((actor) => ({
         id: actor.id,
-        prompt: `Transparent ${actor.role} asset for "${labels[actor.labelKey] ?? actor.id}" in ${context.sceneName}. Use strong silhouette, clean edge lighting, and the same palette as the scene.`
+        prompt: `Transparent alpha ${actor.role} asset for "${labels[actor.labelKey] ?? actor.id}" in ${context.sceneName}. Single isolated subject with clean PNG alpha edge, strong silhouette, and the same palette as the scene.`
       }))
   ];
 
   const characterReferencePrompts = scene.actors
     .filter((actor) => actor.role === "npc")
-    .map((actor) => ({
-      id: actor.id,
-      prompt: `Character reference sheet for "${labels[actor.labelKey] ?? actor.id}", an NPC in ${context.sceneName}. Front-facing neutral pose, side walk pose, talk expression, transparent background, style brief: ${context.artBrief}.`
-    }));
+    .flatMap((actor) => [
+      {
+        id: actor.id,
+        prompt: `Transparent alpha full-body character reference for "${labels[actor.labelKey] ?? actor.id}", an NPC in ${context.sceneName}. Neutral readable pose, visible feet, clean PNG alpha edge, 12 percent padding, style brief: ${context.artBrief}.`
+      },
+      {
+        id: `${actor.id}-sprite-sheet`,
+        prompt: `Sprite sheet for "${labels[actor.labelKey] ?? actor.id}" on a flat #00A2FF chroma-blue background. Include idle, walk, and talk frames in a clean grid, consistent scale, visible feet, stable foot origin, no transparency required before chroma cleanup. Style brief: ${context.artBrief}.`
+      }
+    ]);
 
   return {
     sceneBackgroundPrompt: `Wide layered 2D adventure background for "${context.sceneName}" (${aspectRatio}). Project: ${context.projectTitle}. Include readable navigation space and clear areas for ${sentenceList(hotspotLabels, "future hotspots")}. Style brief: ${context.artBrief}.`,
@@ -222,7 +244,13 @@ function buildOutputs(scene: Layered2DScene, context: PromptPackContext): Prompt
     generationTargets: [
       {
         id: `${scene.id}-background`,
+        backgroundMode: "opaque-scene",
+        expectedAlpha: false,
         intendedUse: "scene-background",
+        marginPercent: 0,
+        safetyNegativePrompt: "transparent background, floating isolated props, UI, text, logo, watermark",
+        sourceEntityId: scene.id,
+        sourceEntityKind: "scene",
         width: context.sceneSize.width,
         height: context.sceneSize.height,
         aspectRatio,
@@ -233,9 +261,17 @@ function buildOutputs(scene: Layered2DScene, context: PromptPackContext): Prompt
       ...scene.actors
         .filter((actor) => actor.role === "npc")
         .map((actor) => ({
-          id: `${actor.id}-animation-reference`,
-          intendedUse: "animation-reference" as const,
-          transparent: true
+          id: `${actor.id}-sprite-sheet`,
+          backgroundMode: "chroma-blue" as const,
+          chromaColor: "#00A2FF" as const,
+          expectedAlpha: false,
+          intendedUse: "sprite-sheet" as const,
+          marginPercent: 4,
+          safetyNegativePrompt:
+            "transparent alpha, detailed background, perspective floor, cropped feet, inconsistent frame size",
+          sourceEntityId: actor.id,
+          sourceEntityKind: "actor" as const,
+          transparent: false
         }))
     ]
   };

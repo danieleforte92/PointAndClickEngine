@@ -7,6 +7,7 @@ import {
   createBlankProject,
   createProjectFromTemplate,
   loadProjectFromDirectory,
+  safeProjectPath,
   validateProjectBundle,
   validateProjectFiles
 } from "./index";
@@ -66,6 +67,71 @@ describe("loadProjectFromDirectory", () => {
     expect(loaded.bundle.scenes["moonlit-dock"]?.type).toBe("layered-2d");
     expect(Object.keys(loaded.bundle.promptPacks)).toContain("moonlit-dock-art");
     expect(Object.keys(loaded.bundle.animationPacks)).toContain("mara");
+  });
+
+  it("rejects manifest references outside the project directory", async () => {
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+    await mkdir(projectRoot, { recursive: true });
+    await writeFile(
+      path.join(tempRoot, "outside.scene.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        id: "outside",
+        name: "Outside",
+        type: "layered-2d",
+        size: { width: 1280, height: 720 },
+        background: "#24384a",
+        playerStart: { x: 640, y: 576 },
+        walkArea: {
+          points: [
+            { x: 0, y: 0 },
+            { x: 1280, y: 0 },
+            { x: 1280, y: 720 }
+          ]
+        },
+        actors: [],
+        pickups: [],
+        shapes: [],
+        hotspots: []
+      }),
+      "utf8"
+    );
+    await writeFile(
+      path.join(projectRoot, "adventure.project.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        id: "bad-project",
+        title: "Bad Project",
+        initialSceneId: "outside",
+        defaultLocale: "en",
+        viewport: { width: 1280, height: 720 },
+        scenes: [{ id: "outside", path: "../outside.scene.json" }],
+        flows: [],
+        items: [],
+        locales: [{ locale: "en", path: "locales/en.json" }]
+      }),
+      "utf8"
+    );
+
+    await expect(loadProjectFromDirectory(projectRoot)).rejects.toThrow("outside the project");
+  });
+
+  it("rejects preview-style asset path traversal", () => {
+    const projectRoot = path.resolve("apps/sample-game/project");
+    expect(() => safeProjectPath(projectRoot, "../secret.png", "Preview asset path")).toThrow(
+      "outside the project"
+    );
+  });
+
+  it("rejects Comfy workflow absolute and outside-project paths", () => {
+    const projectRoot = path.resolve("apps/sample-game/project");
+    expect(() =>
+      safeProjectPath(projectRoot, path.resolve(projectRoot, "workflow.json"), "ComfyUI workflow path")
+    ).toThrow("must be relative");
+    expect(() => safeProjectPath(projectRoot, "../workflow.json", "ComfyUI workflow path")).toThrow(
+      "outside the project"
+    );
   });
 
   it("persists hotspot edits back to the scene document", async () => {

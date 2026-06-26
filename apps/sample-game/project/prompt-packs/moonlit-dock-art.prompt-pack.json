@@ -44,14 +44,18 @@
     "sceneBackgroundPrompt": "Paint a clean 1280x720 moonlit harbor dock background for a classic point-and-click adventure. Keep the tavern entrance readable, leave room for foreground props, use warm lantern light against cool blue moonlight, and avoid embedding inventory objects that should be separate layers.",
     "propPrompts": [
       {
-        "id": "rusty-hook",
-        "prompt": "A rusty iron hook prop for a point-and-click inventory pickup, readable silhouette, isolated object, transparent background, matching warm moonlit dock lighting."
+        "id": "rusty-hook-prop",
+        "prompt": "A rusty iron hook prop for a point-and-click inventory pickup, readable silhouette, isolated object, clean PNG alpha edge, transparent background, matching warm moonlit dock lighting."
       }
     ],
     "characterReferencePrompts": [
       {
-        "id": "mara",
-        "prompt": "Three-quarter view character reference for Mara, an adventure-game protagonist suited for a moonlit harbor setting, clear foot pivot, readable silhouette, neutral standing pose."
+        "id": "mara-reference",
+        "prompt": "Transparent alpha full-body character reference for Mara, an adventure-game protagonist suited for a moonlit harbor setting, clear foot pivot, readable silhouette, neutral standing pose, visible feet."
+      },
+      {
+        "id": "mara-sprite-sheet",
+        "prompt": "Sprite sheet for Mara on a flat #00A2FF chroma-blue background. Include idle, walk, and talk frames in a clean grid, consistent scale, visible feet, stable foot origin, no transparency required before chroma cleanup."
       }
     ],
     "animationNotes": [
@@ -67,20 +71,50 @@
     "generationTargets": [
       {
         "id": "moonlit-dock-background",
+        "sourceEntityKind": "scene",
+        "sourceEntityId": "moonlit-dock",
+        "backgroundMode": "opaque-scene",
+        "expectedAlpha": false,
         "intendedUse": "scene-background",
         "width": 1280,
         "height": 720,
-        "aspectRatio": "16:9"
+        "aspectRatio": "16:9",
+        "marginPercent": 0,
+        "safetyNegativePrompt": "transparent background, floating isolated props, UI, text, logo, watermark"
       },
       {
         "id": "rusty-hook-prop",
+        "sourceEntityKind": "pickup",
+        "sourceEntityId": "dock-hook",
+        "backgroundMode": "transparent-alpha",
+        "expectedAlpha": true,
         "intendedUse": "prop",
-        "transparent": true
+        "transparent": true,
+        "marginPercent": 8,
+        "safetyNegativePrompt": "background, floor shadow baked into alpha, cropped object, multiple objects"
       },
       {
         "id": "mara-reference",
+        "sourceEntityKind": "player",
+        "sourceEntityId": "mara",
+        "backgroundMode": "transparent-alpha",
+        "expectedAlpha": true,
         "intendedUse": "character-reference",
-        "transparent": false
+        "transparent": true,
+        "marginPercent": 12,
+        "safetyNegativePrompt": "background, cropped feet, extra characters, duplicate character, inconsistent costume"
+      },
+      {
+        "id": "mara-sprite-sheet",
+        "sourceEntityKind": "player",
+        "sourceEntityId": "mara",
+        "backgroundMode": "chroma-blue",
+        "expectedAlpha": false,
+        "chromaColor": "#00A2FF",
+        "intendedUse": "sprite-sheet",
+        "transparent": false,
+        "marginPercent": 4,
+        "safetyNegativePrompt": "transparent alpha, detailed background, perspective floor, cropped feet, inconsistent frame size"
       }
     ]
   },

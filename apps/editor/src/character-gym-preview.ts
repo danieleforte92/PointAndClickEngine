@@ -216,8 +216,12 @@ export function describeImageTargetWorkflow(
     };
   }
 
-  const searchableText = `${target.id} ${target.intendedUse} ${preset.label} ${preset.useCase} ${promptText}`;
-  if (textIncludesChroma(searchableText)) {
+  const searchableText = `${target.id} ${target.intendedUse} ${target.backgroundMode ?? ""} ${preset.label} ${preset.useCase} ${promptText}`;
+  if (
+    target.backgroundMode === "chroma-blue" ||
+    target.backgroundMode === "chroma-green" ||
+    textIncludesChroma(searchableText)
+  ) {
     return {
       detail:
         "Use a workflow that generates the subject on a flat key color. The editor will import the PNG as-is in this slice.",
@@ -226,7 +230,7 @@ export function describeImageTargetWorkflow(
     };
   }
 
-  if (target.transparent) {
+  if (target.backgroundMode === "transparent-alpha" || target.expectedAlpha || target.transparent) {
     return {
       detail:
         "Use a ComfyUI workflow that removes the background and saves PNG alpha. The editor does not guarantee transparency by itself.",

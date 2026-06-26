@@ -18,7 +18,11 @@ import type {
 } from "@pointclick/contracts";
 import type { EditorRecoverySnapshot } from "./editor-session";
 import { generateComfyUIImage } from "./comfyui-image-provider";
-import type { GenerateImageAssetRequest } from "./image-generation";
+import {
+  bitmapHasAlphaPixels,
+  generatedImageOutputWarning,
+  type GenerateImageAssetRequest
+} from "./image-generation";
 import { generateLMStudioPromptPack } from "./lmstudio-prompt-provider";
 import { generateOpenAIPromptPack } from "./openai-prompt-provider";
 import type { EditorPreviewRequest } from "./preload";
@@ -29,11 +33,12 @@ import {
   createBlankProject,
   createProjectFromTemplate,
   loadProjectFromDirectory,
+  safeProjectPath,
   type EditorProjectCommand,
   validateProjectBundle,
   validateProjectFiles
 } from "@pointclick/project-io";
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from "electron";
 
 let previewWindow: BrowserWindow | null = null;
 let playerServer: Server | null = null;
@@ -60,6 +65,14 @@ const mimeTypes: Record<string, string> = {
   ".webp": "image/webp"
 };
 
+function isPathInside(rootDirectory: string, candidatePath: string): boolean {
+  const relativePath = path.relative(path.resolve(rootDirectory), path.resolve(candidatePath));
+  return (
+    relativePath === "" ||
+    (!relativePath.startsWith(`..${path.sep}`) && relativePath !== ".." && !path.isAbsolute(relativePath))
+  );
+}
+
 async function startBundledPlayerServer(): Promise<string> {
   const root = path.resolve(process.resourcesPath, "dist");
   const indexPath = path.join(root, "index.html");
@@ -68,7 +81,7 @@ async function startBundledPlayerServer(): Promise<string> {
     try {
       const pathname = decodeURIComponent(new URL(request.url ?? "/", "http://localhost").pathname);
       const candidate = path.resolve(root, `.${pathname}`);
-      const requestedPath = candidate.startsWith(root) ? candidate : indexPath;
+      const requestedPath = isPathInside(root, candidate) ? candidate : indexPath;
       const filePath = (await stat(requestedPath)).isFile() ? requestedPath : indexPath;
       response.writeHead(200, {
         "Content-Type": mimeTypes[path.extname(filePath)] ?? "application/octet-stream",
@@ -126,11 +139,10 @@ async function ensurePreviewBundleServer(): Promise<string> {
 
       if (segments[0] === "asset") {
         const relativeAssetPath = segments.slice(2).join("/");
-        const candidate = path.resolve(previewSession.projectDirectory, relativeAssetPath);
-        if (
-          !relativeAssetPath ||
-          !candidate.startsWith(previewSession.projectDirectory)
-        ) {
+        let candidate: string;
+        try {
+          candidate = safeProjectPath(previewSession.projectDirectory, relativeAssetPath, "Preview asset path");
+        } catch {
           response.writeHead(404);
           response.end("Not found");
           return;
@@ -276,11 +288,7 @@ async function openPreviewInBrowser(request?: EditorPreviewRequest): Promise<voi
 
 async function resolveProjectAssetUrl(assetPath: string): Promise<string> {
   const projectDirectory = currentProjectPath();
-  const absolutePath = path.resolve(projectDirectory, assetPath);
-  const relativePath = path.relative(projectDirectory, absolutePath);
-  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
-    throw new Error(`Asset path "${assetPath}" is outside the loaded project`);
-  }
+  const absolutePath = safeProjectPath(projectDirectory, assetPath, "Asset path");
 
   const mimeType = mimeTypes[path.extname(absolutePath).toLowerCase()] ?? "application/octet-stream";
   const data = await readFile(absolutePath);
@@ -573,30 +581,18 @@ async function generatePromptPack(
 async function readComfyWorkflowJson(projectDirectory: string, workflowPath: string) {
   const trimmedPath = workflowPath.trim();
   if (!trimmedPath) return undefined;
-
-  const rawCandidates = path.isAbsolute(trimmedPath)
-    ? [trimmedPath]
-    : [
-        path.resolve(projectDirectory, trimmedPath),
-        path.resolve(process.cwd(), trimmedPath),
-        path.resolve(process.cwd(), "..", "..", trimmedPath),
-        path.resolve(__dirname, "..", "..", "..", "..", trimmedPath)
-      ];
-  const candidates = [...new Set(rawCandidates)];
-
-  let lastError: unknown = null;
-  for (const candidate of candidates) {
-    try {
-      const contents = await readFile(candidate, "utf8");
-      return JSON.parse(contents) as unknown;
-    } catch (error) {
-      lastError = error;
-    }
+  if (path.isAbsolute(trimmedPath)) {
+    throw new Error("ComfyUI workflow path must be relative to the loaded project.");
   }
 
-  const searched = candidates.map((candidate) => `"${candidate}"`).join(", ");
-  const detail = lastError instanceof Error ? ` ${lastError.message}` : "";
-  throw new Error(`Unable to read ComfyUI workflow API JSON. Searched: ${searched}.${detail}`);
+  const workflowFile = safeProjectPath(projectDirectory, trimmedPath, "ComfyUI workflow path");
+  try {
+    const contents = await readFile(workflowFile, "utf8");
+    return JSON.parse(contents) as unknown;
+  } catch (error) {
+    const detail = error instanceof Error ? ` ${error.message}` : "";
+    throw new Error(`Unable to read ComfyUI workflow API JSON at "${trimmedPath}".${detail}`);
+  }
 }
 
 async function generateImageAsset(request: GenerateImageAssetRequest) {
@@ -629,6 +625,14 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
       ...(workflowJson ? { workflowJson } : {})
     }
   );
+  const image = nativeImage.createFromBuffer(Buffer.from(result.bytes));
+  const hasAlphaPixels = bitmapHasAlphaPixels(image.toBitmap());
+  const expectedAlpha = request.expectedAlpha ?? false;
+  const outputWarning = generatedImageOutputWarning({
+    backgroundMode: request.backgroundMode,
+    expectedAlpha,
+    hasAlphaPixels
+  });
 
   const importedAssetsDirectory = path.join(projectDirectory, "assets", "imported");
   await mkdir(importedAssetsDirectory, { recursive: true });
@@ -665,7 +669,11 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
   return {
     assetId,
     assetPath: relativeFilePath,
+    expectedAlpha,
+    hasAlphaPixels,
     model: result.model,
+    ...(request.backgroundMode ? { backgroundMode: request.backgroundMode } : {}),
+    ...(outputWarning ? { outputWarning } : {}),
     promptId: result.promptId,
     provider: "comfyui" as const,
     seed: result.seed,
