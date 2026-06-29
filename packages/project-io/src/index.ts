@@ -844,6 +844,29 @@ export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[
         )
       );
     }
+
+    for (const target of promptPack.outputs.generationTargets) {
+      if (target.referenceAssetId && !bundle.assets[target.referenceAssetId]) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "prompt-pack.reference-asset-missing",
+            `Prompt pack "${promptPack.id}" target "${target.id}" references missing asset "${target.referenceAssetId}".`,
+            { documentId: promptPack.id, path: `prompt-packs/${promptPack.id}/generationTargets/${target.id}/referenceAssetId` }
+          )
+        );
+      }
+      if (target.maskAssetId && !bundle.assets[target.maskAssetId]) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "prompt-pack.mask-asset-missing",
+            `Prompt pack "${promptPack.id}" target "${target.id}" references missing asset "${target.maskAssetId}".`,
+            { documentId: promptPack.id, path: `prompt-packs/${promptPack.id}/generationTargets/${target.id}/maskAssetId` }
+          )
+        );
+      }
+    }
   }
 
   for (const animationPack of Object.values(bundle.animationPacks)) {
@@ -1283,11 +1306,15 @@ function findItemReferences(
 function findAssetReferences(
   bundle: ProjectBundle,
   asset: AssetDocument
-): Array<{ documentId: string; path: string; use: "sceneBackground" | "scenePlayer" | "sceneActor" | "scenePickup" }> {
+): Array<{
+  documentId: string;
+  path: string;
+  use: "sceneBackground" | "scenePlayer" | "sceneActor" | "scenePickup" | "promptTargetReference" | "promptTargetMask";
+}> {
   const references: Array<{
     documentId: string;
     path: string;
-    use: "sceneBackground" | "scenePlayer" | "sceneActor" | "scenePickup";
+    use: "sceneBackground" | "scenePlayer" | "sceneActor" | "scenePickup" | "promptTargetReference" | "promptTargetMask";
   }> = [];
 
   for (const scene of Object.values(bundle.scenes)) {
@@ -1321,6 +1348,25 @@ function findAssetReferences(
           documentId: pickup.id,
           path: `scenes/${scene.id}/pickups/${pickup.id}/assetId`,
           use: "scenePickup"
+        });
+      }
+    }
+  }
+
+  for (const promptPack of Object.values(bundle.promptPacks)) {
+    for (const target of promptPack.outputs.generationTargets) {
+      if (target.referenceAssetId === asset.id) {
+        references.push({
+          documentId: `${promptPack.id}/${target.id}`,
+          path: `prompt-packs/${promptPack.id}/generationTargets/${target.id}/referenceAssetId`,
+          use: "promptTargetReference"
+        });
+      }
+      if (target.maskAssetId === asset.id) {
+        references.push({
+          documentId: `${promptPack.id}/${target.id}`,
+          path: `prompt-packs/${promptPack.id}/generationTargets/${target.id}/maskAssetId`,
+          use: "promptTargetMask"
         });
       }
     }

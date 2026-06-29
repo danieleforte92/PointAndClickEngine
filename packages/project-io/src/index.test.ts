@@ -1230,7 +1230,16 @@ describe("loadProjectFromDirectory", () => {
         "broken-pack": {
           ...loaded.bundle.promptPacks["moonlit-dock-art"]!,
           id: "broken-pack",
-          sceneId: "missing-scene"
+          sceneId: "missing-scene",
+          outputs: {
+            ...loaded.bundle.promptPacks["moonlit-dock-art"]!.outputs,
+            generationTargets: loaded.bundle.promptPacks["moonlit-dock-art"]!.outputs.generationTargets.map(
+              (target, index) =>
+                index === 0
+                  ? { ...target, maskAssetId: "missing-mask", referenceAssetId: "missing-reference" }
+                  : target
+            )
+          }
         }
       }
     });
@@ -1240,6 +1249,8 @@ describe("loadProjectFromDirectory", () => {
     expect(diagnostics.some((item) => item.code === "scene.actor-interact-spot-outside-scene")).toBe(true);
     expect(diagnostics.some((item) => item.code === "scene.actor-visible-item-missing")).toBe(true);
     expect(diagnostics.some((item) => item.code === "prompt-pack.scene-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "prompt-pack.reference-asset-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "prompt-pack.mask-asset-missing")).toBe(true);
   });
 
   it("upserts a prompt pack document and manifest entry", async () => {
@@ -1589,5 +1600,56 @@ describe("loadProjectFromDirectory", () => {
         assetId: "dock-hook"
       })
     ).rejects.toThrow('Asset "dock-hook" is still referenced by dock-hook');
+  });
+
+  it("blocks deleting an asset that is still referenced by a prompt target guide", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+    await mkdir(path.join(projectRoot, "assets", "imported"), { recursive: true });
+    await writeFile(path.join(projectRoot, "assets", "imported", "target-mask.png"), "fake image", "utf8");
+
+    await applyProjectCommand(projectRoot, {
+      type: "asset/import",
+      assets: [
+        {
+          documentPath: "assets/target-mask.asset.json",
+          filePath: "assets/imported/target-mask.png",
+          id: "target-mask",
+          kind: "image",
+          source: "imported"
+        }
+      ]
+    });
+
+    const loaded = await loadProjectFromDirectory(projectRoot);
+    const promptPack = loaded.bundle.promptPacks["moonlit-dock-art"];
+    if (!promptPack) {
+      throw new Error("Expected sample prompt pack");
+    }
+
+    await applyProjectCommand(projectRoot, {
+      type: "prompt-pack/upsert",
+      patch: {
+        promptPack: {
+          ...promptPack,
+          outputs: {
+            ...promptPack.outputs,
+            generationTargets: promptPack.outputs.generationTargets.map((target, index) =>
+              index === 0 ? { ...target, maskAssetId: "target-mask" } : target
+            )
+          }
+        }
+      }
+    });
+
+    await expect(
+      applyProjectCommand(projectRoot, {
+        type: "asset/delete",
+        assetId: "target-mask"
+      })
+    ).rejects.toThrow('Asset "target-mask" is still referenced by moonlit-dock-art/');
   });
 });

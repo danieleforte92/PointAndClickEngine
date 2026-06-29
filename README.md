@@ -12,8 +12,8 @@ local-first AI asset workflows.
 - Edit layered 2D scenes, hotspots, pickups, actors, player start, and walk areas.
 - Author linear dialogue and scene-transition flows.
 - Import or drop image assets and assign them to scenes, actors, pickups, or the player.
-- Remove flat blue/green chroma backgrounds in the editor and save the result
-  as a new PNG asset.
+- Use Asset Studio as the canonical place for asset info, chroma cleanup, crop,
+  generation guides, and animation packs.
 - Configure player asset, animation pack, scale-by-depth, and walk speed.
 - Run the sample adventure in the web player or editor preview.
 - Generate prompt packs with the deterministic mock provider, LM Studio, or OpenAI.
@@ -146,6 +146,8 @@ packages/cli           Project validation commands
   is still being completed.
 - Transparent PNG generation depends on the selected ComfyUI workflow or
   in-editor chroma cleanup from a flat blue/green background.
+- Generation guide masks can be saved on prompt targets, but current ComfyUI
+  generation is still text-to-image and does not upload guide images yet.
 - Hosted web demo and marketing site are not required for the first public
   release.
 

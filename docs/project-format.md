@@ -73,6 +73,26 @@ Pickups can optionally reference a registered image asset:
 to exist and the renderer draws the image inside the pickup bounds. If it is
 absent, the renderer falls back to the debug pickup shape.
 
+## Generation Guides
+
+Prompt-pack generation targets can optionally reference image assets prepared in
+Asset Studio:
+
+```json
+{
+  "id": "rusty-hook",
+  "intendedUse": "prop",
+  "referenceAssetId": "rusty-hook-reference",
+  "maskAssetId": "rusty-hook-mask",
+  "guideBounds": { "x": 300, "y": 560, "width": 70, "height": 60 },
+  "guideShape": "rect"
+}
+```
+
+`referenceAssetId` and `maskAssetId` must point to registered image assets.
+Creator Alpha stores these guides for review and future image-to-image
+workflows; the current ComfyUI text-to-image path does not upload guide images.
+
 ## Flow Transitions
 
 Flows can change scenes with a `change-scene` node:

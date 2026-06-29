@@ -26,6 +26,7 @@ import {
 } from "react";
 import {
   CheckCircle2,
+  Crosshair,
   Eraser,
   ExternalLink,
   FilePlus2,
@@ -33,10 +34,12 @@ import {
   Image,
   Package,
   Plus,
+  Scissors,
   Trash2,
   UserRound,
   WandSparkles
 } from "lucide-react";
+import { clampCropRect, createGuideMask, type ImagePixelData } from "../asset-processing";
 import {
   applyChromaKeyToImageData,
   parseHexColor,
@@ -209,6 +212,8 @@ interface TargetPromptDraft {
   safetyNegativePrompt?: string;
 }
 
+type AssetTool = "info" | "chroma" | "crop" | "guide" | "animation";
+
 interface ImageGenerationSceneContext {
   entityId?: string;
   entityKind: ImageGenerationEntityKind;
@@ -243,7 +248,7 @@ interface EntityAssetDropZoneProps {
   assetUrl?: string | undefined;
   label: string;
   missing?: boolean | undefined;
-  onCleanup?: () => void;
+  onEditAsset?: () => void;
   onDropFiles: (filePaths: string[]) => void;
   onImportClick: () => void;
   onOpenAsset?: () => void;
@@ -375,9 +380,41 @@ function sceneBackgroundStyle(background: string, assetUrl?: string) {
 
 function assetUsage(asset: AssetDocument, snapshot: EditorProjectSnapshot | null) {
   if (!snapshot) return [];
-  return sceneItems(snapshot.scenes)
-    .filter((scene) => scene.background === asset.path)
-    .map((scene) => ({ sceneId: scene.id, sceneName: scene.name }));
+  const usage: Array<{ detail: string; sceneId?: string; sceneName?: string; type: string }> = [];
+  for (const scene of sceneItems(snapshot.scenes)) {
+    if (scene.background === asset.path) {
+      usage.push({ detail: "Scene background", sceneId: scene.id, sceneName: scene.name, type: "scene" });
+    }
+    if (scene.player?.assetId === asset.id) {
+      usage.push({ detail: "Player asset", sceneId: scene.id, sceneName: scene.name, type: "player" });
+    }
+    for (const actor of scene.actors) {
+      if (actor.assetId === asset.id) {
+        usage.push({ detail: `Actor ${actor.id}`, sceneId: scene.id, sceneName: scene.name, type: "actor" });
+      }
+    }
+    for (const pickup of scene.pickups) {
+      if (pickup.assetId === asset.id) {
+        usage.push({ detail: `Pickup ${pickup.id}`, sceneId: scene.id, sceneName: scene.name, type: "pickup" });
+      }
+    }
+  }
+  for (const animationPack of snapshot.animationPacks) {
+    if (animationPack.assetId === asset.id) {
+      usage.push({ detail: `Animation pack ${animationPack.id}`, type: "animation" });
+    }
+  }
+  for (const promptPack of snapshot.promptPacks) {
+    for (const target of promptPack.outputs.generationTargets) {
+      if (target.referenceAssetId === asset.id) {
+        usage.push({ detail: `Reference for ${promptPack.id}/${target.id}`, type: "prompt" });
+      }
+      if (target.maskAssetId === asset.id) {
+        usage.push({ detail: `Mask for ${promptPack.id}/${target.id}`, type: "prompt" });
+      }
+    }
+  }
+  return usage;
 }
 
 function assetHealth(asset: AssetDocument, snapshot: EditorProjectSnapshot | null) {
@@ -1088,7 +1125,7 @@ function EntityAssetDropZone({
   assetUrl,
   label,
   missing,
-  onCleanup,
+  onEditAsset,
   onDropFiles,
   onImportClick,
   onOpenAsset
@@ -1123,11 +1160,11 @@ function EntityAssetDropZone({
         </button>
         <button
           className="secondary-action compact-action"
-          disabled={!assetUrl || !onCleanup}
+          disabled={!assetUrl || !onEditAsset}
           type="button"
-          onClick={onCleanup}
+          onClick={onEditAsset}
         >
-          <Eraser size={iconSize} /> Remove Background
+          <Eraser size={iconSize} /> Edit Asset
         </button>
         <button
           className="secondary-action compact-action"
@@ -1150,6 +1187,28 @@ function textList(value: unknown) {
       : "";
 }
 
+function imagePixelDataToPngDataUrl(imageData: ImagePixelData) {
+  const canvas = document.createElement("canvas");
+  canvas.width = imageData.width;
+  canvas.height = imageData.height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Canvas is unavailable for image processing.");
+  }
+  const output = context.createImageData(imageData.width, imageData.height);
+  output.data.set(imageData.data);
+  context.putImageData(output, 0, 0);
+  return canvas.toDataURL("image/png");
+}
+
+async function loadImageElement(assetUrl: string) {
+  const image = new window.Image();
+  image.decoding = "async";
+  image.src = assetUrl;
+  await image.decode();
+  return image;
+}
+
 export function EditorApp() {
   const [workspace, setWorkspace] = useState<Workspace>("overview");
   const [status, setStatus] = useState("Loading project...");
@@ -1157,6 +1216,16 @@ export function EditorApp() {
   const [history, setHistory] = useState<EditorHistoryState>(emptyHistory);
   const [pendingRecovery, setPendingRecovery] = useState<EditorRecoverySnapshot | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  const [activeAssetTool, setActiveAssetTool] = useState<AssetTool>("info");
+  const [assetEditTarget, setAssetEditTarget] = useState<BackgroundCleanupTarget | null>(null);
+  const [cropX, setCropX] = useState("0");
+  const [cropY, setCropY] = useState("0");
+  const [cropWidth, setCropWidth] = useState("256");
+  const [cropHeight, setCropHeight] = useState("256");
+  const [cropStatus, setCropStatus] = useState("Set crop bounds, then save a new PNG asset.");
+  const [guideSourceId, setGuideSourceId] = useState("");
+  const [guideShape, setGuideShape] = useState<"rect" | "ellipse">("rect");
+  const [guideStatus, setGuideStatus] = useState("Choose a saved prompt target and a scene guide source.");
   const [selectedAnimationPackId, setSelectedAnimationPackId] = useState<string | null>(null);
   const [selectedAnimationClipPreviewId, setSelectedAnimationClipPreviewId] = useState<string | null>(null);
   const [animationPreviewElapsedMs, setAnimationPreviewElapsedMs] = useState(0);
@@ -1565,6 +1634,43 @@ export function EditorApp() {
           : "Preview aligned with saved project";
   const selectedAssetUsage = selectedAsset ? assetUsage(selectedAsset, project) : [];
   const selectedAssetHealth = selectedAsset ? assetHealth(selectedAsset, project) : "available";
+  const selectedAssetUrl = selectedAsset ? assetPreviewUrls[selectedAsset.path] : undefined;
+  const savedPromptPackTargets = selectedPromptPack?.outputs.generationTargets ?? [];
+  const selectedSavedGenerationTarget =
+    savedPromptPackTargets.find((target) => target.id === selectedGenerationTargetId) ??
+    savedPromptPackTargets[0] ??
+    null;
+  const guideSourceOptions = useMemo(() => {
+    if (!selectedScene) return [];
+    return [
+      {
+        bounds: { x: 0, y: 0, width: selectedScene.size.width, height: selectedScene.size.height },
+        id: `${selectedScene.id}:scene`,
+        label: `${selectedScene.name} full scene`,
+        shape: "rect" as const
+      },
+      ...selectedScene.actors.map((actor) => ({
+        bounds: actor.bounds,
+        id: `${selectedScene.id}:actor:${actor.id}`,
+        label: `Actor ${actor.id}`,
+        shape: "rect" as const
+      })),
+      ...selectedScene.pickups.map((pickup) => ({
+        bounds: pickup.bounds,
+        id: `${selectedScene.id}:pickup:${pickup.id}`,
+        label: `Pickup ${pickup.id}`,
+        shape: "rect" as const
+      })),
+      ...selectedScene.shapes.map((shape) => ({
+        bounds: shape.bounds,
+        id: `${selectedScene.id}:shape:${shape.id}`,
+        label: `Shape ${shape.id}`,
+        shape: shape.shape
+      }))
+    ];
+  }, [selectedScene]);
+  const selectedGuideSource =
+    guideSourceOptions.find((option) => option.id === guideSourceId) ?? guideSourceOptions[0] ?? null;
   const canEditViewportScene = workspace === "scene" && !!selectedScene;
   const selectedSceneToolLabel = sceneToolLabel(activeSceneTool);
   const selectedSceneToolHint = sceneToolHint(activeSceneTool);
@@ -1658,6 +1764,9 @@ export function EditorApp() {
     project?.assets.find((asset) => asset.id === currentSceneDraft.playerAssetId.trim()) ?? null;
   const previewAssetPaths = useMemo(() => {
     const paths = new Set<string>();
+    if (selectedAsset?.path) {
+      paths.add(selectedAsset.path);
+    }
     if (previewSceneBackground && !isHexColor(previewSceneBackground)) {
       paths.add(previewSceneBackground);
     }
@@ -1682,7 +1791,8 @@ export function EditorApp() {
     previewActors,
     previewPickups,
     previewPlayerAssetPath,
-    previewSceneBackground
+    previewSceneBackground,
+    selectedAsset?.path
   ]);
 
   useEffect(() => {
@@ -1695,6 +1805,25 @@ export function EditorApp() {
       setSelectedGenerationTargetId(imageGenerationTargets[0]?.id ?? "");
     }
   }, [imageGenerationTargets, selectedGenerationTargetId]);
+
+  useEffect(() => {
+    if (!guideSourceOptions.length) {
+      if (guideSourceId) setGuideSourceId("");
+      return;
+    }
+    if (!guideSourceOptions.some((option) => option.id === guideSourceId)) {
+      setGuideSourceId(guideSourceOptions[0]!.id);
+    }
+  }, [guideSourceId, guideSourceOptions]);
+
+  useEffect(() => {
+    setCropX("0");
+    setCropY("0");
+    setCropWidth("256");
+    setCropHeight("256");
+    setCropStatus("Set crop bounds, then save a new PNG asset.");
+    setGuideStatus("Choose a saved prompt target and a scene guide source.");
+  }, [selectedAsset?.id]);
 
   useEffect(() => {
     if (!project) return;
@@ -1732,6 +1861,19 @@ export function EditorApp() {
     cleanupSpillReduction,
     cleanupTolerance
   ]);
+
+  useEffect(() => {
+    if (workspace !== "assets" || activeAssetTool !== "chroma" || !selectedAsset || !selectedAssetUrl) return;
+    openBackgroundCleanup({
+      assetId: selectedAsset.id,
+      assetPath: selectedAsset.path,
+      assetUrl: selectedAssetUrl,
+      filenameHint: `${selectedAsset.id}-alpha.png`,
+      targetKind: assetEditTarget?.targetKind ?? "scene-background",
+      ...(assetEditTarget?.entityId ? { entityId: assetEditTarget.entityId } : {}),
+      ...(assetEditTarget?.sceneId ? { sceneId: assetEditTarget.sceneId } : selectedScene ? { sceneId: selectedScene.id } : {})
+    });
+  }, [activeAssetTool, selectedAsset?.id, selectedAssetUrl, workspace]);
 
   useEffect(() => {
     if (workspace !== "assets" || !animationPreviewClip) {
@@ -3147,17 +3289,18 @@ export function EditorApp() {
     }
   };
 
-  const openCleanupForAsset = (
+  const openAssetStudioForAsset = (
     targetKind: EntityAssetTargetKind,
     asset: AssetDocument | null | undefined,
     assetUrl: string | undefined,
-    entityId?: string
+    entityId?: string,
+    tool: AssetTool = "info"
   ) => {
     if (!asset || !assetUrl) {
-      setStatus("Assign a previewable image asset before removing a background.");
+      setStatus("Assign a previewable image asset before opening Asset Studio.");
       return;
     }
-    openBackgroundCleanup({
+    const target = {
       assetId: asset.id,
       assetPath: asset.path,
       assetUrl,
@@ -3165,7 +3308,15 @@ export function EditorApp() {
       filenameHint: `${asset.id}-alpha.png`,
       sceneId: selectedScene?.id,
       targetKind
-    });
+    };
+    setSelectedAssetId(asset.id);
+    setActiveAssetTool(tool);
+    setAssetEditTarget(target);
+    setWorkspace("assets");
+    if (tool === "chroma") {
+      openBackgroundCleanup(target);
+    }
+    setStatus(`Opened ${asset.id} in Asset Studio.`);
   };
 
   const createAnimationPackDraftFromSelection = () => {
@@ -3418,6 +3569,121 @@ export function EditorApp() {
       setStatus(`Deleted ${deletedAssetId}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Asset delete could not be completed");
+    }
+  };
+
+  const activateAssetTool = (tool: AssetTool) => {
+    setActiveAssetTool(tool);
+    if (tool === "chroma" && selectedAsset && selectedAssetUrl) {
+      openBackgroundCleanup({
+        assetId: selectedAsset.id,
+        assetPath: selectedAsset.path,
+        assetUrl: selectedAssetUrl,
+        filenameHint: `${selectedAsset.id}-alpha.png`,
+        targetKind: assetEditTarget?.targetKind ?? "scene-background",
+        ...(assetEditTarget?.entityId ? { entityId: assetEditTarget.entityId } : {}),
+        ...(assetEditTarget?.sceneId ? { sceneId: assetEditTarget.sceneId } : selectedScene ? { sceneId: selectedScene.id } : {})
+      });
+    }
+  };
+
+  const saveCroppedAsset = async () => {
+    if (!selectedAsset || !selectedAssetUrl) {
+      setCropStatus("Select a previewable image asset before cropping.");
+      return;
+    }
+    const rect = {
+      x: Number(cropX),
+      y: Number(cropY),
+      width: Number(cropWidth),
+      height: Number(cropHeight)
+    };
+    if (!Object.values(rect).every(Number.isFinite)) {
+      setCropStatus("Crop bounds must be valid numbers.");
+      return;
+    }
+
+    setCropStatus("Cropping and saving a new PNG asset...");
+    try {
+      const image = await loadImageElement(selectedAssetUrl);
+      const crop = clampCropRect(rect, { width: image.naturalWidth, height: image.naturalHeight });
+      const canvas = document.createElement("canvas");
+      canvas.width = crop.width;
+      canvas.height = crop.height;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        setCropStatus("Canvas is unavailable for crop.");
+        return;
+      }
+      context.drawImage(image, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height);
+      const result = await window.pointClick.saveProcessedImageAsset({
+        dataUrl: canvas.toDataURL("image/png"),
+        filenameHint: `${selectedAsset.id}-crop.png`
+      });
+      const assetId = result.assetIds[0];
+      const asset = assetId ? result.snapshot.assets.find((entry) => entry.id === assetId) : null;
+      setProject(result.snapshot);
+      if (asset) {
+        setSelectedAssetId(asset.id);
+        if (assetEditTarget) {
+          assignAssetToTargetDraft(assetEditTarget.targetKind, asset, assetEditTarget);
+        }
+        setCropStatus(`Saved cropped asset ${asset.id}.`);
+      } else {
+        setCropStatus("Crop was saved, but no asset id was returned.");
+      }
+    } catch (error) {
+      setCropStatus(error instanceof Error ? error.message : "Crop could not be saved.");
+    }
+  };
+
+  const saveGuideMaskAsset = async () => {
+    if (!project || !selectedAsset || !selectedScene || !selectedPromptPack || !selectedSavedGenerationTarget) {
+      setGuideStatus("Select an asset, scene, saved prompt pack, and generation target before saving a guide.");
+      return;
+    }
+    if (!selectedGuideSource) {
+      setGuideStatus("Choose a scene guide source before saving a mask.");
+      return;
+    }
+
+    setGuideStatus("Saving guide mask and updating prompt target...");
+    try {
+      const mask = createGuideMask({
+        bounds: selectedGuideSource.bounds,
+        height: selectedScene.size.height,
+        shape: guideShape,
+        width: selectedScene.size.width
+      });
+      const maskResult = await window.pointClick.saveProcessedImageAsset({
+        dataUrl: imagePixelDataToPngDataUrl(mask),
+        filenameHint: `${selectedSavedGenerationTarget.id}-mask.png`
+      });
+      const maskAssetId = maskResult.assetIds[0];
+      const maskAsset = maskAssetId ? maskResult.snapshot.assets.find((entry) => entry.id === maskAssetId) : null;
+      if (!maskAsset) {
+        setProject(maskResult.snapshot);
+        setGuideStatus("Mask was saved, but no asset id was returned.");
+        return;
+      }
+
+      const updatedPromptPack = promptPackWithUpdatedTarget(selectedPromptPack, selectedSavedGenerationTarget.id, {
+        ...selectedSavedGenerationTarget,
+        guideBounds: selectedGuideSource.bounds,
+        guideShape,
+        maskAssetId: maskAsset.id,
+        referenceAssetId: selectedAsset.id
+      });
+      const snapshot = await window.pointClick.applyCommand({
+        type: "prompt-pack/upsert",
+        patch: { promptPack: updatedPromptPack }
+      });
+      setProject(snapshot);
+      setSelectedAssetId(maskAsset.id);
+      setSelectedPromptPackId(updatedPromptPack.id);
+      setGuideStatus(`Saved ${maskAsset.id} and linked it to ${updatedPromptPack.id}/${selectedSavedGenerationTarget.id}.`);
+    } catch (error) {
+      setGuideStatus(error instanceof Error ? error.message : "Guide mask could not be saved.");
     }
   };
 
@@ -4494,10 +4760,7 @@ export function EditorApp() {
     }
 
     try {
-      const image = new window.Image();
-      image.decoding = "async";
-      image.src = backgroundCleanupTarget.assetUrl;
-      await image.decode();
+      const image = await loadImageElement(backgroundCleanupTarget.assetUrl);
 
       const sourceCanvas = cleanupSourceCanvasRef.current;
       const outputCanvas = cleanupOutputCanvasRef.current;
@@ -4571,7 +4834,9 @@ export function EditorApp() {
       setProject(result.snapshot);
       if (asset) {
         setSelectedAssetId(asset.id);
-        assignAssetToTargetDraft(backgroundCleanupTarget.targetKind, asset, backgroundCleanupTarget);
+        if (assetEditTarget) {
+          assignAssetToTargetDraft(assetEditTarget.targetKind, asset, assetEditTarget);
+        }
         setCleanupStatus(`Saved ${asset.id}.`);
         setBackgroundCleanupTarget(null);
       } else {
@@ -4648,6 +4913,7 @@ export function EditorApp() {
   const openGeneratedAsset = () => {
     if (!lastGeneratedImageAsset) return;
     setSelectedAssetId(lastGeneratedImageAsset.assetId);
+    setActiveAssetTool("info");
     setWorkspace("assets");
     setStatus(`Opened generated asset ${lastGeneratedImageAsset.assetId}.`);
   };
@@ -6382,6 +6648,13 @@ export function EditorApp() {
                         before treating them as transparent-ready assets.
                       </p>
                     ) : null}
+                    {selectedEffectiveGenerationTarget?.referenceAssetId || selectedEffectiveGenerationTarget?.maskAssetId ? (
+                      <p className="target-customization-note">
+                        Guide assets linked: reference {selectedEffectiveGenerationTarget.referenceAssetId ?? "none"},
+                        mask {selectedEffectiveGenerationTarget.maskAssetId ?? "none"}. Current ComfyUI text-to-image
+                        generation does not upload these guide images yet.
+                      </p>
+                    ) : null}
                   </div>
                   <label className="prompt-studio-field">
                     Seed
@@ -6592,88 +6865,168 @@ export function EditorApp() {
             </div>
           ) : workspace === "assets" ? (
             <div className="workspace-overview build-workspace asset-workspace">
-              <section className="overview-card asset-library-card">
-                <span className="overview-label">Project library</span>
-                <strong>{project?.assetCount ?? 0} registered asset(s)</strong>
-                <p>{selectedAsset ? `${selectedAsset.id} selected` : "Import images into the project library."}</p>
-                <div className="build-actions">
+              <section className="overview-card asset-studio-shell">
+                <div className="asset-studio-sidebar">
+                  <span className="overview-label">Asset Studio</span>
+                  <strong>{project?.assetCount ?? 0} asset(s)</strong>
+                  <p>{selectedAsset ? selectedAsset.id : "Import or select an image asset."}</p>
                   <button className="play-action compact-action" disabled={!project} type="button" onClick={importAssets}>
                     <Image size={iconSize} /> Import Assets
                   </button>
-                </div>
-              </section>
-              <section className="overview-card asset-detail-card">
-                <span className="overview-label">Selected asset</span>
-                <strong>{selectedAsset?.id ?? "No asset selected"}</strong>
-                <p>
-                  {selectedAsset
-                    ? `${selectedAsset.kind} - ${selectedAsset.path}`
-                    : "Choose an asset from the project tree to inspect it."}
-                </p>
-                {selectedAsset ? (
-                  <div className="asset-path-editor">
-                    <label>
-                      Asset path
-                      <input
-                        value={assetPathDraft}
-                        onChange={(event) => setAssetPathDraft(event.target.value)}
-                      />
-                    </label>
-                    <div className="build-actions">
-                      <button className="secondary-action compact-action" type="button" onClick={applyAssetRelink}>
-                        <ExternalLink size={iconSize} /> Relink Asset
-                      </button>
-                    </div>
+                  <div className="asset-tool-rail" role="tablist" aria-label="Asset tools">
+                    {[
+                      { icon: Image, id: "info" as const, label: "Info" },
+                      { icon: Eraser, id: "chroma" as const, label: "Chroma Key" },
+                      { icon: Scissors, id: "crop" as const, label: "Crop" },
+                      { icon: Crosshair, id: "guide" as const, label: "Generation Guide" },
+                      { icon: Package, id: "animation" as const, label: "Animation Pack" }
+                    ].map((tool) => {
+                      const ToolIcon = tool.icon;
+                      return (
+                        <button
+                          className={activeAssetTool === tool.id ? "active" : ""}
+                          key={`asset-tool-${tool.id}`}
+                          type="button"
+                          onClick={() => activateAssetTool(tool.id)}
+                        >
+                          <ToolIcon size={iconSize} /> {tool.label}
+                        </button>
+                      );
+                    })}
                   </div>
-                ) : null}
-              </section>
-              <section className="overview-card">
-                <span className="overview-label">Usage</span>
-                <strong>{selectedAssetUsage.length} scene reference(s)</strong>
-                <div className="diagnostic-list">
-                  {selectedAssetUsage.length ? (
-                    selectedAssetUsage.map((usage) => (
-                      <div className="diagnostic-item" key={usage.sceneId}>
-                        <div>
-                          <strong>{usage.sceneId}</strong>
-                          <p>{usage.sceneName}</p>
+                </div>
+                <div className="asset-studio-preview">
+                  <div
+                    className={`asset-studio-image ${selectedAssetUrl ? "has-preview" : ""}`}
+                    style={selectedAssetUrl ? { backgroundImage: `url("${selectedAssetUrl}")` } : undefined}
+                    aria-label={selectedAsset ? `${selectedAsset.id} preview` : "No asset preview"}
+                    role="img"
+                  >
+                    {selectedAssetUrl ? null : <Image size={32} />}
+                  </div>
+                  <div className="asset-studio-meta">
+                    <span className={`target-mode-pill ${selectedAssetHealth === "missing" ? "warn" : "good"}`}>
+                      {selectedAsset ? selectedAssetHealth : "no asset"}
+                    </span>
+                    <span>{selectedAsset?.kind ?? "image"}</span>
+                    <span>{selectedAsset?.path ?? "No path"}</span>
+                  </div>
+                </div>
+                <div className="asset-studio-tool-panel">
+                  {activeAssetTool === "info" ? (
+                    <>
+                      <span className="overview-label">Selected asset</span>
+                      <strong>{selectedAsset?.id ?? "No asset selected"}</strong>
+                      <p>{selectedAsset ? `${selectedAsset.kind} - ${selectedAsset.path}` : "Choose an asset from the project tree."}</p>
+                      {selectedAsset ? (
+                        <div className="asset-path-editor">
+                          <label>
+                            Asset path
+                            <input value={assetPathDraft} onChange={(event) => setAssetPathDraft(event.target.value)} />
+                          </label>
+                          <div className="build-actions">
+                            <button className="secondary-action compact-action" type="button" onClick={applyAssetRelink}>
+                              <ExternalLink size={iconSize} /> Relink
+                            </button>
+                            <button
+                              className="secondary-action compact-action"
+                              disabled={!selectedScene || selectedAsset.kind !== "image" || selectedAssetHealth === "missing"}
+                              type="button"
+                              onClick={assignAssetBackground}
+                            >
+                              <Image size={iconSize} /> Set Background
+                            </button>
+                            <button
+                              className="secondary-action compact-action"
+                              disabled={selectedAssetUsage.length > 0}
+                              type="button"
+                              onClick={deleteSelectedAsset}
+                            >
+                              <Trash2 size={iconSize} /> Delete Unused
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                      <div className="diagnostic-list">
+                        {selectedAssetUsage.length ? (
+                          selectedAssetUsage.map((usage, index) => (
+                            <div className="diagnostic-item" key={`asset-usage-${index}-${usage.detail}`}>
+                              <div>
+                                <strong>{usage.detail}</strong>
+                                <p>{usage.sceneName ? `${usage.sceneName} (${usage.sceneId})` : usage.type}</p>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p>No saved reference uses this asset yet.</p>
+                        )}
+                      </div>
+                    </>
+                  ) : activeAssetTool === "chroma" ? (
+                    <>
+                      <span className="overview-label">Chroma Key</span>
+                      <strong>{selectedAsset?.id ?? "Select an asset"}</strong>
+                      <div className="cleanup-preview-grid compact">
+                        <div className="cleanup-preview-pane">
+                          <span>Source</span>
+                          <canvas ref={cleanupSourceCanvasRef} className="cleanup-canvas" onPointerDown={pickCleanupColor} />
+                        </div>
+                        <div className="cleanup-preview-pane checkerboard-pane">
+                          <span>Preview</span>
+                          <canvas ref={cleanupOutputCanvasRef} className="cleanup-canvas" />
                         </div>
                       </div>
-                    ))
-                  ) : (
-                    <p>No scene background is using this asset yet.</p>
-                  )}
+                      <div className="cleanup-controls">
+                        <label>Key color<input value={cleanupKeyColor} onChange={(event) => setCleanupKeyColor(event.target.value)} /></label>
+                        <label>Tolerance<input min="0" max="255" type="range" value={cleanupTolerance} onChange={(event) => setCleanupTolerance(event.target.value)} /><small>{cleanupTolerance}</small></label>
+                        <label>Feather<input min="0" max="120" type="range" value={cleanupFeather} onChange={(event) => setCleanupFeather(event.target.value)} /><small>{cleanupFeather}</small></label>
+                        <label className="checkbox-field"><input checked={cleanupSpillReduction} type="checkbox" onChange={(event) => setCleanupSpillReduction(event.target.checked)} />Reduce spill</label>
+                      </div>
+                      <div className="cleanup-status-row"><p>{cleanupStatus}</p></div>
+                      <div className="build-actions">
+                        <button className="secondary-action compact-action" disabled={!backgroundCleanupTarget} type="button" onClick={renderBackgroundCleanupPreview}>Refresh</button>
+                        <button className="play-action compact-action" disabled={!backgroundCleanupTarget} type="button" onClick={saveBackgroundCleanupAsset}>Save New PNG</button>
+                      </div>
+                    </>
+                  ) : activeAssetTool === "crop" ? (
+                    <>
+                      <span className="overview-label">Crop</span>
+                      <strong>{selectedAsset?.id ?? "Select an asset"}</strong>
+                      <div className="player-field-grid">
+                        <label>X<input value={cropX} onChange={(event) => setCropX(event.target.value)} /></label>
+                        <label>Y<input value={cropY} onChange={(event) => setCropY(event.target.value)} /></label>
+                        <label>Width<input value={cropWidth} onChange={(event) => setCropWidth(event.target.value)} /></label>
+                        <label>Height<input value={cropHeight} onChange={(event) => setCropHeight(event.target.value)} /></label>
+                      </div>
+                      <p>{cropStatus}</p>
+                      <div className="build-actions">
+                        <button className="play-action compact-action" disabled={!selectedAssetUrl} type="button" onClick={saveCroppedAsset}>
+                          <Scissors size={iconSize} /> Save Crop As PNG
+                        </button>
+                      </div>
+                    </>
+                  ) : activeAssetTool === "guide" ? (
+                    <>
+                      <span className="overview-label">Generation Guide</span>
+                      <strong>{selectedSavedGenerationTarget?.id ?? "No saved target"}</strong>
+                      <p>Creates a reusable mask asset and links this asset as the target reference. ComfyUI text-to-image does not consume it yet.</p>
+                      <div className="prompt-studio-controls">
+                        <label className="prompt-studio-field">Saved prompt pack<select value={selectedPromptPack?.id ?? ""} onChange={(event) => setSelectedPromptPackId(event.target.value || null)}><option value="">Select pack</option>{project?.promptPacks.map((pack) => <option key={`guide-pack-${pack.id}`} value={pack.id}>{pack.id}</option>)}</select></label>
+                        <label className="prompt-studio-field">Target<select value={selectedSavedGenerationTarget?.id ?? ""} onChange={(event) => setSelectedGenerationTargetId(event.target.value)}><option value="">Select target</option>{savedPromptPackTargets.map((target) => <option key={`guide-target-${target.id}`} value={target.id}>{target.id} ({target.intendedUse})</option>)}</select></label>
+                        <label className="prompt-studio-field">Scene source<select value={selectedGuideSource?.id ?? ""} onChange={(event) => setGuideSourceId(event.target.value)}>{guideSourceOptions.map((source) => <option key={`guide-source-${source.id}`} value={source.id}>{source.label}</option>)}</select></label>
+                        <label className="prompt-studio-field">Mask shape<select value={guideShape} onChange={(event) => setGuideShape(event.target.value === "ellipse" ? "ellipse" : "rect")}><option value="rect">rect</option><option value="ellipse">ellipse</option></select></label>
+                      </div>
+                      <p>{guideStatus}</p>
+                      <div className="build-actions">
+                        <button className="play-action compact-action" disabled={!selectedAsset || !selectedPromptPack || !selectedSavedGenerationTarget || !selectedGuideSource} type="button" onClick={saveGuideMaskAsset}>
+                          <Crosshair size={iconSize} /> Save Mask And Link Target
+                        </button>
+                      </div>
+                    </>
+                  ) : null}
                 </div>
               </section>
-              <section className="overview-card">
-                <span className="overview-label">Health</span>
-                <strong>{selectedAsset ? selectedAssetHealth : "n/a"}</strong>
-                <p>
-                  {selectedAssetHealth === "missing"
-                    ? "The asset is registered, but its file is missing on disk."
-                    : "The asset file is available to the project."}
-                </p>
-                {selectedAsset ? (
-                  <div className="build-actions">
-                    <button
-                      className="secondary-action compact-action"
-                      disabled={!selectedScene || selectedAsset.kind !== "image" || selectedAssetHealth === "missing"}
-                      type="button"
-                      onClick={assignAssetBackground}
-                    >
-                      <Image size={iconSize} /> Set As Background
-                    </button>
-                    <button
-                      className="secondary-action compact-action"
-                      disabled={selectedAssetUsage.length > 0}
-                      type="button"
-                      onClick={deleteSelectedAsset}
-                    >
-                      <Trash2 size={iconSize} /> Delete Unused
-                    </button>
-                  </div>
-                ) : null}
-              </section>
+              {activeAssetTool === "animation" ? (
               <section className="overview-card prompt-studio-card character-gym-card">
                 <span className="overview-label">Character Gym</span>
                 <strong>{selectedAnimationPack?.id ?? animationPackDraft.id}</strong>
@@ -6983,53 +7336,7 @@ export function EditorApp() {
                   </button>
                 </div>
               </section>
-              <section className="overview-card ai-handoff-card">
-                <span className="overview-label">AI source material</span>
-                <strong>{promptPackScene ? `${promptPackScene.name} prompt packs` : "No layered scene"}</strong>
-                <p>
-                  Prompt packs, provider settings, and ComfyUI imports now live in the AI workspace. Asset Studio keeps
-                  the approved library and animation authoring focused.
-                </p>
-                <div className="diagnostic-list">
-                  <div className="diagnostic-item">
-                    <div>
-                      <strong>{promptPackContext ? "Scene context ready" : "Choose a scene in AI"}</strong>
-                      <p>
-                        {promptPackContext
-                          ? `${promptPackContext.hotspots.length} hotspot(s), ${promptPackContext.pickups.length} pickup(s), ${promptPackContext.actors.length} actor(s)`
-                          : "AI can extract scene labels and generation targets once a layered scene is selected."}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <div className="build-actions">
-                  <button className="secondary-action compact-action" type="button" onClick={() => setWorkspace("ai")}>
-                    <WandSparkles size={iconSize} /> Open AI Studio
-                  </button>
-                </div>
-              </section>
-              <section className="overview-card saved-packs-card">
-                <span className="overview-label">Saved prompt packs</span>
-                <strong>{project?.promptPackCount ?? 0} pack(s)</strong>
-                <p>
-                  {selectedPromptPack
-                    ? `${selectedPromptPack.id} targets ${selectedPromptPack.sceneId}`
-                    : "Approved packs will be written under project prompt-packs."}
-                </p>
-                {selectedPromptPack ? (
-                  <div className="diagnostic-list">
-                    <div className="diagnostic-item">
-                      <div>
-                        <strong>{selectedPromptPack.name}</strong>
-                        <p>{selectedPromptPack.provenance.provider} - {selectedPromptPack.provenance.model}</p>
-                      </div>
-                      <span className="capability-badge good">
-                        {selectedPromptPack.outputs.generationTargets.length} target(s)
-                      </span>
-                    </div>
-                  </div>
-                ) : null}
-              </section>
+              ) : null}
             </div>
           ) : (
             <div
@@ -7614,8 +7921,8 @@ export function EditorApp() {
                   assetUrl={previewPlayerAssetUrl}
                   label="Player image"
                   missing={playerAssetMissing}
-                  onCleanup={() =>
-                    openCleanupForAsset("player", currentPlayerAsset, previewPlayerAssetUrl)
+                  onEditAsset={() =>
+                    openAssetStudioForAsset("player", currentPlayerAsset, previewPlayerAssetUrl, undefined, "info")
                   }
                   onDropFiles={(filePaths) => importAssetFilesForTarget(filePaths, "player")}
                   onImportClick={() => importPickedAssetForTarget("player")}
@@ -8117,8 +8424,8 @@ export function EditorApp() {
                   assetUrl={currentActorAssetUrl}
                   label="Actor image"
                   missing={actorAssetMissing}
-                  onCleanup={() =>
-                    openCleanupForAsset("actor", currentActorAsset, currentActorAssetUrl, selectedActor.id)
+                  onEditAsset={() =>
+                    openAssetStudioForAsset("actor", currentActorAsset, currentActorAssetUrl, selectedActor.id, "info")
                   }
                   onDropFiles={(filePaths) => importAssetFilesForTarget(filePaths, "actor")}
                   onImportClick={() => importPickedAssetForTarget("actor")}
@@ -8701,8 +9008,8 @@ export function EditorApp() {
                   assetUrl={currentPickupAssetUrl}
                   label="Pickup image"
                   missing={pickupAssetMissing}
-                  onCleanup={() =>
-                    openCleanupForAsset("pickup", currentPickupAsset, currentPickupAssetUrl, selectedPickup.id)
+                  onEditAsset={() =>
+                    openAssetStudioForAsset("pickup", currentPickupAsset, currentPickupAssetUrl, selectedPickup.id, "info")
                   }
                   onDropFiles={(filePaths) => importAssetFilesForTarget(filePaths, "pickup")}
                   onImportClick={() => importPickedAssetForTarget("pickup")}
@@ -8860,8 +9167,8 @@ export function EditorApp() {
                   assetUrl={previewSceneBackgroundUrl}
                   label="Scene background image"
                   missing={!isHexColor(previewSceneBackground) && !previewSceneBackgroundAsset}
-                  onCleanup={() =>
-                    openCleanupForAsset("scene-background", previewSceneBackgroundAsset, previewSceneBackgroundUrl)
+                  onEditAsset={() =>
+                    openAssetStudioForAsset("scene-background", previewSceneBackgroundAsset, previewSceneBackgroundUrl, undefined, "info")
                   }
                   onDropFiles={(filePaths) => importAssetFilesForTarget(filePaths, "scene-background")}
                   onImportClick={() => importPickedAssetForTarget("scene-background")}
@@ -9009,7 +9316,7 @@ export function EditorApp() {
           </div>
         </aside>
       </div>
-      {backgroundCleanupTarget ? (
+      {backgroundCleanupTarget && workspace !== "assets" ? (
         <div className="cleanup-modal-backdrop" role="presentation">
           <section className="cleanup-modal" role="dialog" aria-modal="true" aria-label="Remove background">
             <div className="cleanup-modal-heading">

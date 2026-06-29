@@ -253,8 +253,12 @@ describe("project contracts", () => {
             chromaColor: "#00A2FF",
             customPositivePrompt: "Longer raincoat, brass buttons, same visual style.",
             customNegativePrompt: "extra arms, scene background",
+            guideBounds: { x: 120, y: 80, width: 128, height: 256 },
+            guideShape: "rect",
             intendedUse: "sprite-sheet",
+            maskAssetId: "keeper-mask",
             marginPercent: 4,
+            referenceAssetId: "keeper-reference",
             safetyNegativePrompt: "transparent alpha, cropped feet"
           }
         ]
