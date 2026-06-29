@@ -199,6 +199,56 @@ describe("editor-session recovery", () => {
     expect(dirty.count).toBe(1);
   });
 
+  it("tracks scene layer draft changes as dirty state", () => {
+    const session = initializeEditorSession(project);
+    session.sceneDrafts["moonlit-dock"] = {
+      ...createSceneDraft(sceneDocument),
+      layers: [
+        {
+          assetId: "dock-fog",
+          depth: "85",
+          height: "180",
+          id: "foreground-fog",
+          locked: false,
+          name: "Foreground Fog",
+          opacity: "0.8",
+          visible: true,
+          width: "1280",
+          x: "0",
+          y: "540"
+        }
+      ]
+    };
+
+    const dirty = getDirtyState(project, session);
+    expect(dirty.sceneIds.has("moonlit-dock")).toBe(true);
+    expect(dirty.count).toBe(1);
+  });
+
+  it("tracks scene generation guide draft changes as dirty state", () => {
+    const session = initializeEditorSession(project);
+    session.sceneDrafts["moonlit-dock"] = {
+      ...createSceneDraft(sceneDocument),
+      generationGuides: [
+        {
+          id: "door-mask",
+          name: "Door Mask",
+          role: "hotspot",
+          source: { kind: "hotspot", id: "tavern-entrance" },
+          shape: { type: "rect", bounds: { x: 820, y: 310, width: 140, height: 220 } },
+          visible: true
+        }
+      ]
+    };
+
+    const dirty = getDirtyState(project, session);
+    expect(dirty.sceneIds.has("moonlit-dock")).toBe(true);
+    expect(dirty.count).toBe(1);
+
+    const recovery = buildRecoverySnapshot(project.directory, project, session);
+    expect(recovery?.session.sceneDrafts["moonlit-dock"]?.generationGuides[0]?.id).toBe("door-mask");
+  });
+
   it("restores drafts for a matching project", () => {
     const session = initializeEditorSession(project);
     session.activeFlowId = "inspect-tavern-door";

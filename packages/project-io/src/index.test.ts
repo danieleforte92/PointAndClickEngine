@@ -390,6 +390,17 @@ describe("loadProjectFromDirectory", () => {
       type: "scene/update",
       patch: {
         background: "#204060",
+        layers: [
+          {
+            assetId: "mara-spritesheet",
+            bounds: { x: 10, y: 20, width: 240, height: 180 },
+            depth: 42,
+            id: "foreground-test",
+            name: "Foreground Test",
+            opacity: 0.85,
+            visible: true
+          }
+        ],
         name: "Moonlit Dock Revised",
         playerStart: {
           x: 490,
@@ -445,10 +456,16 @@ describe("loadProjectFromDirectory", () => {
     const scenePath = path.join(projectRoot, "scenes", "moonlit-dock.scene.json");
     const sceneFile = JSON.parse(await readFile(scenePath, "utf8")) as {
       background: string;
+      layers?: Array<{ id: string; assetId: string; depth: number }>;
       name: string;
       size: { height: number; width: number };
     };
     expect(sceneFile.background).toBe("#204060");
+    expect(sceneFile.layers?.[0]).toMatchObject({
+      assetId: "mara-spritesheet",
+      depth: 42,
+      id: "foreground-test"
+    });
     expect(sceneFile.name).toBe("Moonlit Dock Revised");
     expect(sceneFile.size).toEqual({ width: 1440, height: 810 });
   });
@@ -1207,6 +1224,24 @@ describe("loadProjectFromDirectory", () => {
         ...loaded.bundle.scenes,
         "moonlit-dock": {
           ...scene,
+          layers: [
+            {
+              assetId: "missing-layer-asset",
+              bounds: { x: 1200, y: 650, width: 200, height: 120 },
+              depth: 30,
+              id: "broken-layer",
+              name: "Broken Layer"
+            }
+          ],
+          generationGuides: [
+            {
+              id: "broken-source",
+              name: "Broken Source",
+              role: "actor",
+              source: { kind: "actor", id: "missing-actor" },
+              shape: { type: "rect", bounds: { x: 1200, y: 650, width: 200, height: 120 } }
+            }
+          ],
           actors: [
             {
               actions: { useItemFlows: [] },
@@ -1236,7 +1271,12 @@ describe("loadProjectFromDirectory", () => {
             generationTargets: loaded.bundle.promptPacks["moonlit-dock-art"]!.outputs.generationTargets.map(
               (target, index) =>
                 index === 0
-                  ? { ...target, maskAssetId: "missing-mask", referenceAssetId: "missing-reference" }
+                  ? {
+                      ...target,
+                      guideIds: ["missing-guide"],
+                      maskAssetId: "missing-mask",
+                      referenceAssetId: "missing-reference"
+                    }
                   : target
             )
           }
@@ -1245,12 +1285,17 @@ describe("loadProjectFromDirectory", () => {
     });
 
     expect(diagnostics.some((item) => item.code === "scene.actor-asset-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "scene.layer-asset-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "scene.layer-bounds-outside-scene")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "scene.generation-guide-source-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "scene.generation-guide-outside-scene")).toBe(true);
     expect(diagnostics.some((item) => item.code === "scene.pickup-asset-missing")).toBe(true);
     expect(diagnostics.some((item) => item.code === "scene.actor-interact-spot-outside-scene")).toBe(true);
     expect(diagnostics.some((item) => item.code === "scene.actor-visible-item-missing")).toBe(true);
     expect(diagnostics.some((item) => item.code === "prompt-pack.scene-missing")).toBe(true);
     expect(diagnostics.some((item) => item.code === "prompt-pack.reference-asset-missing")).toBe(true);
     expect(diagnostics.some((item) => item.code === "prompt-pack.mask-asset-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "prompt-pack.generation-guide-missing")).toBe(true);
   });
 
   it("upserts a prompt pack document and manifest entry", async () => {
@@ -1549,6 +1594,64 @@ describe("loadProjectFromDirectory", () => {
         assetId: "dock-sky"
       })
     ).rejects.toThrow('Asset "dock-sky" is still referenced by moonlit-dock');
+  });
+
+  it("blocks deleting an asset that is still referenced by a scene layer", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+    await mkdir(path.join(projectRoot, "assets", "imported"), { recursive: true });
+    await writeFile(path.join(projectRoot, "assets", "imported", "foreground-fog.png"), "fake image", "utf8");
+
+    await applyProjectCommand(projectRoot, {
+      type: "asset/import",
+      assets: [
+        {
+          documentPath: "assets/foreground-fog.asset.json",
+          filePath: "assets/imported/foreground-fog.png",
+          id: "foreground-fog",
+          kind: "image",
+          source: "imported"
+        }
+      ]
+    });
+
+    const loaded = await loadProjectFromDirectory(projectRoot);
+    const sourceScene = loaded.bundle.scenes["moonlit-dock"];
+    expect(sourceScene?.type).toBe("layered-2d");
+    if (!sourceScene || sourceScene.type !== "layered-2d") {
+      throw new Error("Expected layered 2D scene");
+    }
+
+    await applyProjectCommand(projectRoot, {
+      type: "scene/update",
+      patch: {
+        background: sourceScene.background,
+        layers: [
+          {
+            assetId: "foreground-fog",
+            bounds: { x: 0, y: 520, width: 1280, height: 160 },
+            depth: 92,
+            id: "foreground-fog",
+            name: "Foreground Fog"
+          }
+        ],
+        name: sourceScene.name,
+        playerStart: sourceScene.playerStart,
+        size: sourceScene.size,
+        walkArea: sourceScene.walkArea
+      },
+      sceneId: "moonlit-dock"
+    });
+
+    await expect(
+      applyProjectCommand(projectRoot, {
+        type: "asset/delete",
+        assetId: "foreground-fog"
+      })
+    ).rejects.toThrow('Asset "foreground-fog" is still referenced by moonlit-dock');
   });
 
   it("blocks deleting an asset that is still referenced by a pickup", async () => {

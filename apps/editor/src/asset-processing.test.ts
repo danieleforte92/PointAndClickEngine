@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampCropRect, createGuideMask, cropImageData } from "./asset-processing";
+import { clampCropRect, createCompositeGuideMask, createGuideMask, cropImageData } from "./asset-processing";
 
 describe("asset processing helpers", () => {
   it("clamps crop rectangles to image bounds", () => {
@@ -42,5 +42,50 @@ describe("asset processing helpers", () => {
     const red = [...result.data.filter((_, index) => index % 4 === 0)];
     expect(red.filter((value) => value === 255).length).toBeGreaterThan(1);
     expect(red.filter((value) => value === 0).length).toBeGreaterThan(0);
+  });
+
+  it("creates polygon guide masks", () => {
+    const result = createGuideMask({
+      bounds: { x: 0, y: 0, width: 3, height: 3 },
+      height: 3,
+      points: [{ x: 0, y: 0 }, { x: 3, y: 0 }, { x: 0, y: 3 }],
+      shape: "polygon",
+      width: 3
+    });
+    const red = [...result.data.filter((_, index) => index % 4 === 0)];
+    expect(red.filter((value) => value === 255).length).toBeGreaterThan(0);
+    expect(red.filter((value) => value === 0).length).toBeGreaterThan(0);
+  });
+
+  it("creates composite masks from multiple guides", () => {
+    const result = createCompositeGuideMask({
+      width: 4,
+      height: 2,
+      guides: [
+        {
+          id: "left",
+          name: "Left",
+          role: "mask",
+          shape: { type: "rect", bounds: { x: 0, y: 0, width: 1, height: 2 } }
+        },
+        {
+          id: "right",
+          name: "Right",
+          role: "mask",
+          shape: { type: "rect", bounds: { x: 3, y: 0, width: 1, height: 2 } }
+        }
+      ]
+    });
+    expect([...result.data.filter((_, index) => index % 4 === 0)]).toEqual([255, 0, 0, 255, 255, 0, 0, 255]);
+  });
+
+  it("clips partially out-of-scene guide masks", () => {
+    const result = createGuideMask({
+      bounds: { x: -2, y: 0, width: 3, height: 1 },
+      height: 1,
+      shape: "rect",
+      width: 3
+    });
+    expect([...result.data.filter((_, index) => index % 4 === 0)]).toEqual([255, 0, 0]);
   });
 });

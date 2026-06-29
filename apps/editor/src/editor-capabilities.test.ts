@@ -11,16 +11,28 @@ describe("editor capabilities", () => {
     const assets = workspaceCapabilities.find((capability) => capability.workspace === "assets");
     const ai = workspaceCapabilities.find((capability) => capability.workspace === "ai");
     const build = workspaceCapabilities.find((capability) => capability.workspace === "build");
-    const player = workspaceCapabilities.find((capability) => capability.workspace === "player");
+    const player = workspaceCapabilities.find((capability) => capability.id === "player");
+    const scene = workspaceCapabilities.find((capability) => capability.workspace === "scene");
 
     expect(assets?.status).toBe("beta");
     expect(assets?.summary).toContain("import");
     expect(ai?.status).toBe("beta");
     expect(ai?.summary).toContain("prompt packs");
-    expect(player?.status).toBe("beta");
-    expect(player?.summary).toContain("playable character");
+    expect(player).toBeUndefined();
+    expect(scene?.summary).toContain("player setup");
     expect(build?.status).toBe("beta");
     expect(build?.summary).toContain("validation");
+  });
+
+  it("does not expose player as a top-level workspace", () => {
+    expect(workspaceCapabilities.map((capability) => capability.workspace)).toEqual([
+      "overview",
+      "scene",
+      "narrative",
+      "assets",
+      "ai",
+      "build"
+    ]);
   });
 
   it("keeps badge labels and tones stable for the editor shell", () => {

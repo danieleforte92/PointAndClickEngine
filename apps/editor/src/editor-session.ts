@@ -10,12 +10,14 @@ import type {
   Polygon2,
   SceneActor,
   SceneActorRole,
+  SceneGenerationGuide,
+  SceneLayer,
   ScenePlayerConfig,
   ScenePickup,
   SceneDocument
 } from "@pointclick/contracts";
 
-export type Workspace = "overview" | "scene" | "player" | "narrative" | "assets" | "ai" | "build";
+export type Workspace = "overview" | "scene" | "narrative" | "assets" | "ai" | "build";
 export type FlagValueKind = "string" | "number" | "boolean";
 export type DraftNodeType = "line" | "set-flag" | "change-scene" | "end";
 
@@ -84,7 +86,9 @@ export interface ItemDraft {
 
 export interface SceneDraft {
   background: string;
+  generationGuides: SceneGenerationGuide[];
   height: string;
+  layers: SceneLayerDraft[];
   name: string;
   playerAnimationPackId: string;
   playerAssetId: string;
@@ -95,6 +99,20 @@ export interface SceneDraft {
   playerWalkSpeed: string;
   width: string;
   walkAreaPoints: Array<{ x: string; y: string }>;
+}
+
+export interface SceneLayerDraft {
+  assetId: string;
+  depth: string;
+  height: string;
+  id: string;
+  locked: boolean;
+  name: string;
+  opacity: string;
+  visible: boolean;
+  width: string;
+  x: string;
+  y: string;
 }
 
 export interface FlowLineDraftNode {
@@ -301,7 +319,9 @@ export function createSceneDraft(scene: Layered2DScene | null): SceneDraft {
   const player = createScenePlayerConfig(scene?.player);
   return {
     background: scene?.background ?? "",
+    generationGuides: scene?.generationGuides?.map((guide) => ({ ...guide })) ?? [],
     height: scene ? String(scene.size.height) : "",
+    layers: scene?.layers?.map((layer) => createSceneLayerDraft(layer, scene)) ?? [],
     name: scene?.name ?? "",
     playerAnimationPackId: player.animationPackId ?? "",
     playerAssetId: player.assetId ?? "",
@@ -320,6 +340,28 @@ export function createSceneDraft(scene: Layered2DScene | null): SceneDraft {
         { x: "100", y: "0" },
         { x: "100", y: "100" }
       ]
+  };
+}
+
+export function createSceneLayerDraft(layer: SceneLayer, scene: Layered2DScene): SceneLayerDraft {
+  const bounds = layer.bounds ?? {
+    x: 0,
+    y: 0,
+    width: scene.size.width,
+    height: scene.size.height
+  };
+  return {
+    assetId: layer.assetId,
+    depth: String(layer.depth),
+    height: String(bounds.height),
+    id: layer.id,
+    locked: layer.locked ?? false,
+    name: layer.name,
+    opacity: String(layer.opacity ?? 1),
+    visible: layer.visible ?? true,
+    width: String(bounds.width),
+    x: String(bounds.x),
+    y: String(bounds.y)
   };
 }
 

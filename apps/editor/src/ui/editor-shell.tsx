@@ -33,8 +33,6 @@ export function WorkspaceIcon({ workspace }: { workspace: Workspace }) {
       return <Search size={iconSize} />;
     case "scene":
       return <Clapperboard size={iconSize} />;
-    case "player":
-      return <UserRound size={iconSize} />;
     case "narrative":
       return <Route size={iconSize} />;
     case "assets":
@@ -148,33 +146,6 @@ export function TopbarActions({
           <Play size={iconSize} /> {isDirty ? "Draft Preview" : "Play Project"}
         </button>
       </div>
-    </div>
-  );
-}
-
-interface WorkspaceRailProps {
-  activeWorkspace: Workspace;
-  onWorkspaceChange: (workspace: Workspace) => void;
-}
-
-export function WorkspaceRail({ activeWorkspace, onWorkspaceChange }: WorkspaceRailProps) {
-  const railItems = workspaceCapabilities.filter((item) =>
-    ["scene", "assets", "ai", "build"].includes(item.workspace)
-  );
-
-  return (
-    <div className="workspace-rail" aria-label="Authoring focus">
-      {railItems.map((item) => (
-        <button
-          className={activeWorkspace === item.workspace ? "active" : ""}
-          key={`rail-${item.id}`}
-          type="button"
-          onClick={() => onWorkspaceChange(item.workspace)}
-        >
-          <WorkspaceIcon workspace={item.workspace} />
-          {item.label === "Asset Studio" ? "Assets" : item.label}
-        </button>
-      ))}
     </div>
   );
 }

@@ -46,6 +46,7 @@ Only `layered-2d` is executable in the current milestone.
 Layered scenes define:
 
 - dimensions and background;
+- optional image layers for foregrounds, overlays, and parallax-ready composition;
 - player start, optional player animation pack, and walk bounds;
 - depth-ordered visual shapes;
 - actors, pickups, rectangular hotspots, and their flow IDs.
@@ -76,6 +77,6 @@ ships a deterministic mock-provider path, local LM Studio support, local ComfyUI
 image generation, and saved prompt-pack provenance so contributors can inspect
 the AI direction without paid provider keys.
 
-The editor imports generated images as normal asset documents. Transparency,
-chroma removal, and alpha output are treated as ComfyUI workflow capabilities,
-not runtime assumptions.
+The editor imports generated images as normal asset documents. Transparency and
+alpha output can come from ComfyUI workflows or from Asset Studio's chroma-key
+tool; neither path changes runtime assumptions.

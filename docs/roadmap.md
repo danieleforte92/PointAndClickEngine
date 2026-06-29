@@ -9,8 +9,8 @@ author a small scene, generate reviewable AI art direction, validate, and previe
 
 - Git-friendly project documents with schema and semantic validation.
 - Deterministic command/event runtime, seeded RNG, replayable state, and Flow VM.
-- Layered 2D Pixi renderer with polygon walk areas, pickups, inventory, verbs,
-  scene transitions, and scale-by-depth player movement.
+- Layered 2D Pixi renderer with image layers, polygon walk areas, pickups,
+  inventory, verbs, scene transitions, and scale-by-depth player movement.
 - Web player, Electron editor, isolated preview, browser preview, and packaged
   Windows preview.
 - Editor project creation/opening, undo/redo, autosave recovery, scene tools,
@@ -40,9 +40,9 @@ Make the editor feel like a product rather than a JSON inspector.
 
 - First-run actions: create blank project, create from starter, open project.
 - Scene authoring: direct viewport editing for hotspots, pickups, actors, player
-  start, and walk areas.
-- Player authoring: asset, animation pack, start position, walk speed,
-  scale-near/far, and immediate preview.
+  start, walk areas, and a minimal visual layer stack.
+- Player authoring: Scene > Player handles asset, animation pack, start
+  position, walk speed, scale-near/far, and immediate preview.
 - Actor/hotspot authoring: guided asset/animation/flow references and inline
   validation when references are missing.
 - Build workspace: saved-project validation, preview readiness, and clear error
@@ -63,6 +63,8 @@ Turn AI support into a bounded authoring workflow.
   alpha.
 - Clear status for queueing, timeout, import success, and workflow limitations.
 - Imported generations become normal project assets under `assets/imported`.
+- Sprite-sheet and animation-reference targets hand off to Asset Studio so they
+  can be sliced into animation packs in Character Gym.
 
 Done when a creator can generate a prompt pack, generate one asset locally,
 import it, assign it, validate, and preview.
@@ -80,6 +82,8 @@ Make player and actor animation authorable, not just loadable.
   draft from the editor UI.
 - Renderer fallback remains visible when assets or packs are missing.
 - Animated clip preview and visual frame slicing are available in Asset Studio.
+- Remaining work is production polish: better generated sheet presets, stronger
+  frame-consistency guidance, and clearer validation around missing clips.
 
 Done when the sample player and one actor can be edited, assigned, validated,
 and played from the editor; clip preview completes the polish pass.

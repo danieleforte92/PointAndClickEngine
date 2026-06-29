@@ -29,17 +29,19 @@ Expected result:
 3. Create a project from starter.
 4. Open `apps/sample-game/project`.
 5. In **Scene**, move a hotspot, pickup, player start, and walk-area point.
-6. In **Player**, change player asset or animation pack settings, then preview.
-7. In **Assets**, import an image and assign it as a scene background.
-8. Drop or import an image from a Scene, Player, Actor, or Pickup inspector and
+6. In **Scene > Player**, change player asset or animation pack settings, then preview.
+7. In **Scene**, add an image layer, change depth/opacity/visibility, save, and preview.
+8. In **Asset Studio**, import an image and assign it as a scene background.
+9. Drop or import an image from a Scene, Player, Actor, or Pickup inspector and
    verify the new asset is assigned to that draft.
-9. Run **Remove Background** on a flat chroma image, save the processed PNG, and
+10. Run **Asset Studio > Chroma Key** on a flat chroma image, save the processed PNG, and
    verify it is assigned as a new asset without overwriting the source.
-10. In **AI**, generate a mock prompt pack.
-11. With LM Studio running, generate a local prompt pack.
-12. With ComfyUI running, generate and import one image asset.
-13. In **Build**, run validation.
-14. Use **Play from here** and **Browser** preview.
+11. In **AI**, generate a mock prompt pack.
+12. With LM Studio running, generate a local prompt pack.
+13. With ComfyUI running, generate and import one image asset.
+14. Send a `sprite-sheet` or `animation-reference` target to Asset Studio and verify Character Gym can slice it.
+15. In **Build**, run validation.
+16. Use **Play from here** and **Browser** preview.
 
 ## Package
 
@@ -70,8 +72,8 @@ Include:
 
 ## Known Limitations To State Publicly
 
-- Character Gym runtime support exists, but the full sprite editor UX is still
-  being completed.
+- Character Gym is available in Asset Studio; generated animation sheets still
+  need stronger consistency presets before they are production-grade.
 - Transparent PNG output depends on the selected ComfyUI workflow or a clean
   flat chroma source for editor cleanup.
 - OpenAI integration requires API platform access; ChatGPT subscriptions do not

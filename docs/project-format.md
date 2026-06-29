@@ -51,9 +51,35 @@ Scenes can assign an animation pack to `player.animationPackId` or
 `actors[].animationPackId`. The renderer uses `idle` and `walk` when present and
 falls back to static assets or debug shapes when a pack cannot load.
 
-Creator Alpha's editor exposes player assignment today. The full Character Gym
-sprite editor is the next UX milestone for editing frame grids, foot origins,
-clip frame lists, and preview loops without manual JSON edits.
+Creator Alpha's Asset Studio includes Character Gym controls for editing frame
+grids, foot origins, clip frame lists, and preview loops without manual JSON
+edits.
+
+## Scene Layers
+
+Layered 2D scenes can optionally define visual image layers:
+
+```json
+{
+  "layers": [
+    {
+      "id": "foreground-fog",
+      "name": "Foreground Fog",
+      "assetId": "fog-strip",
+      "depth": 95,
+      "opacity": 0.72,
+      "visible": true,
+      "locked": false,
+      "bounds": { "x": 0, "y": 520, "width": 1280, "height": 200 }
+    }
+  ]
+}
+```
+
+`assetId` must point to a registered image asset. `depth` controls draw order
+alongside shapes, actors, pickups, and the player. If `bounds` is omitted, the
+renderer stretches the layer over the full scene. `locked` is an editor flag; the
+runtime ignores it.
 
 ## Pickup Assets
 

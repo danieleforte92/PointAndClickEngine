@@ -25,17 +25,9 @@ export const workspaceCapabilities: EditorCapability[] = [
     label: "Scene",
     status: "beta",
     workspace: "scene",
-    summary: "Edit scenes, hotspots, pickups, player start, and walk areas.",
-    detail: "Scene authoring supports direct viewport editing for the current layered 2D milestone."
-  },
-  {
-    id: "player",
-    label: "Player",
-    status: "beta",
-    workspace: "player",
-    summary: "Configure the playable character for the current scene.",
+    summary: "Edit scenes, player setup, hotspots, actors, pickups, and walk areas.",
     detail:
-      "Player authoring edits scene-level asset, animation pack, start position, scale-by-depth, and walk speed."
+      "Scene authoring supports direct viewport editing and keeps player setup in the scene inspector."
   },
   {
     id: "narrative",

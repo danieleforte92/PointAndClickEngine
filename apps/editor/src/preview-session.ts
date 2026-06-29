@@ -10,6 +10,7 @@ import type {
   ProjectBundle,
   SceneActor,
   SceneDocument,
+  SceneLayer,
   ScenePickup
 } from "@pointclick/contracts";
 import {
@@ -51,6 +52,41 @@ function toPromptPackMap(promptPacks: PromptPackDocument[]): Record<string, Prom
   return Object.fromEntries(promptPacks.map((promptPack) => [promptPack.id, promptPack]));
 }
 
+function buildDraftSceneLayers(
+  scene: Layered2DScene,
+  draft: EditorSessionState["sceneDrafts"][string]
+): SceneLayer[] {
+  const layers: SceneLayer[] = [];
+
+  for (const layer of draft.layers) {
+    const id = layer.id.trim();
+    const name = layer.name.trim();
+    const assetId = layer.assetId.trim();
+    const depth = parseNumber(layer.depth);
+    const opacity = parseNumber(layer.opacity);
+    const x = parseNumber(layer.x);
+    const y = parseNumber(layer.y);
+    const width = parsePositiveNumber(layer.width);
+    const height = parsePositiveNumber(layer.height);
+    if (!id || !name || !assetId || depth === null || opacity === null) return scene.layers ?? [];
+    if (opacity < 0 || opacity > 1 || x === null || y === null || width === null || height === null) {
+      return scene.layers ?? [];
+    }
+    layers.push({
+      assetId,
+      bounds: { x, y, width, height },
+      depth,
+      id,
+      locked: layer.locked,
+      name,
+      opacity,
+      visible: layer.visible
+    });
+  }
+
+  return layers;
+}
+
 function applySceneDrafts(
   scenes: Record<string, SceneDocument>,
   session: EditorSessionState
@@ -81,6 +117,8 @@ function applySceneDrafts(
     nextScenes[sceneId] = {
       ...scene,
       background: draft.background,
+      generationGuides: draft.generationGuides,
+      layers: buildDraftSceneLayers(scene, draft),
       name: draft.name,
       player: {
         ...(draft.playerAnimationPackId.trim() ? { animationPackId: draft.playerAnimationPackId.trim() } : {}),

@@ -3,6 +3,7 @@ import type {
   AssetDocument,
   Layered2DScene,
   SceneActor,
+  SceneLayer,
   ScenePickup,
   Vector2
 } from "@pointclick/contracts";
@@ -77,6 +78,7 @@ export class PixiSceneRenderer {
 
     this.app.canvas.className = "game-canvas";
     host.replaceChildren(this.app.canvas);
+    this.app.stage.sortableChildren = true;
 
     const walkSurface = new Graphics()
       .rect(0, 0, this.scene.size.width, this.scene.size.height)
@@ -87,6 +89,13 @@ export class PixiSceneRenderer {
       this.handlers.onWalk({ x: event.global.x, y: event.global.y });
     });
     this.app.stage.addChild(walkSurface);
+
+    for (const layer of [...(this.scene.layers ?? [])].sort((a, b) => a.depth - b.depth)) {
+      const sprite = await this.createLayerSprite(layer);
+      if (sprite) {
+        this.app.stage.addChild(sprite);
+      }
+    }
 
     for (const shape of [...this.scene.shapes].sort((a, b) => a.depth - b.depth)) {
       const graphic = new Graphics();
@@ -142,7 +151,6 @@ export class PixiSceneRenderer {
     this.playerPosition = { ...this.pendingPlayerPosition };
     this.applyPlayerTransform(this.pendingPlayerPosition);
     this.app.stage.addChild(this.player);
-    this.app.stage.sortableChildren = true;
     this.mounted = true;
   }
 
@@ -280,6 +288,34 @@ export class PixiSceneRenderer {
 
     const t = Math.max(0, Math.min(1, (position.y - minY) / (maxY - minY)));
     return far + (near - far) * t;
+  }
+
+  private async createLayerSprite(layer: SceneLayer): Promise<Sprite | null> {
+    if (layer.visible === false) return null;
+    const asset = this.options.assets?.[layer.assetId];
+    if (!asset) return null;
+
+    try {
+      const assetUrl = new URL(asset.path, this.options.assetBaseUrl ?? window.location.href).toString();
+      const texture = await Assets.load(assetUrl);
+      const bounds = layer.bounds ?? {
+        x: 0,
+        y: 0,
+        width: this.scene.size.width,
+        height: this.scene.size.height
+      };
+      const sprite = new Sprite(texture);
+      sprite.x = bounds.x;
+      sprite.y = bounds.y;
+      sprite.width = bounds.width;
+      sprite.height = bounds.height;
+      sprite.alpha = layer.opacity ?? 1;
+      sprite.zIndex = layer.depth;
+      sprite.eventMode = "none";
+      return sprite;
+    } catch {
+      return null;
+    }
   }
 
   private async createActorTarget(actor: SceneActor): Promise<Container> {

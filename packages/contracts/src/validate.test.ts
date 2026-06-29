@@ -131,6 +131,188 @@ describe("project contracts", () => {
     expect(result).toEqual({ valid: true, errors: [] });
   });
 
+  it("accepts optional image layers in layered scenes", () => {
+    const result = validateDocument("layered2dScene", {
+      schemaVersion: 1,
+      id: "dock",
+      name: "Dock",
+      type: "layered-2d",
+      size: { width: 1280, height: 720 },
+      background: "#132538",
+      layers: [
+        {
+          id: "foreground-fog",
+          name: "Foreground Fog",
+          assetId: "fog-strip",
+          bounds: { x: 0, y: 520, width: 1280, height: 200 },
+          depth: 95,
+          locked: false,
+          opacity: 0.72,
+          visible: true
+        }
+      ],
+      playerStart: { x: 100, y: 600 },
+      walkArea: {
+        points: [
+          { x: 0, y: 500 },
+          { x: 1280, y: 500 },
+          { x: 1280, y: 720 }
+        ]
+      },
+      actors: [],
+      pickups: [],
+      shapes: [],
+      hotspots: []
+    });
+
+    expect(result).toEqual({ valid: true, errors: [] });
+  });
+
+  it("accepts scene generation guides", () => {
+    const result = validateDocument("layered2dScene", {
+      schemaVersion: 1,
+      id: "dock",
+      name: "Dock",
+      type: "layered-2d",
+      size: { width: 1280, height: 720 },
+      background: "#132538",
+      generationGuides: [
+        {
+          id: "door-mask",
+          name: "Door Mask",
+          role: "hotspot",
+          source: { kind: "hotspot", id: "tavern-door" },
+          shape: { type: "polygon", points: [{ x: 850, y: 335 }, { x: 975, y: 335 }, { x: 975, y: 550 }] },
+          tags: ["door", "entrance"],
+          visible: true,
+          locked: false,
+          color: "#00A2FF"
+        }
+      ],
+      playerStart: { x: 100, y: 600 },
+      walkArea: {
+        points: [
+          { x: 0, y: 500 },
+          { x: 1280, y: 500 },
+          { x: 1280, y: 720 }
+        ]
+      },
+      actors: [],
+      pickups: [],
+      shapes: [],
+      hotspots: [
+        {
+          id: "tavern-door",
+          labelKey: "hotspot.tavern-door",
+          bounds: { x: 850, y: 335, width: 125, height: 215 },
+          actions: { useItemFlows: [] }
+        }
+      ]
+    });
+
+    expect(result).toEqual({ valid: true, errors: [] });
+  });
+
+  it("rejects generation guide polygons with fewer than three points", () => {
+    const result = validateDocument("layered2dScene", {
+      schemaVersion: 1,
+      id: "dock",
+      name: "Dock",
+      type: "layered-2d",
+      size: { width: 1280, height: 720 },
+      background: "#132538",
+      generationGuides: [
+        {
+          id: "bad-mask",
+          name: "Bad Mask",
+          role: "mask",
+          shape: { type: "polygon", points: [{ x: 0, y: 0 }, { x: 10, y: 10 }] }
+        }
+      ],
+      playerStart: { x: 100, y: 600 },
+      walkArea: {
+        points: [
+          { x: 0, y: 500 },
+          { x: 1280, y: 500 },
+          { x: 1280, y: 720 }
+        ]
+      },
+      actors: [],
+      pickups: [],
+      shapes: [],
+      hotspots: []
+    });
+
+    expect(result.valid).toBe(false);
+  });
+
+  it("rejects invalid generation guide roles", () => {
+    const result = validateDocument("layered2dScene", {
+      schemaVersion: 1,
+      id: "dock",
+      name: "Dock",
+      type: "layered-2d",
+      size: { width: 1280, height: 720 },
+      background: "#132538",
+      generationGuides: [
+        {
+          id: "bad-role",
+          name: "Bad Role",
+          role: "camera",
+          shape: { type: "rect", bounds: { x: 0, y: 0, width: 100, height: 100 } }
+        }
+      ],
+      playerStart: { x: 100, y: 600 },
+      walkArea: {
+        points: [
+          { x: 0, y: 500 },
+          { x: 1280, y: 500 },
+          { x: 1280, y: 720 }
+        ]
+      },
+      actors: [],
+      pickups: [],
+      shapes: [],
+      hotspots: []
+    });
+
+    expect(result.valid).toBe(false);
+  });
+
+  it("rejects layer opacity outside the canonical range", () => {
+    const result = validateDocument("layered2dScene", {
+      schemaVersion: 1,
+      id: "dock",
+      name: "Dock",
+      type: "layered-2d",
+      size: { width: 1280, height: 720 },
+      background: "#132538",
+      layers: [
+        {
+          id: "foreground-fog",
+          name: "Foreground Fog",
+          assetId: "fog-strip",
+          depth: 95,
+          opacity: 1.25
+        }
+      ],
+      playerStart: { x: 100, y: 600 },
+      walkArea: {
+        points: [
+          { x: 0, y: 500 },
+          { x: 1280, y: 500 },
+          { x: 1280, y: 720 }
+        ]
+      },
+      actors: [],
+      pickups: [],
+      shapes: [],
+      hotspots: []
+    });
+
+    expect(result.valid).toBe(false);
+  });
+
   it("accepts item definitions", () => {
     const result = validateDocument("item", {
       schemaVersion: 1,
@@ -259,6 +441,7 @@ describe("project contracts", () => {
             maskAssetId: "keeper-mask",
             marginPercent: 4,
             referenceAssetId: "keeper-reference",
+            guideIds: ["keeper-guide"],
             safetyNegativePrompt: "transparent alpha, cropped feet"
           }
         ]

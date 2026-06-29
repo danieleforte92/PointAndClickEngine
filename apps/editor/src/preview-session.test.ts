@@ -154,7 +154,23 @@ describe("buildDraftProjectBundle", () => {
     const session = initializeEditorSession(snapshot);
     session.sceneDrafts[scene.id] = {
       background: "#654321",
+      generationGuides: [],
       height: "810",
+      layers: [
+        {
+          assetId: "dock-fog",
+          depth: "80",
+          height: "180",
+          id: "foreground-fog",
+          locked: false,
+          name: "Foreground Fog",
+          opacity: "0.75",
+          visible: true,
+          width: "1280",
+          x: "0",
+          y: "540"
+        }
+      ],
       name: "Moonlit Dock Revised",
       playerAnimationPackId: "",
       playerAssetId: "",
@@ -265,6 +281,14 @@ describe("buildDraftProjectBundle", () => {
 
     expect(nextScene).toMatchObject({
       background: "#654321",
+      layers: [
+        expect.objectContaining({
+          assetId: "dock-fog",
+          depth: 80,
+          id: "foreground-fog",
+          opacity: 0.75
+        })
+      ],
       name: "Moonlit Dock Revised",
       player: { scaleFar: 0.55, scaleNear: 1.12, walkSpeed: 360 },
       playerStart: { x: 480, y: 575 },

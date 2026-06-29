@@ -140,9 +140,9 @@ but it is not a transparent-ready prop or character. Use the prompt preview and
 workflow name to make this limitation visible before relying on the asset for
 runtime composition.
 
-The editor imports ComfyUI output as-is in this release slice. Local chroma-key
-post-processing is intentionally left as a later option for workflows that
-produce clean flat-color backgrounds but do not save alpha.
+The editor imports ComfyUI output as a normal asset. If a workflow produces a
+clean flat chroma background without alpha, use **Asset Studio > Chroma Key** to
+save a processed PNG while keeping the source asset unchanged.
 
 Keep ComfyUI and LM Studio bound to localhost for this workflow. Do not expose
 either local server to a public network without authentication and firewalling.

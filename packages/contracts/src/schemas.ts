@@ -195,6 +195,89 @@ export const ScenePlayerConfigSchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const SceneLayerSchema = Type.Object(
+  {
+    id: Id,
+    name: Type.String({ minLength: 1 }),
+    assetId: Id,
+    depth: Type.Number(),
+    opacity: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
+    visible: Type.Optional(Type.Boolean()),
+    locked: Type.Optional(Type.Boolean()),
+    bounds: Type.Optional(RectSchema)
+  },
+  { additionalProperties: false }
+);
+
+export const SceneGenerationGuideRoleSchema = Type.Union([
+  Type.Literal("background"),
+  Type.Literal("foreground"),
+  Type.Literal("layer"),
+  Type.Literal("prop"),
+  Type.Literal("pickup"),
+  Type.Literal("actor"),
+  Type.Literal("npc"),
+  Type.Literal("player"),
+  Type.Literal("hotspot"),
+  Type.Literal("context"),
+  Type.Literal("mask")
+]);
+
+export const SceneGenerationGuideSourceSchema = Type.Object(
+  {
+    kind: Type.Union([
+      Type.Literal("scene"),
+      Type.Literal("background"),
+      Type.Literal("player"),
+      Type.Literal("layer"),
+      Type.Literal("actor"),
+      Type.Literal("pickup"),
+      Type.Literal("hotspot")
+    ]),
+    id: Type.Optional(Id)
+  },
+  { additionalProperties: false }
+);
+
+export const SceneGenerationGuideShapeSchema = Type.Union([
+  Type.Object(
+    {
+      type: Type.Literal("rect"),
+      bounds: RectSchema
+    },
+    { additionalProperties: false }
+  ),
+  Type.Object(
+    {
+      type: Type.Literal("ellipse"),
+      bounds: RectSchema
+    },
+    { additionalProperties: false }
+  ),
+  Type.Object(
+    {
+      type: Type.Literal("polygon"),
+      points: Type.Array(Vector2Schema, { minItems: 3 })
+    },
+    { additionalProperties: false }
+  )
+]);
+
+export const SceneGenerationGuideSchema = Type.Object(
+  {
+    id: Id,
+    name: Type.String({ minLength: 1 }),
+    role: SceneGenerationGuideRoleSchema,
+    tags: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+    source: Type.Optional(SceneGenerationGuideSourceSchema),
+    shape: SceneGenerationGuideShapeSchema,
+    visible: Type.Optional(Type.Boolean()),
+    locked: Type.Optional(Type.Boolean()),
+    color: Type.Optional(HexColor)
+  },
+  { additionalProperties: false }
+);
+
 export const Layered2DSceneSchema = Type.Object(
   {
     schemaVersion: Type.Literal(1),
@@ -209,9 +292,11 @@ export const Layered2DSceneSchema = Type.Object(
       { additionalProperties: false }
     ),
     background: Type.String({ minLength: 1 }),
+    layers: Type.Optional(Type.Array(SceneLayerSchema)),
     player: Type.Optional(ScenePlayerConfigSchema),
     playerStart: Vector2Schema,
     walkArea: Polygon2Schema,
+    generationGuides: Type.Optional(Type.Array(SceneGenerationGuideSchema)),
     actors: Type.Array(SceneActorSchema),
     pickups: Type.Array(ScenePickupSchema),
     shapes: Type.Array(SceneShapeSchema),
@@ -465,6 +550,7 @@ export const PromptPackGenerationTargetSchema = Type.Object(
     customNegativePrompt: Type.Optional(Type.String()),
     referenceAssetId: Type.Optional(Id),
     maskAssetId: Type.Optional(Id),
+    guideIds: Type.Optional(Type.Array(Id)),
     guideBounds: Type.Optional(RectSchema),
     guideShape: Type.Optional(Type.Union([Type.Literal("rect"), Type.Literal("ellipse")])),
     width: Type.Optional(Type.Integer({ minimum: 1 })),
@@ -560,6 +646,11 @@ export type ScenePickup = Static<typeof ScenePickupSchema>;
 export type SceneActorRole = Static<typeof SceneActorRoleSchema>;
 export type SceneActor = Static<typeof SceneActorSchema>;
 export type ScenePlayerConfig = Static<typeof ScenePlayerConfigSchema>;
+export type SceneLayer = Static<typeof SceneLayerSchema>;
+export type SceneGenerationGuideRole = Static<typeof SceneGenerationGuideRoleSchema>;
+export type SceneGenerationGuideSource = Static<typeof SceneGenerationGuideSourceSchema>;
+export type SceneGenerationGuideShape = Static<typeof SceneGenerationGuideShapeSchema>;
+export type SceneGenerationGuide = Static<typeof SceneGenerationGuideSchema>;
 export type Layered2DScene = Static<typeof Layered2DSceneSchema>;
 export type Hybrid3DScene = Static<typeof Hybrid3DSceneSchema>;
 export type SceneDocument = Static<typeof SceneDocumentSchema>;

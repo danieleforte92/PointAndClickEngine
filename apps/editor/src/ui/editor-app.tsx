@@ -13,6 +13,10 @@ import type {
   SceneActor,
   SceneActorRole,
   SceneDocument,
+  SceneGenerationGuide,
+  SceneGenerationGuideRole,
+  SceneGenerationGuideShape,
+  SceneLayer,
   ScenePickup
 } from "@pointclick/contracts";
 import {
@@ -39,7 +43,7 @@ import {
   UserRound,
   WandSparkles
 } from "lucide-react";
-import { clampCropRect, createGuideMask, type ImagePixelData } from "../asset-processing";
+import { clampCropRect, createCompositeGuideMask, createGuideMask, type ImagePixelData } from "../asset-processing";
 import {
   applyChromaKeyToImageData,
   parseHexColor,
@@ -56,7 +60,6 @@ import {
   SceneToolIcon,
   TopbarActions,
   toolCapabilities,
-  WorkspaceRail,
   WorkspaceTabs
 } from "./editor-shell";
 import {
@@ -102,6 +105,7 @@ import {
   type FlowDraft,
   type FlowDraftNode,
   type SceneDraft,
+  type SceneLayerDraft,
   type ScenePointDraftValue,
   type SceneRectDraftValue,
   sessionEquals,
@@ -833,6 +837,52 @@ function scenePointIsInside(
   return point.x >= 0 && point.x <= size.width && point.y >= 0 && point.y <= size.height;
 }
 
+function buildSceneLayersFromDraft(
+  drafts: SceneLayerDraft[],
+  availableAssetIdsSet: Set<string>
+): { layers: SceneLayer[]; error: string | null } {
+  const layers: SceneLayer[] = [];
+  const ids = new Set<string>();
+
+  for (const [index, draft] of drafts.entries()) {
+    const label = draft.name.trim() || draft.id.trim() || `Layer ${index + 1}`;
+    const id = draft.id.trim();
+    const name = draft.name.trim();
+    const assetId = draft.assetId.trim();
+    const depth = parseNumber(draft.depth);
+    const opacity = parseNumber(draft.opacity);
+    const x = parseNumber(draft.x);
+    const y = parseNumber(draft.y);
+    const width = parsePositiveNumber(draft.width);
+    const height = parsePositiveNumber(draft.height);
+
+    if (!id) return { layers, error: `${label}: layer id is required` };
+    if (ids.has(id)) return { layers, error: `${label}: layer id must be unique` };
+    if (!name) return { layers, error: `${label}: layer name is required` };
+    if (!assetId) return { layers, error: `${label}: asset is required` };
+    if (!availableAssetIdsSet.has(assetId)) return { layers, error: `${label}: asset "${assetId}" no longer exists` };
+    if (depth === null) return { layers, error: `${label}: depth must be a number` };
+    if (opacity === null || opacity < 0 || opacity > 1) return { layers, error: `${label}: opacity must be between 0 and 1` };
+    if (x === null || y === null || width === null || height === null) {
+      return { layers, error: `${label}: bounds must use valid positive numbers` };
+    }
+
+    ids.add(id);
+    layers.push({
+      assetId,
+      bounds: { x, y, width, height },
+      depth,
+      id,
+      locked: draft.locked,
+      name,
+      opacity,
+      visible: draft.visible
+    });
+  }
+
+  return { layers, error: null };
+}
+
 function summarizeActorViewportIssues(
   actor: SceneActor,
   scene: Layered2DScene,
@@ -938,6 +988,22 @@ type ViewportInteraction =
       pointIndex: number;
       startPoint: ScenePointDraftValue;
       startPosition: ScenePointDraftValue;
+    }
+  | {
+      baseSession: EditorSessionState;
+      guideId: string;
+      kind: "generation-guide-shape";
+      mode: "move" | "resize";
+      startPoint: ScenePointDraftValue;
+      startShape: SceneGenerationGuideShape;
+    }
+  | {
+      baseSession: EditorSessionState;
+      guideId: string;
+      kind: "generation-guide-point";
+      pointIndex: number;
+      startPoint: ScenePointDraftValue;
+      startPosition: ScenePointDraftValue;
     };
 
 type SceneTool = "select" | "actor" | "hotspot" | "pickup" | "player-start" | "walk-area";
@@ -994,6 +1060,130 @@ function sceneToolHint(tool: SceneTool): string {
     case "walk-area":
       return "Drag walk points, click an edge to insert a point, or Shift-click a point to remove it.";
   }
+}
+
+const generationGuideRoles: SceneGenerationGuideRole[] = [
+  "background",
+  "foreground",
+  "layer",
+  "prop",
+  "pickup",
+  "actor",
+  "npc",
+  "player",
+  "hotspot",
+  "context",
+  "mask"
+];
+
+const generationGuideRoleColors: Record<SceneGenerationGuideRole, string> = {
+  actor: "#ff9f43",
+  background: "#54a0ff",
+  context: "#8395a7",
+  foreground: "#48dbfb",
+  hotspot: "#feca57",
+  layer: "#00d2d3",
+  mask: "#ffffff",
+  npc: "#ff6b6b",
+  pickup: "#1dd1a1",
+  player: "#5f27cd",
+  prop: "#10ac84"
+};
+
+function boundsForGenerationGuideShape(shape: SceneGenerationGuideShape): Rect {
+  if (shape.type !== "polygon") return shape.bounds;
+  const xs = shape.points.map((point) => point.x);
+  const ys = shape.points.map((point) => point.y);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const maxX = Math.max(...xs);
+  const maxY = Math.max(...ys);
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY)
+  };
+}
+
+function constrainedDeltaForBounds(
+  bounds: Rect,
+  delta: ScenePointDraftValue,
+  size: { height: number; width: number }
+): ScenePointDraftValue {
+  return {
+    x: Math.round(Math.min(Math.max(delta.x, -bounds.x), size.width - (bounds.x + bounds.width))),
+    y: Math.round(Math.min(Math.max(delta.y, -bounds.y), size.height - (bounds.y + bounds.height)))
+  };
+}
+
+function moveGenerationGuideShape(
+  shape: SceneGenerationGuideShape,
+  delta: ScenePointDraftValue,
+  size: { height: number; width: number }
+): SceneGenerationGuideShape {
+  const constrainedDelta = constrainedDeltaForBounds(boundsForGenerationGuideShape(shape), delta, size);
+  if (shape.type === "polygon") {
+    return {
+      type: "polygon",
+      points: shape.points.map((point) => ({
+        x: Math.round(point.x + constrainedDelta.x),
+        y: Math.round(point.y + constrainedDelta.y)
+      }))
+    };
+  }
+  return {
+    ...shape,
+    bounds: moveSceneRect(shape.bounds, constrainedDelta, size)
+  };
+}
+
+function resizeGenerationGuideShape(
+  shape: SceneGenerationGuideShape,
+  delta: ScenePointDraftValue,
+  size: { height: number; width: number }
+): SceneGenerationGuideShape {
+  if (shape.type === "polygon") return shape;
+  return {
+    ...shape,
+    bounds: resizeSceneRectFromBottomRight(shape.bounds, delta, size)
+  };
+}
+
+function generationGuideShapeLabel(shape: SceneGenerationGuideShape): string {
+  return shape.type === "polygon" ? `polygon (${shape.points.length})` : shape.type;
+}
+
+function generationGuideColor(guide: SceneGenerationGuide) {
+  return guide.color ?? generationGuideRoleColors[guide.role];
+}
+
+function targetMatchesGenerationGuide(target: PromptPackGenerationTarget, guide: SceneGenerationGuide): boolean {
+  if (target.guideIds?.includes(guide.id)) return true;
+  const source = guide.source;
+  if (source?.kind && target.sourceEntityKind && source.kind === target.sourceEntityKind) {
+    return source.id ? source.id === target.sourceEntityId : true;
+  }
+  if (target.sourceEntityKind === "actor" && (guide.role === "actor" || guide.role === "npc")) return true;
+  if (target.sourceEntityKind === "pickup" && guide.role === "pickup") return true;
+  if (target.sourceEntityKind === "player" && guide.role === "player") return true;
+  if (target.intendedUse === "scene-background" && (guide.role === "background" || guide.role === "context")) return true;
+  if (target.intendedUse === "prop" && (guide.role === "prop" || guide.role === "pickup")) return true;
+  if (
+    (target.intendedUse === "character-reference" || target.intendedUse === "animation-reference" || target.intendedUse === "sprite-sheet") &&
+    (guide.role === "actor" || guide.role === "npc" || guide.role === "player")
+  ) {
+    return true;
+  }
+  return guide.role === "mask";
+}
+
+function suggestedGenerationGuideIds(
+  target: PromptPackGenerationTarget | null,
+  guides: SceneGenerationGuide[]
+): string[] {
+  if (!target) return [];
+  return guides.filter((guide) => targetMatchesGenerationGuide(target, guide)).map((guide) => guide.id);
 }
 
 function focusEditorField(element: HTMLInputElement | HTMLSelectElement | null) {
@@ -1294,6 +1484,8 @@ export function EditorApp() {
   const [viewportInteraction, setViewportInteraction] = useState<ViewportInteraction | null>(null);
   const [activeSceneTool, setActiveSceneTool] = useState<SceneTool>("select");
   const [sceneInspectorTarget, setSceneInspectorTarget] = useState<SceneInspectorTarget>("scene");
+  const [selectedSceneLayerId, setSelectedSceneLayerId] = useState<string | null>(null);
+  const [selectedGenerationGuideId, setSelectedGenerationGuideId] = useState<string | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const cleanupSourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const cleanupOutputCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1635,11 +1827,23 @@ export function EditorApp() {
   const selectedAssetUsage = selectedAsset ? assetUsage(selectedAsset, project) : [];
   const selectedAssetHealth = selectedAsset ? assetHealth(selectedAsset, project) : "available";
   const selectedAssetUrl = selectedAsset ? assetPreviewUrls[selectedAsset.path] : undefined;
+  const currentGenerationGuides = currentSceneDraft.generationGuides;
+  const selectedGenerationGuide =
+    currentGenerationGuides.find((guide) => guide.id === selectedGenerationGuideId) ??
+    currentGenerationGuides[0] ??
+    null;
   const savedPromptPackTargets = selectedPromptPack?.outputs.generationTargets ?? [];
   const selectedSavedGenerationTarget =
     savedPromptPackTargets.find((target) => target.id === selectedGenerationTargetId) ??
     savedPromptPackTargets[0] ??
     null;
+  const promptPackGuideScene =
+    selectedPromptPack && project ? sceneFromSnapshot(project, selectedPromptPack.sceneId) : promptPackScene;
+  const savedPromptPackGuides = promptPackGuideScene?.generationGuides ?? [];
+  const selectedTargetGuideIds =
+    selectedEffectiveGenerationTarget?.guideIds ??
+    suggestedGenerationGuideIds(selectedEffectiveGenerationTarget, savedPromptPackGuides);
+  const selectedTargetGuides = savedPromptPackGuides.filter((guide) => selectedTargetGuideIds.includes(guide.id));
   const guideSourceOptions = useMemo(() => {
     if (!selectedScene) return [];
     return [
@@ -1677,6 +1881,7 @@ export function EditorApp() {
   const isPlayerInspectorSelected =
     workspace === "scene" &&
     sceneInspectorTarget === "player" &&
+    !selectedSceneLayerId &&
     !selectedActor &&
     !selectedHotspot &&
     !selectedPickup &&
@@ -1776,6 +1981,10 @@ export function EditorApp() {
     if (animationPreviewAssetPath) {
       paths.add(animationPreviewAssetPath);
     }
+    for (const layer of currentSceneDraft.layers) {
+      const assetPath = layer.assetId.trim() ? assetPathById.get(layer.assetId.trim()) : null;
+      if (assetPath) paths.add(assetPath);
+    }
     for (const actor of previewActors) {
       const assetPath = actor.assetId ? assetPathById.get(actor.assetId) : null;
       if (assetPath) paths.add(assetPath);
@@ -1788,6 +1997,7 @@ export function EditorApp() {
   }, [
     animationPreviewAssetPath,
     assetPathById,
+    currentSceneDraft.layers,
     previewActors,
     previewPickups,
     previewPlayerAssetPath,
@@ -1815,6 +2025,16 @@ export function EditorApp() {
       setGuideSourceId(guideSourceOptions[0]!.id);
     }
   }, [guideSourceId, guideSourceOptions]);
+
+  useEffect(() => {
+    if (!currentGenerationGuides.length) {
+      if (selectedGenerationGuideId) setSelectedGenerationGuideId(null);
+      return;
+    }
+    if (!selectedGenerationGuideId || !currentGenerationGuides.some((guide) => guide.id === selectedGenerationGuideId)) {
+      setSelectedGenerationGuideId(currentGenerationGuides[0]!.id);
+    }
+  }, [currentGenerationGuides, selectedGenerationGuideId]);
 
   useEffect(() => {
     setCropX("0");
@@ -1907,6 +2127,16 @@ export function EditorApp() {
   const defaultLocaleStrings = defaultLocaleDocument?.strings ?? null;
   const availableAssetIds = useMemo(() => (project ? project.assets.map((asset) => asset.id) : []), [project]);
   const availableAssetIdsSet = useMemo(() => new Set(availableAssetIds), [availableAssetIds]);
+  const previewSceneLayers = useMemo(() => {
+    const built = buildSceneLayersFromDraft(currentSceneDraft.layers, availableAssetIdsSet);
+    return built.layers.map((layer) => {
+      const assetPath = assetPathById.get(layer.assetId);
+      return {
+        ...layer,
+        assetUrl: assetPath ? assetPreviewUrls[assetPath] : undefined
+      };
+    });
+  }, [assetPathById, assetPreviewUrls, availableAssetIdsSet, currentSceneDraft.layers]);
   const availableAnimationPackIds = useMemo(
     () => (project ? project.animationPacks.map((animationPack) => animationPack.id) : []),
     [project]
@@ -2660,6 +2890,120 @@ export function EditorApp() {
     });
   };
 
+  const setGenerationGuideShapeDraft = (guideId: string, shape: SceneGenerationGuideShape) => {
+    if (!selectedScene) return;
+
+    updatePresentWithoutHistory((current) => {
+      const sceneDraft = current.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene);
+      return {
+        ...current,
+        sceneDrafts: {
+          ...current.sceneDrafts,
+          [selectedScene.id]: {
+            ...sceneDraft,
+            generationGuides: sceneDraft.generationGuides.map((guide) =>
+              guide.id === guideId ? { ...guide, shape } : guide
+            )
+          }
+        }
+      };
+    });
+  };
+
+  const setGenerationGuidePolygonPointDraft = (
+    guideId: string,
+    pointIndex: number,
+    point: ScenePointDraftValue
+  ) => {
+    if (!selectedScene) return;
+
+    updatePresentWithoutHistory((current) => {
+      const sceneDraft = current.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene);
+      return {
+        ...current,
+        sceneDrafts: {
+          ...current.sceneDrafts,
+          [selectedScene.id]: {
+            ...sceneDraft,
+            generationGuides: sceneDraft.generationGuides.map((guide) =>
+              guide.id === guideId && guide.shape.type === "polygon"
+                ? {
+                    ...guide,
+                    shape: {
+                      type: "polygon",
+                      points: guide.shape.points.map((currentPoint, index) =>
+                        index === pointIndex ? { x: point.x, y: point.y } : currentPoint
+                      )
+                    }
+                  }
+                : guide
+            )
+          }
+        }
+      };
+    });
+  };
+
+  const insertGenerationGuidePolygonPointAfter = (
+    guideId: string,
+    afterIndex: number,
+    point: ScenePointDraftValue
+  ) => {
+    if (!selectedScene) return;
+
+    updateDraftWithHistory((current) => {
+      const sceneDraft = current.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene);
+      return {
+        ...current,
+        sceneDrafts: {
+          ...current.sceneDrafts,
+          [selectedScene.id]: {
+            ...sceneDraft,
+            generationGuides: sceneDraft.generationGuides.map((guide) =>
+              guide.id === guideId && guide.shape.type === "polygon"
+                ? {
+                    ...guide,
+                    shape: {
+                      type: "polygon",
+                      points: insertDraftPointAfter(guide.shape.points, afterIndex, point)
+                    }
+                  }
+                : guide
+            )
+          }
+        }
+      };
+    });
+  };
+
+  const removeGenerationGuidePolygonPoint = (guideId: string, pointIndex: number) => {
+    if (!selectedScene) return;
+
+    updateDraftWithHistory((current) => {
+      const sceneDraft = current.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene);
+      return {
+        ...current,
+        sceneDrafts: {
+          ...current.sceneDrafts,
+          [selectedScene.id]: {
+            ...sceneDraft,
+            generationGuides: sceneDraft.generationGuides.map((guide) =>
+              guide.id === guideId && guide.shape.type === "polygon" && guide.shape.points.length > 3
+                ? {
+                    ...guide,
+                    shape: {
+                      type: "polygon",
+                      points: guide.shape.points.filter((_, index) => index !== pointIndex)
+                    }
+                  }
+                : guide
+            )
+          }
+        }
+      };
+    });
+  };
+
   const startHotspotInteraction = (
     mode: "move" | "resize",
     hotspot: Hotspot,
@@ -2864,6 +3208,79 @@ export function EditorApp() {
     insertWalkAreaPointAfter(afterIndex, point);
   };
 
+  const canEditGenerationGuideInViewport = (guide: SceneGenerationGuide) =>
+    !!selectedScene && canEditViewportScene && selectedGenerationGuide?.id === guide.id && !guide.locked;
+
+  const startGenerationGuideShapeInteraction = (
+    guide: SceneGenerationGuide,
+    mode: "move" | "resize",
+    event: ReactPointerEvent
+  ) => {
+    if (!canEditGenerationGuideInViewport(guide)) return;
+    if (mode === "resize" && guide.shape.type === "polygon") return;
+
+    const startPoint = scenePointFromClient(event.clientX, event.clientY);
+    if (!startPoint) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    setSelectedGenerationGuideId(guide.id);
+    setSceneInspectorTarget("scene");
+    setViewportInteraction({
+      baseSession: cloneSessionState(history.present),
+      guideId: guide.id,
+      kind: "generation-guide-shape",
+      mode,
+      startPoint,
+      startShape: guide.shape
+    });
+  };
+
+  const startGenerationGuidePointInteraction = (
+    guide: SceneGenerationGuide,
+    pointIndex: number,
+    point: ScenePointDraftValue,
+    event: ReactPointerEvent
+  ) => {
+    if (!canEditGenerationGuideInViewport(guide) || guide.shape.type !== "polygon") return;
+
+    if (event.shiftKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      removeGenerationGuidePolygonPoint(guide.id, pointIndex);
+      return;
+    }
+
+    const startPoint = scenePointFromClient(event.clientX, event.clientY);
+    if (!startPoint) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    setViewportInteraction({
+      baseSession: cloneSessionState(history.present),
+      guideId: guide.id,
+      kind: "generation-guide-point",
+      pointIndex,
+      startPoint,
+      startPosition: point
+    });
+  };
+
+  const insertGenerationGuidePointFromEvent = (
+    guide: SceneGenerationGuide,
+    afterIndex: number,
+    event: ReactPointerEvent
+  ) => {
+    if (!canEditGenerationGuideInViewport(guide) || guide.shape.type !== "polygon") return;
+
+    const point = scenePointFromClient(event.clientX, event.clientY);
+    if (!point) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    insertGenerationGuidePolygonPointAfter(guide.id, afterIndex, point);
+  };
+
   const loadRecoveryForProject = async (projectDirectory: string) => {
     try {
       return await window.pointClick.loadRecovery(projectDirectory);
@@ -3025,6 +3442,25 @@ export function EditorApp() {
         setWalkAreaPointDraft(
           viewportInteraction.pointIndex,
           moveScenePoint(viewportInteraction.startPosition, delta, previewSceneSize)
+        );
+        return;
+      }
+
+      if (viewportInteraction.kind === "generation-guide-point") {
+        setGenerationGuidePolygonPointDraft(
+          viewportInteraction.guideId,
+          viewportInteraction.pointIndex,
+          moveScenePoint(viewportInteraction.startPosition, delta, previewSceneSize)
+        );
+        return;
+      }
+
+      if (viewportInteraction.kind === "generation-guide-shape") {
+        setGenerationGuideShapeDraft(
+          viewportInteraction.guideId,
+          viewportInteraction.mode === "move"
+            ? moveGenerationGuideShape(viewportInteraction.startShape, delta, previewSceneSize)
+            : resizeGenerationGuideShape(viewportInteraction.startShape, delta, previewSceneSize)
         );
         return;
       }
@@ -3484,8 +3920,10 @@ export function EditorApp() {
       return;
     }
     updateSceneDraft("playerAnimationPackId", animationPackId);
-    setWorkspace("player");
-    setStatus(`Assigned ${animationPackId} to the current player draft. Apply Player Changes to save.`);
+    setWorkspace("scene");
+    setSceneInspectorTarget("player");
+    setActiveSceneTool("player-start");
+    setStatus(`Assigned ${animationPackId} to the current player draft. Apply player changes to save.`);
   };
 
   const assignAnimationPackToActorDraft = () => {
@@ -3684,6 +4122,214 @@ export function EditorApp() {
       setGuideStatus(`Saved ${maskAsset.id} and linked it to ${updatedPromptPack.id}/${selectedSavedGenerationTarget.id}.`);
     } catch (error) {
       setGuideStatus(error instanceof Error ? error.message : "Guide mask could not be saved.");
+    }
+  };
+
+  const drawGenerationGuidePath = (context: CanvasRenderingContext2D, guide: SceneGenerationGuide) => {
+    context.beginPath();
+    if (guide.shape.type === "polygon") {
+      const firstPoint = guide.shape.points[0];
+      if (!firstPoint) return;
+      context.moveTo(firstPoint.x, firstPoint.y);
+      for (const point of guide.shape.points.slice(1)) {
+        context.lineTo(point.x, point.y);
+      }
+      context.closePath();
+      return;
+    }
+
+    const bounds = guide.shape.bounds;
+    if (guide.shape.type === "ellipse") {
+      context.ellipse(
+        bounds.x + bounds.width / 2,
+        bounds.y + bounds.height / 2,
+        bounds.width / 2,
+        bounds.height / 2,
+        0,
+        0,
+        Math.PI * 2
+      );
+      return;
+    }
+    context.rect(bounds.x, bounds.y, bounds.width, bounds.height);
+  };
+
+  const drawGenerationGuideOverlay = (
+    context: CanvasRenderingContext2D,
+    guide: SceneGenerationGuide,
+    label = true
+  ) => {
+    const color = generationGuideColor(guide);
+    const bounds = boundsForGenerationGuideShape(guide.shape);
+    context.save();
+    context.globalAlpha = 0.18;
+    context.fillStyle = color;
+    drawGenerationGuidePath(context, guide);
+    context.fill();
+    context.globalAlpha = 0.95;
+    context.strokeStyle = color;
+    context.lineWidth = 3;
+    drawGenerationGuidePath(context, guide);
+    context.stroke();
+    if (label) {
+      context.font = "18px sans-serif";
+      context.fillStyle = "#0b1118";
+      context.fillRect(bounds.x, Math.max(0, bounds.y - 24), Math.max(80, guide.name.length * 9), 22);
+      context.fillStyle = "#ffffff";
+      context.fillText(guide.name, bounds.x + 6, Math.max(18, bounds.y - 7));
+    }
+    context.restore();
+  };
+
+  const createGuideReferenceDataUrl = async (scene: Layered2DScene, guides: SceneGenerationGuide[]) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = scene.size.width;
+    canvas.height = scene.size.height;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Canvas is unavailable for guide reference.");
+    }
+
+    context.fillStyle = isHexColor(scene.background) ? scene.background : "#24384a";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+
+    if (!isHexColor(scene.background)) {
+      const backgroundUrl = assetPreviewUrls[scene.background];
+      if (backgroundUrl) {
+        const image = await loadImageElement(backgroundUrl);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      }
+    }
+
+    const drawAsset = async (assetId: string | undefined, bounds: Rect, opacity = 1) => {
+      if (!assetId) return;
+      const assetPath = assetPathById.get(assetId);
+      const assetUrl = assetPath ? assetPreviewUrls[assetPath] : undefined;
+      if (!assetUrl) return;
+      const image = await loadImageElement(assetUrl);
+      context.save();
+      context.globalAlpha = opacity;
+      context.drawImage(image, bounds.x, bounds.y, bounds.width, bounds.height);
+      context.restore();
+    };
+
+    const drawableLayers = [...(scene.layers ?? [])].sort((left, right) => left.depth - right.depth);
+    for (const layer of drawableLayers) {
+      if (layer.visible === false) continue;
+      const bounds = layer.bounds ?? { x: 0, y: 0, width: scene.size.width, height: scene.size.height };
+      await drawAsset(layer.assetId, bounds, layer.opacity ?? 1);
+    }
+    for (const actor of scene.actors) {
+      await drawAsset(actor.assetId, actor.bounds);
+    }
+    for (const pickup of scene.pickups) {
+      await drawAsset(pickup.assetId, pickup.bounds);
+    }
+
+    for (const guide of guides) {
+      if (guide.visible === false) continue;
+      drawGenerationGuideOverlay(context, guide);
+    }
+
+    return canvas.toDataURL("image/png");
+  };
+
+  const updateSelectedTargetGuideSet = async (guideIds: string[]) => {
+    if (!selectedPromptPack || !selectedSavedGenerationTarget) return;
+    const updatedPromptPack = promptPackWithUpdatedTarget(selectedPromptPack, selectedSavedGenerationTarget.id, {
+      ...selectedSavedGenerationTarget,
+      guideIds
+    });
+    const snapshot = await window.pointClick.applyCommand({
+      type: "prompt-pack/upsert",
+      patch: { promptPack: updatedPromptPack }
+    });
+    setProject(snapshot);
+    setSelectedPromptPackId(updatedPromptPack.id);
+  };
+
+  const toggleSelectedTargetGuide = async (guideId: string, checked: boolean) => {
+    if (!selectedPromptPack || !selectedSavedGenerationTarget) return;
+    const nextGuideIds = checked
+      ? Array.from(new Set([...selectedTargetGuideIds, guideId]))
+      : selectedTargetGuideIds.filter((id) => id !== guideId);
+    setGuideStatus(`Updating guide set for ${selectedSavedGenerationTarget.id}...`);
+    try {
+      await updateSelectedTargetGuideSet(nextGuideIds);
+      setGuideStatus(`Guide set updated for ${selectedSavedGenerationTarget.id}.`);
+    } catch (error) {
+      setGuideStatus(error instanceof Error ? error.message : "Guide set could not be updated.");
+    }
+  };
+
+  const compileSelectedTargetGuideAssets = async () => {
+    if (!selectedPromptPack || !selectedSavedGenerationTarget || !promptPackGuideScene) {
+      setGuideStatus("Select a saved prompt pack, target, and layered scene before compiling guides.");
+      return;
+    }
+    if (selectedTargetGuides.length === 0) {
+      setGuideStatus("Select at least one generation guide for this target.");
+      return;
+    }
+
+    setGuideStatus("Compiling guide reference and mask assets...");
+    try {
+      const referenceDataUrl = await createGuideReferenceDataUrl(promptPackGuideScene, selectedTargetGuides);
+      const mask = createCompositeGuideMask({
+        guides: selectedTargetGuides,
+        height: promptPackGuideScene.size.height,
+        width: promptPackGuideScene.size.width
+      });
+      const referenceResult = await window.pointClick.saveProcessedImageAsset({
+        dataUrl: referenceDataUrl,
+        filenameHint: `${selectedSavedGenerationTarget.id}-guide-reference.png`
+      });
+      const referenceAssetId = referenceResult.assetIds[0];
+      const referenceAsset = referenceAssetId
+        ? referenceResult.snapshot.assets.find((entry) => entry.id === referenceAssetId)
+        : null;
+      if (!referenceAsset) {
+        setProject(referenceResult.snapshot);
+        setGuideStatus("Reference was saved, but no asset id was returned.");
+        return;
+      }
+
+      setProject(referenceResult.snapshot);
+      const maskResult = await window.pointClick.saveProcessedImageAsset({
+        dataUrl: imagePixelDataToPngDataUrl(mask),
+        filenameHint: `${selectedSavedGenerationTarget.id}-guide-mask.png`
+      });
+      const maskAssetId = maskResult.assetIds[0];
+      const maskAsset = maskAssetId ? maskResult.snapshot.assets.find((entry) => entry.id === maskAssetId) : null;
+      if (!maskAsset) {
+        setProject(maskResult.snapshot);
+        setGuideStatus("Mask was saved, but no asset id was returned.");
+        return;
+      }
+
+      const latestPromptPack = maskResult.snapshot.promptPacks.find((pack) => pack.id === selectedPromptPack.id) ?? selectedPromptPack;
+      const latestTarget =
+        latestPromptPack.outputs.generationTargets.find((target) => target.id === selectedSavedGenerationTarget.id) ??
+        selectedSavedGenerationTarget;
+      const guideIds = selectedTargetGuides.map((guide) => guide.id);
+      const updatedPromptPack = promptPackWithUpdatedTarget(latestPromptPack, latestTarget.id, {
+        ...latestTarget,
+        guideIds,
+        referenceAssetId: referenceAsset.id,
+        maskAssetId: maskAsset.id
+      });
+      const snapshot = await window.pointClick.applyCommand({
+        type: "prompt-pack/upsert",
+        patch: { promptPack: updatedPromptPack }
+      });
+      setProject(snapshot);
+      setSelectedAssetId(referenceAsset.id);
+      setSelectedPromptPackId(updatedPromptPack.id);
+      setGuideStatus(
+        `Compiled reference ${referenceAsset.id} and mask ${maskAsset.id}. Current ComfyUI text-to-image workflow may not consume them.`
+      );
+    } catch (error) {
+      setGuideStatus(error instanceof Error ? error.message : "Guide assets could not be compiled.");
     }
   };
 
@@ -4376,6 +5022,7 @@ export function EditorApp() {
     setWorkspace("scene");
     setActiveSceneTool("walk-area");
     setSceneInspectorTarget("scene");
+    setSelectedSceneLayerId(null);
     updateSessionSelection((current) => ({
       ...current,
       activeActorId: null,
@@ -4393,6 +5040,7 @@ export function EditorApp() {
     setWorkspace("scene");
     setActiveSceneTool("player-start");
     setSceneInspectorTarget("player");
+    setSelectedSceneLayerId(null);
     updateSessionSelection((current) => ({
       ...current,
       activeActorId: null,
@@ -4405,25 +5053,11 @@ export function EditorApp() {
     }));
   };
 
-  const selectPlayerScene = (sceneId: string) => {
-    setWorkspace("player");
-    setSceneInspectorTarget("player");
-    updateSessionSelection((current) => ({
-      ...current,
-      activeActorId: null,
-      activeFlowId: null,
-      activeHotspotId: null,
-      activeItemId: null,
-      activeLocale: null,
-      activePickupId: null,
-      activeSceneId: sceneId
-    }));
-  };
-
   const selectHotspot = (hotspot: Hotspot) => {
     setWorkspace("scene");
     setActiveSceneTool("hotspot");
     setSceneInspectorTarget("scene");
+    setSelectedSceneLayerId(null);
     updateSessionSelection((current) => ({
       ...current,
       activeActorId: null,
@@ -4439,6 +5073,7 @@ export function EditorApp() {
     setWorkspace("scene");
     setActiveSceneTool("pickup");
     setSceneInspectorTarget("scene");
+    setSelectedSceneLayerId(null);
     updateSessionSelection((current) => ({
       ...current,
       activeActorId: null,
@@ -4454,6 +5089,7 @@ export function EditorApp() {
     setWorkspace("scene");
     setActiveSceneTool("actor");
     setSceneInspectorTarget("scene");
+    setSelectedSceneLayerId(null);
     updateSessionSelection((current) => ({
       ...current,
       activeActorId: actor.id,
@@ -4639,6 +5275,228 @@ export function EditorApp() {
         }
       }
     }));
+  };
+
+  const updateSceneGenerationGuides = (
+    updater: (guides: SceneGenerationGuide[]) => SceneGenerationGuide[]
+  ) => {
+    if (!selectedScene) return;
+    updateDraftWithHistory((current) => {
+      const sceneDraft = current.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene);
+      return {
+        ...current,
+        sceneDrafts: {
+          ...current.sceneDrafts,
+          [selectedScene.id]: {
+            ...sceneDraft,
+            generationGuides: updater(sceneDraft.generationGuides)
+          }
+        }
+      };
+    });
+  };
+
+  const nextGenerationGuideId = (prefix = "guide") => {
+    const ids = new Set(currentGenerationGuides.map((guide) => guide.id));
+    for (let index = 1; index < 1000; index += 1) {
+      const candidate = `${prefix}-${index}`;
+      if (!ids.has(candidate)) return candidate;
+    }
+    return `${prefix}-${Date.now()}`;
+  };
+
+  const createGenerationGuide = (
+    name: string,
+    role: SceneGenerationGuideRole,
+    shape: SceneGenerationGuideShape,
+    source?: SceneGenerationGuide["source"]
+  ) => {
+    if (!selectedScene) return;
+    const id = nextGenerationGuideId(role === "mask" ? "mask-guide" : `${role}-guide`);
+    const guide: SceneGenerationGuide = {
+      id,
+      name,
+      role,
+      shape,
+      visible: true,
+      locked: false,
+      color: generationGuideRoleColors[role],
+      ...(source ? { source } : {})
+    };
+    updateSceneGenerationGuides((guides) => [...guides, guide]);
+    setSelectedGenerationGuideId(id);
+    setSceneInspectorTarget("scene");
+    setStatus(`Created generation guide ${id}.`);
+  };
+
+  const createGenerationGuideFromBounds = (
+    name: string,
+    role: SceneGenerationGuideRole,
+    bounds: Rect,
+    source?: SceneGenerationGuide["source"],
+    shapeType: "rect" | "ellipse" = "rect"
+  ) => {
+    createGenerationGuide(name, role, { type: shapeType, bounds }, source);
+  };
+
+  const createBlankGenerationGuide = (shapeType: "rect" | "ellipse" | "polygon") => {
+    if (!selectedScene) return;
+    const bounds = {
+      x: Math.round(selectedScene.size.width * 0.35),
+      y: Math.round(selectedScene.size.height * 0.3),
+      width: Math.round(selectedScene.size.width * 0.3),
+      height: Math.round(selectedScene.size.height * 0.35)
+    };
+    if (shapeType === "polygon") {
+      createGenerationGuide("Polygon Guide", "mask", {
+        type: "polygon",
+        points: [
+          { x: bounds.x, y: bounds.y + bounds.height },
+          { x: bounds.x + bounds.width / 2, y: bounds.y },
+          { x: bounds.x + bounds.width, y: bounds.y + bounds.height }
+        ]
+      });
+      return;
+    }
+    createGenerationGuide(`${shapeType === "ellipse" ? "Ellipse" : "Rect"} Guide`, "mask", {
+      type: shapeType,
+      bounds
+    });
+  };
+
+  const updateSelectedGenerationGuide = (patch: Partial<SceneGenerationGuide>) => {
+    if (!selectedGenerationGuide) return;
+    updateSceneGenerationGuides((guides) =>
+      guides.map((guide) => (guide.id === selectedGenerationGuide.id ? { ...guide, ...patch } : guide))
+    );
+  };
+
+  const clearSelectedGenerationGuideSource = () => {
+    if (!selectedGenerationGuide) return;
+    updateSceneGenerationGuides((guides) =>
+      guides.map((guide) => {
+        if (guide.id !== selectedGenerationGuide.id) return guide;
+        const { source: _source, ...nextGuide } = guide;
+        return nextGuide;
+      })
+    );
+  };
+
+  const updateSelectedGenerationGuideShape = (shape: SceneGenerationGuideShape) => {
+    updateSelectedGenerationGuide({ shape });
+  };
+
+  const deleteSelectedGenerationGuide = () => {
+    if (!selectedGenerationGuide) return;
+    const deletedId = selectedGenerationGuide.id;
+    updateSceneGenerationGuides((guides) => guides.filter((guide) => guide.id !== deletedId));
+    setSelectedGenerationGuideId(null);
+    setStatus(`Deleted generation guide ${deletedId}.`);
+  };
+
+  const nextSceneLayerId = () => {
+    const ids = new Set(currentSceneDraft.layers.map((layer) => layer.id));
+    for (let index = 1; index < 1000; index += 1) {
+      const candidate = `layer-${index}`;
+      if (!ids.has(candidate)) return candidate;
+    }
+    return `layer-${Date.now()}`;
+  };
+
+  const createSceneLayer = () => {
+    if (!selectedScene) return;
+    const asset = selectedAsset?.kind === "image" ? selectedAsset : imageAssets[0] ?? null;
+    if (!asset) {
+      setStatus("Import an image asset before adding a scene layer");
+      return;
+    }
+
+    const layerId = nextSceneLayerId();
+    updateDraftWithHistory((current) => {
+      const sceneDraft = current.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene);
+      return {
+        ...current,
+        activeActorId: null,
+        activeFlowId: null,
+        activeHotspotId: null,
+        activeItemId: null,
+        activeLocale: null,
+        activePickupId: null,
+        sceneDrafts: {
+          ...current.sceneDrafts,
+          [selectedScene.id]: {
+            ...sceneDraft,
+            layers: [
+              ...sceneDraft.layers,
+              {
+                assetId: asset.id,
+                depth: "40",
+                height: String(previewSceneSize.height),
+                id: layerId,
+                locked: false,
+                name: "Scene Layer",
+                opacity: "1",
+                visible: true,
+                width: String(previewSceneSize.width),
+                x: "0",
+                y: "0"
+              }
+            ]
+          }
+        }
+      };
+    });
+    setWorkspace("scene");
+    setActiveSceneTool("select");
+    setSceneInspectorTarget("scene");
+    setSelectedSceneLayerId(layerId);
+    setStatus(`Added ${layerId} from ${asset.id}`);
+  };
+
+  const updateSceneLayerDraft = <K extends keyof SceneLayerDraft>(
+    layerId: string,
+    field: K,
+    value: SceneLayerDraft[K]
+  ) => {
+    if (!selectedScene) return;
+    updateDraftWithHistory((current) => {
+      const sceneDraft = current.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene);
+      return {
+        ...current,
+        sceneDrafts: {
+          ...current.sceneDrafts,
+          [selectedScene.id]: {
+            ...sceneDraft,
+            layers: sceneDraft.layers.map((layer) =>
+              layer.id === layerId ? { ...layer, [field]: value } : layer
+            )
+          }
+        }
+      };
+    });
+    if (field === "id" && typeof value === "string") {
+      setSelectedSceneLayerId(value);
+    }
+  };
+
+  const deleteSceneLayerDraft = (layerId: string) => {
+    if (!selectedScene) return;
+    updateDraftWithHistory((current) => {
+      const sceneDraft = current.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene);
+      return {
+        ...current,
+        sceneDrafts: {
+          ...current.sceneDrafts,
+          [selectedScene.id]: {
+            ...sceneDraft,
+            layers: sceneDraft.layers.filter((layer) => layer.id !== layerId)
+          }
+        }
+      };
+    });
+    if (selectedSceneLayerId === layerId) {
+      setSelectedSceneLayerId(null);
+    }
   };
 
   const updateActorDraft = <K extends keyof typeof currentActorDraft>(
@@ -4872,7 +5730,7 @@ export function EditorApp() {
       return;
     }
     selectSceneEntityFromHandoff(lastGeneratedImageAsset.sceneId, { player: true });
-    setStatus(`Assigned ${lastGeneratedImageAsset.assetId} to the player draft. Apply Player Changes to save.`);
+    setStatus(`Assigned ${lastGeneratedImageAsset.assetId} to the player draft. Apply player changes to save.`);
   };
 
   const assignGeneratedAssetToActorDraft = () => {
@@ -4906,8 +5764,10 @@ export function EditorApp() {
           ? `${lastGeneratedImageAsset.entityId} Animation Pack`
           : "Generated Animation Pack"
     });
+    setSelectedAssetId(lastGeneratedImageAsset.assetId);
+    setActiveAssetTool("animation");
     setWorkspace("assets");
-    setStatus(`Using ${lastGeneratedImageAsset.assetId} as the Character Gym spritesheet draft.`);
+    setStatus(`Opened ${lastGeneratedImageAsset.assetId} in Character Gym as a spritesheet draft.`);
   };
 
   const openGeneratedAsset = () => {
@@ -5212,6 +6072,7 @@ export function EditorApp() {
     const name = currentSceneDraft.name.trim();
     const background = currentSceneDraft.background.trim();
     const walkArea = parseWalkAreaDraft(currentSceneDraft.walkAreaPoints);
+    const layerResult = buildSceneLayersFromDraft(currentSceneDraft.layers, availableAssetIdsSet);
 
     if (!name) {
       setStatus("Scene name is required");
@@ -5257,6 +6118,10 @@ export function EditorApp() {
       setStatus("Walk area must enclose a non-zero area");
       return;
     }
+    if (layerResult.error) {
+      setStatus(layerResult.error);
+      return;
+    }
 
     setStatus(`Saving ${selectedScene.id}...`);
     try {
@@ -5264,6 +6129,8 @@ export function EditorApp() {
         type: "scene/update",
         patch: {
           background,
+          generationGuides: currentSceneDraft.generationGuides,
+          layers: layerResult.layers,
           name,
           player: {
             ...(playerAnimationPackId ? { animationPackId: playerAnimationPackId } : {}),
@@ -5559,6 +6426,417 @@ export function EditorApp() {
     }
   };
 
+  const changeWorkspace = (nextWorkspace: Workspace) => {
+    setWorkspace(nextWorkspace);
+
+    if (nextWorkspace === "scene") {
+      setSceneInspectorTarget("scene");
+      setActiveSceneTool("walk-area");
+      updateSessionSelection((current) => ({
+        ...current,
+        activeFlowId: null,
+        activeItemId: null,
+        activeLocale: null
+      }));
+      return;
+    }
+
+    if (nextWorkspace === "narrative") {
+      setSceneInspectorTarget("scene");
+      updateSessionSelection((current) => {
+        const activeFlowId =
+          current.activeFlowId && project?.flows.some((flow) => flow.id === current.activeFlowId)
+            ? current.activeFlowId
+            : project?.flows[0]?.id ?? null;
+        const activeLocale =
+          !activeFlowId && current.activeLocale && project?.locales.some((locale) => locale.locale === current.activeLocale)
+            ? current.activeLocale
+            : !activeFlowId
+              ? project?.locales[0]?.locale ?? null
+              : null;
+        const activeItemId =
+          !activeFlowId && !activeLocale && current.activeItemId && project?.items.some((item) => item.id === current.activeItemId)
+            ? current.activeItemId
+            : !activeFlowId && !activeLocale
+              ? project?.items[0]?.id ?? null
+              : null;
+
+        return {
+          ...current,
+          activeActorId: null,
+          activeFlowId,
+          activeHotspotId: null,
+          activeItemId,
+          activeLocale,
+          activePickupId: null
+        };
+      });
+    }
+  };
+
+  const renderContextualTree = () => {
+    if (!project) {
+      return <div className="tree-item tree-meta">No project loaded</div>;
+    }
+
+    if (workspace === "scene") {
+      return (
+        <>
+          <div className="tree-section-label">Scene</div>
+          <div className="tree-group open">Scenes</div>
+          <button className="tree-item tree-child" type="button" onClick={createScene}>
+            <span className="scene-dot muted" /> + New scene
+          </button>
+          {scenes.map((scene) => (
+            <button
+              className={`tree-item ${
+                session.activeLocale === null &&
+                session.activeFlowId === null &&
+                !session.activeActorId &&
+                !session.activeHotspotId &&
+                !session.activePickupId &&
+                !session.activeItemId &&
+                selectedScene?.id === scene.id &&
+                !isPlayerInspectorSelected &&
+                !selectedSceneLayerId &&
+                !selectedGenerationGuideId
+                  ? "selected"
+                  : ""
+              }`}
+              key={scene.id}
+              type="button"
+              onClick={() => selectScene(scene.id)}
+            >
+              <span className="scene-dot" /> {scene.name}
+              {dirtyState.sceneIds.has(scene.id) ? <span className="dirty-mark">*</span> : null}
+            </button>
+          ))}
+          {selectedScene ? (
+            <>
+              <button
+                className={`tree-item tree-child ${isPlayerInspectorSelected ? "selected" : ""}`}
+                type="button"
+                onClick={selectPlayerInScene}
+              >
+                <span className="scene-dot muted" /> Player
+                {dirtyState.sceneIds.has(selectedScene.id) ? <span className="dirty-mark">*</span> : null}
+              </button>
+              <div className="tree-group open">Layers ({currentSceneDraft.layers.length})</div>
+              <button className="tree-item tree-child" type="button" onClick={createSceneLayer}>
+                <span className="scene-dot muted" /> + New layer
+              </button>
+              {currentSceneDraft.layers.map((layer) => (
+                <button
+                  className={`tree-item tree-child ${selectedSceneLayerId === layer.id ? "selected" : ""}`}
+                  key={`scene-layer-tree-${layer.id}`}
+                  type="button"
+                  onClick={() => {
+                    setWorkspace("scene");
+                    setActiveSceneTool("select");
+                    setSceneInspectorTarget("scene");
+                    setSelectedSceneLayerId(layer.id);
+                    updateSessionSelection((current) => ({
+                      ...current,
+                      activeActorId: null,
+                      activeFlowId: null,
+                      activeHotspotId: null,
+                      activeItemId: null,
+                      activeLocale: null,
+                      activePickupId: null,
+                      activeSceneId: selectedScene.id
+                    }));
+                  }}
+                >
+                  <span className="scene-dot muted" /> {layer.name || layer.id}
+                  {dirtyState.sceneIds.has(selectedScene.id) ? <span className="dirty-mark">*</span> : null}
+                </button>
+              ))}
+              <div className="tree-group open">Generation Guides ({currentGenerationGuides.length})</div>
+              <button
+                className="tree-item tree-child"
+                type="button"
+                onClick={() => createBlankGenerationGuide("rect")}
+              >
+                <span className="scene-dot muted" /> + New guide
+              </button>
+              {currentGenerationGuides.map((guide) => (
+                <button
+                  className={`tree-item tree-child ${selectedGenerationGuide?.id === guide.id ? "selected" : ""}`}
+                  key={`scene-guide-tree-${guide.id}`}
+                  type="button"
+                  onClick={() => {
+                    setWorkspace("scene");
+                    setActiveSceneTool("select");
+                    setSceneInspectorTarget("scene");
+                    setSelectedGenerationGuideId(guide.id);
+                    setSelectedSceneLayerId(null);
+                    updateSessionSelection((current) => ({
+                      ...current,
+                      activeActorId: null,
+                      activeFlowId: null,
+                      activeHotspotId: null,
+                      activeItemId: null,
+                      activeLocale: null,
+                      activePickupId: null,
+                      activeSceneId: selectedScene.id
+                    }));
+                  }}
+                >
+                  <span
+                    className="scene-dot muted"
+                    style={{ backgroundColor: generationGuideColor(guide) }}
+                  />{" "}
+                  {guide.name || guide.id}
+                  {dirtyState.sceneIds.has(selectedScene.id) ? <span className="dirty-mark">*</span> : null}
+                </button>
+              ))}
+              <div className="tree-group open">Hotspots ({selectedScene.hotspots.length})</div>
+              <button className="tree-item tree-child" type="button" onClick={createHotspot}>
+                <span className="scene-dot muted" /> + New hotspot
+              </button>
+              {selectedScene.hotspots.map((hotspot) => (
+                <button
+                  className={`tree-item tree-child ${session.activeHotspotId === hotspot.id ? "selected" : ""}`}
+                  key={hotspot.id}
+                  type="button"
+                  onClick={() => selectHotspot(hotspot)}
+                >
+                  <span className="scene-dot muted" /> {hotspot.id}
+                  {dirtyState.hotspotKeys.has(createHotspotKey(selectedScene.id, hotspot.id)) ? (
+                    <span className="dirty-mark">*</span>
+                  ) : null}
+                </button>
+              ))}
+              <div className="tree-group open">Actors ({selectedScene.actors.length})</div>
+              <button className="tree-item tree-child" type="button" onClick={createActor}>
+                <span className="scene-dot muted" /> + New actor
+              </button>
+              {selectedScene.actors.map((actor) => (
+                <button
+                  className={`tree-item tree-child ${session.activeActorId === actor.id ? "selected" : ""}`}
+                  key={actor.id}
+                  type="button"
+                  onClick={() => selectActor(actor)}
+                >
+                  <span className="scene-dot muted" /> {actor.id}
+                  {dirtyState.actorKeys.has(createActorKey(selectedScene.id, actor.id)) ? (
+                    <span className="dirty-mark">*</span>
+                  ) : null}
+                </button>
+              ))}
+              <div className="tree-group open">Pickups ({selectedScene.pickups.length})</div>
+              <button className="tree-item tree-child" type="button" onClick={createPickup}>
+                <span className="scene-dot muted" /> + New pickup
+              </button>
+              {selectedScene.pickups.map((pickup) => (
+                <button
+                  className={`tree-item tree-child ${session.activePickupId === pickup.id ? "selected" : ""}`}
+                  key={pickup.id}
+                  type="button"
+                  onClick={() => selectPickup(pickup)}
+                >
+                  <span className="scene-dot muted" /> {pickup.id}
+                  {dirtyState.pickupKeys.has(createPickupKey(selectedScene.id, pickup.id)) ? (
+                    <span className="dirty-mark">*</span>
+                  ) : null}
+                </button>
+              ))}
+            </>
+          ) : (
+            <div className="tree-item tree-meta">Select a scene to show player and scene entities.</div>
+          )}
+        </>
+      );
+    }
+
+    if (workspace === "narrative") {
+      return (
+        <>
+          <div className="tree-section-label">Narrative</div>
+          <div className="tree-group open">Flows ({project.flowCount})</div>
+          <button className="tree-item tree-child" type="button" onClick={createFlow}>
+            <span className="scene-dot muted" /> + New flow
+          </button>
+          {project.flows.map((flow) => (
+            <button
+              className={`tree-item ${session.activeFlowId === flow.id ? "selected" : ""}`}
+              key={flow.id}
+              type="button"
+              onClick={() => selectFlow(flow)}
+            >
+              <span className="scene-dot muted" /> {flow.id}
+              {dirtyState.flowIds.has(flow.id) ? <span className="dirty-mark">*</span> : null}
+            </button>
+          ))}
+          <div className="tree-group open">Locales ({project.localeCount})</div>
+          {project.locales.map((locale) => (
+            <button
+              className={`tree-item ${session.activeLocale === locale.locale ? "selected" : ""}`}
+              key={locale.locale}
+              type="button"
+              onClick={() => selectLocale(locale)}
+            >
+              <span className="scene-dot muted" /> {locale.locale}
+              {dirtyState.localeIds.has(locale.locale) ? <span className="dirty-mark">*</span> : null}
+            </button>
+          ))}
+          <div className="tree-group open">Items ({project.itemCount})</div>
+          <button className="tree-item tree-child" type="button" onClick={createItem}>
+            <span className="scene-dot muted" /> + New item
+          </button>
+          {project.items.map((item) => (
+            <button
+              className={`tree-item ${session.activeItemId === item.id ? "selected" : ""}`}
+              key={item.id}
+              type="button"
+              onClick={() => selectItem(item)}
+            >
+              <span className="scene-dot muted" /> {item.id}
+              {dirtyState.itemIds.has(item.id) ? <span className="dirty-mark">*</span> : null}
+            </button>
+          ))}
+        </>
+      );
+    }
+
+    if (workspace === "assets") {
+      return (
+        <>
+          <div className="tree-section-label">Asset Studio</div>
+          <div className="tree-group open">Assets ({project.assetCount})</div>
+          <button className="tree-item tree-child" type="button" onClick={importAssets}>
+            <span className="scene-dot muted" /> + Import assets
+          </button>
+          {project.assets.map((asset) => (
+            <button
+              className={`tree-item ${selectedAsset?.id === asset.id ? "selected" : ""}`}
+              key={asset.id}
+              type="button"
+              onClick={() => {
+                setSelectedAssetId(asset.id);
+                setActiveAssetTool("info");
+              }}
+            >
+              <span className="scene-dot muted" /> {asset.id}
+              {assetHealth(asset, project) === "missing" ? <span className="dirty-mark">!</span> : null}
+            </button>
+          ))}
+          <div className="tree-group open">Animation Packs ({project.animationPackCount})</div>
+          <button className="tree-item tree-child" type="button" onClick={createAnimationPackDraftFromSelection}>
+            <span className="scene-dot muted" /> + New animation pack
+          </button>
+          {project.animationPacks.map((animationPack) => (
+            <button
+              className={`tree-item ${selectedAnimationPack?.id === animationPack.id ? "selected" : ""}`}
+              key={animationPack.id}
+              type="button"
+              onClick={() => {
+                setSelectedAnimationPackId(animationPack.id);
+                setActiveAssetTool("animation");
+              }}
+            >
+              <span className="scene-dot muted" /> {animationPack.id}
+            </button>
+          ))}
+          <div className="tree-group open">Prompt Packs ({project.promptPackCount})</div>
+          {project.promptPacks.map((promptPack) => (
+            <button
+              className={`tree-item ${selectedPromptPack?.id === promptPack.id ? "selected" : ""}`}
+              key={promptPack.id}
+              type="button"
+              onClick={() => {
+                setSelectedPromptPackId(promptPack.id);
+                setPromptPackSceneId(promptPack.sceneId);
+                setActiveAssetTool("guide");
+              }}
+            >
+              <span className="scene-dot muted" /> {promptPack.id}
+            </button>
+          ))}
+        </>
+      );
+    }
+
+    if (workspace === "ai") {
+      return (
+        <>
+          <div className="tree-section-label">AI</div>
+          <div className="tree-group open">Prompt Packs ({project.promptPackCount})</div>
+          {project.promptPacks.map((promptPack) => (
+            <button
+              className={`tree-item ${selectedPromptPack?.id === promptPack.id ? "selected" : ""}`}
+              key={promptPack.id}
+              type="button"
+              onClick={() => {
+                setSelectedPromptPackId(promptPack.id);
+                setPromptPackSceneId(promptPack.sceneId);
+              }}
+            >
+              <span className="scene-dot muted" /> {promptPack.id}
+            </button>
+          ))}
+          <div className="tree-group open">Generation Targets ({savedPromptPackTargets.length})</div>
+          {savedPromptPackTargets.length ? (
+            savedPromptPackTargets.map((target) => (
+              <button
+                className={`tree-item tree-child ${
+                  selectedSavedGenerationTarget?.id === target.id ? "selected" : ""
+                }`}
+                key={target.id}
+                type="button"
+                onClick={() => setSelectedGenerationTargetId(target.id)}
+              >
+                <span className="scene-dot muted" /> {target.id}
+              </button>
+            ))
+          ) : (
+            <div className="tree-item tree-meta">Select or generate a prompt pack.</div>
+          )}
+          <div className="tree-group open">Context</div>
+          <div className="tree-item tree-meta">Provider: {selectedPromptProvider.label}</div>
+          <div className="tree-item tree-meta">Scene: {promptPackScene?.id ?? "none"}</div>
+        </>
+      );
+    }
+
+    if (workspace === "build") {
+      return (
+        <>
+          <div className="tree-section-label">Build</div>
+          <div className="tree-group open">Validation</div>
+          <div className="tree-item tree-meta">Status: {validationRunState}</div>
+          <div className="tree-item tree-meta">Last: {formatValidationTimestamp(validationReport?.ranAt ?? null)}</div>
+          <div className="tree-group open">Readiness ({buildReadinessIssues.length})</div>
+          {buildReadinessIssues.length ? (
+            buildReadinessIssues.map((issue) => (
+              <button
+                className="tree-item"
+                disabled={!canOpenBuildReadinessTarget(issue.target)}
+                key={`tree-${issue.id}`}
+                type="button"
+                onClick={() => openBuildReadinessIssue(issue)}
+              >
+                <span className="scene-dot muted" /> {issue.actionLabel ?? issue.code}
+                <span className="dirty-mark">{issue.severity === "error" ? "!" : "*"}</span>
+              </button>
+            ))
+          ) : (
+            <div className="tree-item tree-meta">No saved-project issues.</div>
+          )}
+        </>
+      );
+    }
+
+    return (
+      <>
+        <div className="tree-section-label">Overview</div>
+        <div className="tree-item tree-meta">{project.sceneCount} scene(s)</div>
+        <div className="tree-item tree-meta">{project.assetCount} asset(s)</div>
+        <div className="tree-item tree-meta">{project.diagnostics.length} diagnostic(s)</div>
+      </>
+    );
+  };
+
   return (
     <div className="studio-shell">
       <header className="topbar">
@@ -5570,7 +6848,7 @@ export function EditorApp() {
           </div>
         </div>
 
-        <WorkspaceTabs activeWorkspace={workspace} onWorkspaceChange={setWorkspace} />
+        <WorkspaceTabs activeWorkspace={workspace} onWorkspaceChange={changeWorkspace} />
 
         <TopbarActions
           canRedo={canRedo}
@@ -5651,193 +6929,7 @@ export function EditorApp() {
             </button>
           </div>
           <div className="tree">
-            <WorkspaceRail activeWorkspace={workspace} onWorkspaceChange={setWorkspace} />
-            <div className="tree-section-label">Current scene</div>
-            <div className="tree-group open">Scenes</div>
-            {project ? (
-              <button className="tree-item tree-child" type="button" onClick={createScene}>
-                <span className="scene-dot muted" /> + New scene
-              </button>
-            ) : null}
-            {scenes.map((scene) => (
-              <button
-                className={`tree-item ${session.activeLocale === null && session.activeFlowId === null && !session.activeActorId && !session.activeHotspotId && !session.activePickupId && !session.activeItemId && selectedScene?.id === scene.id ? "selected" : ""}`}
-                key={scene.id}
-                type="button"
-                onClick={() => selectScene(scene.id)}
-              >
-                <span className="scene-dot" /> {scene.name}
-                {dirtyState.sceneIds.has(scene.id) ? <span className="dirty-mark">*</span> : null}
-              </button>
-            ))}
-            {selectedScene ? (
-              <button
-                className={`tree-item tree-child ${workspace === "player" || isPlayerInspectorSelected ? "selected" : ""}`}
-                type="button"
-                onClick={selectPlayerInScene}
-              >
-                <span className="scene-dot muted" /> Player
-                {dirtyState.sceneIds.has(selectedScene.id) ? <span className="dirty-mark">*</span> : null}
-              </button>
-            ) : null}
-            <div className="tree-group open">Hotspots ({selectedScene?.hotspots.length ?? 0})</div>
-            {selectedScene ? (
-              <button className="tree-item tree-child" type="button" onClick={createHotspot}>
-                <span className="scene-dot muted" /> + New hotspot
-              </button>
-            ) : null}
-            {selectedScene?.hotspots.map((hotspot) => (
-              <button
-                className={`tree-item tree-child ${session.activeHotspotId === hotspot.id ? "selected" : ""}`}
-                key={hotspot.id}
-                type="button"
-                onClick={() => selectHotspot(hotspot)}
-              >
-                <span className="scene-dot muted" /> {hotspot.id}
-                {dirtyState.hotspotKeys.has(createHotspotKey(selectedScene.id, hotspot.id)) ? (
-                  <span className="dirty-mark">*</span>
-                ) : null}
-              </button>
-            ))}
-            <div className="tree-group open">Actors ({selectedScene?.actors.length ?? 0})</div>
-            {selectedScene ? (
-              <button className="tree-item tree-child" type="button" onClick={createActor}>
-                <span className="scene-dot muted" /> + New actor
-              </button>
-            ) : null}
-            {selectedScene?.actors.map((actor) => (
-              <button
-                className={`tree-item tree-child ${session.activeActorId === actor.id ? "selected" : ""}`}
-                key={actor.id}
-                type="button"
-                onClick={() => selectActor(actor)}
-              >
-                <span className="scene-dot muted" /> {actor.id}
-                {dirtyState.actorKeys.has(createActorKey(selectedScene.id, actor.id)) ? (
-                  <span className="dirty-mark">*</span>
-                ) : null}
-              </button>
-            ))}
-            <div className="tree-group open">Pickups ({selectedScene?.pickups.length ?? 0})</div>
-            {selectedScene ? (
-              <button className="tree-item tree-child" type="button" onClick={createPickup}>
-                <span className="scene-dot muted" /> + New pickup
-              </button>
-            ) : null}
-            {selectedScene?.pickups.map((pickup) => (
-              <button
-                className={`tree-item tree-child ${session.activePickupId === pickup.id ? "selected" : ""}`}
-                key={pickup.id}
-                type="button"
-                onClick={() => selectPickup(pickup)}
-              >
-                <span className="scene-dot muted" /> {pickup.id}
-                {dirtyState.pickupKeys.has(createPickupKey(selectedScene.id, pickup.id)) ? (
-                  <span className="dirty-mark">*</span>
-                ) : null}
-              </button>
-            ))}
-            <div className="tree-section-label">Project content</div>
-            <div className="tree-group open">Flows ({project?.flowCount ?? 0})</div>
-            {project ? (
-              <button className="tree-item tree-child" type="button" onClick={createFlow}>
-                <span className="scene-dot muted" /> + New flow
-              </button>
-            ) : null}
-            {project?.flows.map((flow) => (
-              <button
-                className={`tree-item ${session.activeFlowId === flow.id ? "selected" : ""}`}
-                key={flow.id}
-                type="button"
-                onClick={() => selectFlow(flow)}
-              >
-                <span className="scene-dot muted" /> {flow.id}
-                {dirtyState.flowIds.has(flow.id) ? <span className="dirty-mark">*</span> : null}
-              </button>
-            ))}
-            <div className="tree-group open">Items ({project?.itemCount ?? 0})</div>
-            {project ? (
-              <button className="tree-item tree-child" type="button" onClick={createItem}>
-                <span className="scene-dot muted" /> + New item
-              </button>
-            ) : null}
-            {project?.items.map((item) => (
-              <button
-                className={`tree-item ${session.activeItemId === item.id ? "selected" : ""}`}
-                key={item.id}
-                type="button"
-                onClick={() => selectItem(item)}
-              >
-                <span className="scene-dot muted" /> {item.id}
-                {dirtyState.itemIds.has(item.id) ? <span className="dirty-mark">*</span> : null}
-              </button>
-            ))}
-            <div className="tree-section-label">Production library</div>
-            <div className="tree-group open">Assets ({project?.assetCount ?? 0})</div>
-            {project?.assets.map((asset) => (
-              <button
-                className={`tree-item ${selectedAsset?.id === asset.id && workspace === "assets" ? "selected" : ""}`}
-                key={asset.id}
-                type="button"
-                onClick={() => {
-                  setSelectedAssetId(asset.id);
-                  setWorkspace("assets");
-                }}
-              >
-                <span className="scene-dot muted" /> {asset.id}
-                {assetHealth(asset, project) === "missing" ? <span className="dirty-mark">!</span> : null}
-              </button>
-            ))}
-            <div className="tree-group open">Animation Packs ({project?.animationPackCount ?? 0})</div>
-            {project ? (
-              <button className="tree-item tree-child" type="button" onClick={createAnimationPackDraftFromSelection}>
-                <span className="scene-dot muted" /> + New animation pack
-              </button>
-            ) : null}
-            {project?.animationPacks.map((animationPack) => (
-              <button
-                className={`tree-item ${
-                  selectedAnimationPack?.id === animationPack.id && workspace === "assets" ? "selected" : ""
-                }`}
-                key={animationPack.id}
-                type="button"
-                onClick={() => {
-                  setSelectedAnimationPackId(animationPack.id);
-                  setWorkspace("assets");
-                }}
-              >
-                <span className="scene-dot muted" /> {animationPack.id}
-              </button>
-            ))}
-            <div className="tree-group open">Prompt Packs ({project?.promptPackCount ?? 0})</div>
-            {project?.promptPacks.map((promptPack) => (
-              <button
-                className={`tree-item ${
-                  selectedPromptPack?.id === promptPack.id && workspace === "assets" ? "selected" : ""
-                }`}
-                key={promptPack.id}
-                type="button"
-                onClick={() => {
-                  setSelectedPromptPackId(promptPack.id);
-                  setPromptPackSceneId(promptPack.sceneId);
-                  setWorkspace("assets");
-                }}
-              >
-                <span className="scene-dot muted" /> {promptPack.id}
-              </button>
-            ))}
-            <div className="tree-group open">Locales ({project?.localeCount ?? 0})</div>
-            {project?.locales.map((locale) => (
-              <button
-                className={`tree-item ${session.activeLocale === locale.locale ? "selected" : ""}`}
-                key={locale.locale}
-                type="button"
-                onClick={() => selectLocale(locale)}
-              >
-                <span className="scene-dot muted" /> {locale.locale}
-                {dirtyState.localeIds.has(locale.locale) ? <span className="dirty-mark">*</span> : null}
-              </button>
-            ))}
+            {renderContextualTree()}
           </div>
           <div className="project-health">
             <span className={`health-light ${projectHealth?.tone ?? "warn"}`} />
@@ -5885,9 +6977,7 @@ export function EditorApp() {
                     ? `${selectedScene.hotspots.length} hotspot(s) / ${selectedScene.pickups.length} pickup(s) / ${selectedScene.actors.length} actor(s)`
                     : workspace === "narrative"
                       ? "Structured flow and locale editing"
-                      : workspace === "player" && selectedScene
-                        ? `${selectedScene.name} / ${previewPlayerConfig.walkSpeed}px/s`
-                        : workspaceCapability.summary}
+                      : workspaceCapability.summary}
               </span>
               <span className={`capability-badge compact ${capabilityStatusTone(workspaceCapability.status)}`}>
                 {workspace === "scene" ? selectedSceneToolLabel : capabilityBadgeLabel(workspaceCapability.status)}
@@ -5949,170 +7039,6 @@ export function EditorApp() {
                   ) : (
                     <p>No project diagnostics right now.</p>
                   )}
-                </div>
-              </section>
-            </div>
-          ) : workspace === "player" ? (
-            <div className="workspace-overview build-workspace player-workspace">
-              <section className="overview-card player-hero-card">
-                <span className="overview-label">Player setup</span>
-                <strong>{selectedScene ? `${selectedScene.name} player` : "No scene selected"}</strong>
-                <p>
-                  Configure the playable character for the current scene. This saves into the scene
-                  document so runtime and preview stay deterministic.
-                </p>
-                <div className="prompt-studio-controls">
-                  <label className="prompt-studio-field">
-                    Scene
-                    <select
-                      disabled={scenes.length === 0}
-                      value={selectedScene?.id ?? ""}
-                      onChange={(event) => selectPlayerScene(event.target.value)}
-                    >
-                      {scenes.map((scene) => (
-                        <option key={`player-scene-${scene.id}`} value={scene.id}>
-                          {scene.name} ({scene.id})
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-                <div className="build-actions">
-                  <button
-                    className="secondary-action"
-                    disabled={!selectedScene}
-                    type="button"
-                    onClick={() => {
-                      setWorkspace("scene");
-                      setActiveSceneTool("player-start");
-                    }}
-                  >
-                    Edit Start In Viewport
-                  </button>
-                  <button
-                    className="play-action"
-                    disabled={!selectedScene}
-                    type="button"
-                    onClick={applySceneChanges}
-                  >
-                    Apply Player Changes
-                  </button>
-                </div>
-              </section>
-              <section className="overview-card">
-                <span className="overview-label">Visual identity</span>
-                <strong>{previewPlayerConfig.assetId ?? "Generated marker"}</strong>
-                <p>
-                  Use a registered image asset or assign an animation pack from Character Gym.
-                </p>
-                <div className="prompt-studio-controls">
-                  <label className="prompt-studio-field">
-                    Player asset
-                    <select
-                      value={currentSceneDraft.playerAssetId}
-                      onChange={(event) => updateSceneDraft("playerAssetId", event.target.value)}
-                    >
-                      <option value="">Generated marker</option>
-                      {availableAssetIds.map((assetId) => (
-                        <option key={`player-workspace-asset-${assetId}`} value={assetId}>
-                          {assetId}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="prompt-studio-field">
-                    Animation pack
-                    <select
-                      value={currentSceneDraft.playerAnimationPackId}
-                      onChange={(event) => updateSceneDraft("playerAnimationPackId", event.target.value)}
-                    >
-                      <option value="">None</option>
-                      {availableAnimationPackIds.map((animationPackId) => (
-                        <option key={`player-workspace-animation-${animationPackId}`} value={animationPackId}>
-                          {animationPackId}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              </section>
-              <section className="overview-card">
-                <span className="overview-label">Start and movement</span>
-                <strong>
-                  {previewPlayerStart
-                    ? `${Math.round(previewPlayerStart.x)}, ${Math.round(previewPlayerStart.y)}`
-                    : "No player start"}
-                </strong>
-                <p>Set spawn point, walk speed, and scale interpolation for scene depth.</p>
-                <div className="player-field-grid">
-                  <label>
-                    Start X
-                    <input
-                      value={currentSceneDraft.playerStartX}
-                      onChange={(event) => updateSceneDraft("playerStartX", event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    Start Y
-                    <input
-                      value={currentSceneDraft.playerStartY}
-                      onChange={(event) => updateSceneDraft("playerStartY", event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    Far scale
-                    <input
-                      value={currentSceneDraft.playerScaleFar}
-                      onChange={(event) => updateSceneDraft("playerScaleFar", event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    Near scale
-                    <input
-                      value={currentSceneDraft.playerScaleNear}
-                      onChange={(event) => updateSceneDraft("playerScaleNear", event.target.value)}
-                    />
-                  </label>
-                  <label className="player-field-wide">
-                    Walk speed
-                    <input
-                      value={currentSceneDraft.playerWalkSpeed}
-                      onChange={(event) => updateSceneDraft("playerWalkSpeed", event.target.value)}
-                    />
-                  </label>
-                </div>
-              </section>
-              <section className="overview-card player-preview-card">
-                <span className="overview-label">Preview</span>
-                <strong>{previewPlayerConfig.animationPackId ?? "Static player"}</strong>
-                <p>
-                  Preview uses the current draft asset assignment and reflects the same marker shown
-                  in the scene viewport.
-                </p>
-                <div className="player-stage">
-                  <div
-                    className={`player-stage-avatar ${previewPlayerAssetUrl ? "has-player-image" : ""}`}
-                    style={{
-                      backgroundImage: previewPlayerAssetUrl ? `url("${previewPlayerAssetUrl}")` : undefined
-                    }}
-                  >
-                    <span />
-                  </div>
-                  <div className="player-stage-floor" />
-                </div>
-                <div className="diagnostic-list">
-                  <div className={`diagnostic-item ${playerAssetMissing ? "error" : ""}`}>
-                    <div>
-                      <strong>{playerAssetMissing ? "Missing asset" : "Asset reference"}</strong>
-                      <p>{currentSceneDraft.playerAssetId.trim() || "Generated marker fallback"}</p>
-                    </div>
-                  </div>
-                  <div className={`diagnostic-item ${playerAnimationPackMissing ? "error" : ""}`}>
-                    <div>
-                      <strong>{playerAnimationPackMissing ? "Missing animation pack" : "Animation reference"}</strong>
-                      <p>{currentSceneDraft.playerAnimationPackId.trim() || "No animation pack assigned"}</p>
-                    </div>
-                  </div>
                 </div>
               </section>
             </div>
@@ -6648,6 +7574,50 @@ export function EditorApp() {
                         before treating them as transparent-ready assets.
                       </p>
                     ) : null}
+                    <div className="guide-set-panel">
+                      <div className="target-customization-heading">
+                        <div>
+                          <span className="overview-label">Guide Set</span>
+                          <strong>{selectedTargetGuideIds.length} selected</strong>
+                        </div>
+                        <button
+                          className="play-action compact-action"
+                          disabled={!selectedPromptPack || !selectedSavedGenerationTarget || selectedTargetGuides.length === 0}
+                          type="button"
+                          onClick={compileSelectedTargetGuideAssets}
+                        >
+                          <Crosshair size={iconSize} /> Compile Reference + Mask
+                        </button>
+                      </div>
+                      {savedPromptPackGuides.length ? (
+                        <div className="guide-set-list">
+                          {savedPromptPackGuides.map((guide) => (
+                            <label className="guide-set-row" key={`target-guide-${guide.id}`}>
+                              <input
+                                checked={selectedTargetGuideIds.includes(guide.id)}
+                                type="checkbox"
+                                onChange={(event) => {
+                                  void toggleSelectedTargetGuide(guide.id, event.target.checked);
+                                }}
+                              />
+                              <span
+                                className="generation-guide-swatch"
+                                style={{ backgroundColor: generationGuideColor(guide) }}
+                                aria-hidden="true"
+                              />
+                              <strong>{guide.name}</strong>
+                              <span>{guide.role}</span>
+                              <span>{generationGuideShapeLabel(guide.shape)}</span>
+                            </label>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="target-customization-note">
+                          No generation guides are saved in scene {promptPackGuideScene?.id ?? "none"}.
+                        </p>
+                      )}
+                      <p className="target-customization-note">{guideStatus}</p>
+                    </div>
                     {selectedEffectiveGenerationTarget?.referenceAssetId || selectedEffectiveGenerationTarget?.maskAssetId ? (
                       <p className="target-customization-note">
                         Guide assets linked: reference {selectedEffectiveGenerationTarget.referenceAssetId ?? "none"},
@@ -6716,7 +7686,8 @@ export function EditorApp() {
                       <strong>{lastGeneratedImageAsset.assetId}</strong>
                       <p>
                         Target {lastGeneratedImageAsset.targetId} imported from ComfyUI seed{" "}
-                        {lastGeneratedImageAsset.seed}. Assign it now or inspect the normal asset document.
+                        {lastGeneratedImageAsset.seed}. Assign it now, inspect it in Asset Studio, or send
+                        animation targets to Character Gym.
                       </p>
                       <div
                         className={`alpha-contract-strip ${
@@ -6738,7 +7709,7 @@ export function EditorApp() {
                     </div>
                     <div className="generation-handoff-actions">
                       <button className="secondary-action compact-action" type="button" onClick={openGeneratedAsset}>
-                        Open Asset
+                        Open In Asset Studio
                       </button>
                       {lastGeneratedImageAsset.entityKind === "scene-background" ? (
                         <button
@@ -6773,7 +7744,7 @@ export function EditorApp() {
                           type="button"
                           onClick={useGeneratedAssetAsAnimationSheet}
                         >
-                          Use As Sheet
+                          Open In Character Gym
                         </button>
                       ) : null}
                     </div>
@@ -7407,10 +8378,30 @@ export function EditorApp() {
                   <button type="button" onClick={createActor}>
                     + Actor
                   </button>
+                  <button type="button" onClick={createSceneLayer}>
+                    + Layer
+                  </button>
                 </div>
               ) : null}
               {selectedScene ? (
               <>
+                {previewSceneLayers.map((layer) =>
+                  layer.visible !== false && layer.assetUrl && layer.bounds ? (
+                    <div
+                      className={`scene-layer-plane ${selectedSceneLayerId === layer.id ? "selected" : ""}`}
+                      key={`scene-layer-preview-${layer.id}`}
+                      style={{
+                        backgroundImage: `url("${layer.assetUrl}")`,
+                        height: `${(layer.bounds.height / previewSceneSize.height) * 100}%`,
+                        left: `${(layer.bounds.x / previewSceneSize.width) * 100}%`,
+                        opacity: layer.opacity ?? 1,
+                        top: `${(layer.bounds.y / previewSceneSize.height) * 100}%`,
+                        width: `${(layer.bounds.width / previewSceneSize.width) * 100}%`,
+                        zIndex: layer.depth
+                      }}
+                    />
+                  ) : null
+                )}
                 {selectedScene.shapes.map((shape) => (
                   <div
                     className={`scene-shape ${shape.shape}`}
@@ -7425,6 +8416,115 @@ export function EditorApp() {
                     }}
                   />
                 ))}
+                {currentGenerationGuides.length ? (
+                  <svg
+                    className="generation-guide-overlay"
+                    viewBox={`0 0 ${previewSceneSize.width} ${previewSceneSize.height}`}
+                    preserveAspectRatio="none"
+                  >
+                    {currentGenerationGuides
+                      .filter((guide) => guide.visible !== false)
+                      .map((guide) => {
+                        const bounds = boundsForGenerationGuideShape(guide.shape);
+                        const color = generationGuideColor(guide);
+                        const selected = selectedGenerationGuide?.id === guide.id;
+                        return (
+                          <g
+                            className={`generation-guide-mark ${selected ? "selected" : ""}`}
+                            key={`generation-guide-${guide.id}`}
+                            onPointerDown={(event) => {
+                              event.stopPropagation();
+                              setSelectedGenerationGuideId(guide.id);
+                              setSceneInspectorTarget("scene");
+                            }}
+                          >
+                            {guide.shape.type === "polygon" ? (
+                              <>
+                                <polygon
+                                  className="generation-guide-shape-hit"
+                                  fill={color}
+                                  points={guide.shape.points.map((point) => `${point.x},${point.y}`).join(" ")}
+                                  stroke={color}
+                                  onPointerDown={(event) => startGenerationGuideShapeInteraction(guide, "move", event)}
+                                />
+                                {selected
+                                  ? guide.shape.points.map((point, index) => {
+                                      const nextPoint = guide.shape.type === "polygon"
+                                        ? guide.shape.points[(index + 1) % guide.shape.points.length]!
+                                        : point;
+                                      return (
+                                        <line
+                                          className="generation-guide-edge-hit"
+                                          key={`generation-guide-edge-${guide.id}-${index}`}
+                                          x1={point.x}
+                                          x2={nextPoint.x}
+                                          y1={point.y}
+                                          y2={nextPoint.y}
+                                          onPointerDown={(event) => insertGenerationGuidePointFromEvent(guide, index, event)}
+                                        />
+                                      );
+                                    })
+                                  : null}
+                                {selected
+                                  ? guide.shape.points.map((point, index) => (
+                                      <g key={`generation-guide-point-${guide.id}-${index}`}>
+                                        <circle
+                                          className="generation-guide-point"
+                                          cx={point.x}
+                                          cy={point.y}
+                                          r="7"
+                                          onPointerDown={(event) =>
+                                            startGenerationGuidePointInteraction(guide, index, point, event)
+                                          }
+                                        />
+                                        <text className="generation-guide-point-label" x={point.x + 10} y={point.y - 10}>
+                                          {index + 1}
+                                        </text>
+                                      </g>
+                                    ))
+                                  : null}
+                              </>
+                            ) : guide.shape.type === "ellipse" ? (
+                              <ellipse
+                                className="generation-guide-shape-hit"
+                                cx={bounds.x + bounds.width / 2}
+                                cy={bounds.y + bounds.height / 2}
+                                fill={color}
+                                rx={bounds.width / 2}
+                                ry={bounds.height / 2}
+                                stroke={color}
+                                onPointerDown={(event) => startGenerationGuideShapeInteraction(guide, "move", event)}
+                              />
+                            ) : (
+                              <rect
+                                className="generation-guide-shape-hit"
+                                fill={color}
+                                height={bounds.height}
+                                stroke={color}
+                                width={bounds.width}
+                                x={bounds.x}
+                                y={bounds.y}
+                                onPointerDown={(event) => startGenerationGuideShapeInteraction(guide, "move", event)}
+                              />
+                            )}
+                            {selected && guide.shape.type !== "polygon" ? (
+                              <rect
+                                className="generation-guide-resize-handle"
+                                height="14"
+                                width="14"
+                                x={bounds.x + bounds.width - 7}
+                                y={bounds.y + bounds.height - 7}
+                                onPointerDown={(event) => startGenerationGuideShapeInteraction(guide, "resize", event)}
+                              />
+                            ) : null}
+                            <text x={bounds.x + 8} y={Math.max(18, bounds.y - 8)}>
+                              {guide.name}
+                            </text>
+                          </g>
+                        );
+                      })}
+                  </svg>
+                ) : null}
                 {previewWalkArea ? (
                   <svg
                     className="walk-region"
@@ -7765,8 +8865,6 @@ export function EditorApp() {
                   ? "Library"
                   : workspace === "ai"
                     ? "AI"
-                  : workspace === "player"
-                    ? "Player"
                   : workspace === "build"
                     ? "Validation"
                   : selectedFlow
@@ -7812,28 +8910,6 @@ export function EditorApp() {
                   </p>
                 </div>
               </>
-            ) : workspace === "player" ? (
-              <div className="workspace-placeholder compact">
-                <span className={`capability-badge ${playerAssetMissing || playerAnimationPackMissing ? "error" : "good"}`}>
-                  Player
-                </span>
-                <strong>{selectedScene ? `${selectedScene.name} player` : "No scene"}</strong>
-                <p>{workspaceCapability.detail}</p>
-                <p className="inspector-copy">
-                  Asset: {currentSceneDraft.playerAssetId.trim() || "generated marker"}
-                </p>
-                <p className="inspector-copy">
-                  Animation pack: {currentSceneDraft.playerAnimationPackId.trim() || "none"}
-                </p>
-                <p className="inspector-copy">
-                  Start: {currentSceneDraft.playerStartX}, {currentSceneDraft.playerStartY}
-                </p>
-                <p className="inspector-copy">
-                  {selectedScene && dirtyState.sceneIds.has(selectedScene.id)
-                    ? "Scene player settings have unapplied draft changes."
-                    : "Player settings match the saved scene."}
-                </p>
-              </div>
             ) : workspace === "ai" ? (
               <div className="workspace-placeholder compact">
                 <span className={`capability-badge ${promptProviderId === "openai" ? "warn" : "good"}`}>
@@ -9179,6 +10255,488 @@ export function EditorApp() {
                   }}
                 />
                 <div className="field-group">
+                  <span>Visual layers</span>
+                  <div className="layer-stack-header">
+                    <strong>{currentSceneDraft.layers.length} layer(s)</strong>
+                    <button type="button" onClick={createSceneLayer} disabled={imageAssets.length === 0}>
+                      Add layer
+                    </button>
+                  </div>
+                  {imageAssets.length === 0 ? (
+                    <p className="inspector-copy">Import an image asset before creating scene layers.</p>
+                  ) : null}
+                  <div className="scene-layer-stack">
+                    {currentSceneDraft.layers.length === 0 ? (
+                      <div className="empty-inspector compact">No visual layers.</div>
+                    ) : null}
+                    {currentSceneDraft.layers.map((layer) => {
+                      const missingLayerAsset = !!layer.assetId.trim() && !availableAssetIdsSet.has(layer.assetId.trim());
+                      const isSelectedLayer = selectedSceneLayerId === layer.id;
+                      return (
+                        <div
+                          className={`scene-layer-card ${isSelectedLayer ? "selected" : ""}`}
+                          key={`scene-layer-editor-${layer.id}`}
+                          onFocusCapture={() => setSelectedSceneLayerId(layer.id)}
+                        >
+                          <div className="scene-layer-card-header">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSceneInspectorTarget("scene");
+                                setSelectedSceneLayerId(layer.id);
+                              }}
+                            >
+                              {layer.name || layer.id}
+                            </button>
+                            <label className="inline-toggle">
+                              <input
+                                checked={layer.visible}
+                                type="checkbox"
+                                onChange={(event) => updateSceneLayerDraft(layer.id, "visible", event.target.checked)}
+                              />
+                              Visible
+                            </label>
+                          </div>
+                          <div className="four-fields">
+                            <input
+                              aria-label={`${layer.id} id`}
+                              value={layer.id}
+                              onChange={(event) => updateSceneLayerDraft(layer.id, "id", event.target.value)}
+                            />
+                            <input
+                              aria-label={`${layer.id} name`}
+                              value={layer.name}
+                              onChange={(event) => updateSceneLayerDraft(layer.id, "name", event.target.value)}
+                            />
+                          </div>
+                          <label>
+                            Asset
+                            <select
+                              value={layer.assetId}
+                              onChange={(event) => updateSceneLayerDraft(layer.id, "assetId", event.target.value)}
+                            >
+                              <option value="">Select asset</option>
+                              {imageAssets.map((asset) => (
+                                <option key={`layer-${layer.id}-asset-${asset.id}`} value={asset.id}>
+                                  {asset.id}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          {missingLayerAsset ? (
+                            <p className="field-hint error">Layer asset no longer exists.</p>
+                          ) : null}
+                          <div className="four-fields">
+                            <input
+                              aria-label={`${layer.id} depth`}
+                              value={layer.depth}
+                              onChange={(event) => updateSceneLayerDraft(layer.id, "depth", event.target.value)}
+                            />
+                            <input
+                              aria-label={`${layer.id} opacity`}
+                              value={layer.opacity}
+                              onChange={(event) => updateSceneLayerDraft(layer.id, "opacity", event.target.value)}
+                            />
+                          </div>
+                          <div className="four-fields">
+                            <input
+                              aria-label={`${layer.id} X`}
+                              value={layer.x}
+                              onChange={(event) => updateSceneLayerDraft(layer.id, "x", event.target.value)}
+                            />
+                            <input
+                              aria-label={`${layer.id} Y`}
+                              value={layer.y}
+                              onChange={(event) => updateSceneLayerDraft(layer.id, "y", event.target.value)}
+                            />
+                            <input
+                              aria-label={`${layer.id} width`}
+                              value={layer.width}
+                              onChange={(event) => updateSceneLayerDraft(layer.id, "width", event.target.value)}
+                            />
+                            <input
+                              aria-label={`${layer.id} height`}
+                              value={layer.height}
+                              onChange={(event) => updateSceneLayerDraft(layer.id, "height", event.target.value)}
+                            />
+                          </div>
+                          <div className="layer-action-row">
+                            <label className="inline-toggle">
+                              <input
+                                checked={layer.locked}
+                                type="checkbox"
+                                onChange={(event) => updateSceneLayerDraft(layer.id, "locked", event.target.checked)}
+                              />
+                              Locked
+                            </label>
+                            <button
+                              className="danger"
+                              type="button"
+                              disabled={layer.locked}
+                              onClick={() => deleteSceneLayerDraft(layer.id)}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="field-group generation-guide-editor">
+                  <span>Generation Guides</span>
+                  <div className="layer-stack-header">
+                    <strong>{currentGenerationGuides.length} guide(s)</strong>
+                    <div className="inspector-actions-inline">
+                      <button type="button" onClick={() => createBlankGenerationGuide("rect")}>
+                        Rect
+                      </button>
+                      <button type="button" onClick={() => createBlankGenerationGuide("ellipse")}>
+                        Ellipse
+                      </button>
+                      <button type="button" onClick={() => createBlankGenerationGuide("polygon")}>
+                        Polygon
+                      </button>
+                    </div>
+                  </div>
+                  <div className="generation-guide-shortcuts">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        createGenerationGuideFromBounds(
+                          "Background",
+                          "background",
+                          { x: 0, y: 0, width: selectedScene.size.width, height: selectedScene.size.height },
+                          { kind: "background" }
+                        )
+                      }
+                    >
+                      Background
+                    </button>
+                    {(selectedScene.layers ?? []).map((layer) => (
+                      <button
+                        key={`guide-layer-shortcut-${layer.id}`}
+                        type="button"
+                        onClick={() =>
+                          createGenerationGuideFromBounds(
+                            layer.name,
+                            "layer",
+                            layer.bounds ?? {
+                              x: 0,
+                              y: 0,
+                              width: selectedScene.size.width,
+                              height: selectedScene.size.height
+                            },
+                            { kind: "layer", id: layer.id }
+                          )
+                        }
+                      >
+                        Layer {layer.id}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        createGenerationGuideFromBounds(
+                          "Player",
+                          "player",
+                          {
+                            x: (previewPlayerStart ?? selectedScene.playerStart).x - 48,
+                            y: (previewPlayerStart ?? selectedScene.playerStart).y - 128,
+                            width: 96,
+                            height: 128
+                          },
+                          { kind: "player" }
+                        )
+                      }
+                    >
+                      Player
+                    </button>
+                    {selectedScene.actors.map((actor) => (
+                      <button
+                        key={`guide-actor-shortcut-${actor.id}`}
+                        type="button"
+                        onClick={() =>
+                          createGenerationGuideFromBounds(
+                            actor.id,
+                            actor.role === "npc" ? "npc" : "actor",
+                            actor.bounds,
+                            { kind: "actor", id: actor.id }
+                          )
+                        }
+                      >
+                        Actor {actor.id}
+                      </button>
+                    ))}
+                    {selectedScene.pickups.map((pickup) => (
+                      <button
+                        key={`guide-pickup-shortcut-${pickup.id}`}
+                        type="button"
+                        onClick={() =>
+                          createGenerationGuideFromBounds(pickup.id, "pickup", pickup.bounds, {
+                            kind: "pickup",
+                            id: pickup.id
+                          })
+                        }
+                      >
+                        Pickup {pickup.id}
+                      </button>
+                    ))}
+                    {selectedScene.hotspots.map((hotspot) => (
+                      <button
+                        key={`guide-hotspot-shortcut-${hotspot.id}`}
+                        type="button"
+                        onClick={() =>
+                          createGenerationGuideFromBounds(hotspot.id, "hotspot", hotspot.bounds, {
+                            kind: "hotspot",
+                            id: hotspot.id
+                          })
+                        }
+                      >
+                        Hotspot {hotspot.id}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="scene-layer-stack">
+                    {currentGenerationGuides.length === 0 ? (
+                      <div className="empty-inspector compact">No generation guides.</div>
+                    ) : null}
+                    {currentGenerationGuides.map((guide) => (
+                      <button
+                        className={`generation-guide-row ${
+                          selectedGenerationGuide?.id === guide.id ? "selected" : ""
+                        }`}
+                        key={`guide-row-${guide.id}`}
+                        type="button"
+                        onClick={() => setSelectedGenerationGuideId(guide.id)}
+                      >
+                        <span
+                          className="generation-guide-swatch"
+                          style={{ backgroundColor: generationGuideColor(guide) }}
+                          aria-hidden="true"
+                        />
+                        <strong>{guide.name}</strong>
+                        <span>{guide.role}</span>
+                        <span>{generationGuideShapeLabel(guide.shape)}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {selectedGenerationGuide ? (
+                    <div className="generation-guide-detail">
+                      <div className="four-fields">
+                        <label>
+                          ID
+                          <input
+                            value={selectedGenerationGuide.id}
+                            onChange={(event) => updateSelectedGenerationGuide({ id: event.target.value })}
+                          />
+                        </label>
+                        <label>
+                          Name
+                          <input
+                            value={selectedGenerationGuide.name}
+                            onChange={(event) => updateSelectedGenerationGuide({ name: event.target.value })}
+                          />
+                        </label>
+                      </div>
+                      <div className="four-fields">
+                        <label>
+                          Role
+                          <select
+                            value={selectedGenerationGuide.role}
+                            onChange={(event) =>
+                              updateSelectedGenerationGuide({
+                                role: event.target.value as SceneGenerationGuideRole
+                              })
+                            }
+                          >
+                            {generationGuideRoles.map((role) => (
+                              <option key={`generation-guide-role-${role}`} value={role}>
+                                {role}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Color
+                          <input
+                            type="color"
+                            value={selectedGenerationGuide.color ?? generationGuideColor(selectedGenerationGuide)}
+                            onChange={(event) => updateSelectedGenerationGuide({ color: event.target.value })}
+                          />
+                        </label>
+                      </div>
+                      <label>
+                        Tags
+                        <input
+                          value={(selectedGenerationGuide.tags ?? []).join(", ")}
+                          onChange={(event) =>
+                            updateSelectedGenerationGuide({
+                              tags: event.target.value
+                                .split(",")
+                                .map((tag) => tag.trim())
+                                .filter(Boolean)
+                            })
+                          }
+                        />
+                      </label>
+                      <div className="four-fields">
+                        <label className="inline-toggle">
+                          <input
+                            checked={selectedGenerationGuide.visible !== false}
+                            type="checkbox"
+                            onChange={(event) => updateSelectedGenerationGuide({ visible: event.target.checked })}
+                          />
+                          Visible
+                        </label>
+                        <label className="inline-toggle">
+                          <input
+                            checked={selectedGenerationGuide.locked ?? false}
+                            type="checkbox"
+                            onChange={(event) => updateSelectedGenerationGuide({ locked: event.target.checked })}
+                          />
+                          Locked
+                        </label>
+                      </div>
+                      <label>
+                        Source
+                        <input
+                          value={
+                            selectedGenerationGuide.source
+                              ? `${selectedGenerationGuide.source.kind}${selectedGenerationGuide.source.id ? `:${selectedGenerationGuide.source.id}` : ""}`
+                              : ""
+                          }
+                          onChange={(event) => {
+                            const [kind, id] = event.target.value.split(":");
+                            if (!kind) {
+                              clearSelectedGenerationGuideSource();
+                              return;
+                            }
+                            updateSelectedGenerationGuide({
+                              source: {
+                                kind: kind as NonNullable<SceneGenerationGuide["source"]>["kind"],
+                                ...(id ? { id } : {})
+                              }
+                            });
+                          }}
+                        />
+                      </label>
+                      <label>
+                        Shape
+                        <select
+                          value={selectedGenerationGuide.shape.type}
+                          onChange={(event) => {
+                            const shapeType = event.target.value as SceneGenerationGuideShape["type"];
+                            const bounds = boundsForGenerationGuideShape(selectedGenerationGuide.shape);
+                            updateSelectedGenerationGuideShape(
+                              shapeType === "polygon"
+                                ? {
+                                    type: "polygon",
+                                    points: [
+                                      { x: bounds.x, y: bounds.y + bounds.height },
+                                      { x: bounds.x + bounds.width / 2, y: bounds.y },
+                                      { x: bounds.x + bounds.width, y: bounds.y + bounds.height }
+                                    ]
+                                  }
+                                : { type: shapeType, bounds }
+                            );
+                          }}
+                        >
+                          <option value="rect">rect</option>
+                          <option value="ellipse">ellipse</option>
+                          <option value="polygon">polygon</option>
+                        </select>
+                      </label>
+                      {(() => {
+                        const guideShape = selectedGenerationGuide.shape;
+                        if (guideShape.type === "polygon") {
+                          return (
+                            <div className="generation-guide-points">
+                              {guideShape.points.map((point, index) => (
+                                <div className="four-fields" key={`generation-guide-point-${index}`}>
+                                  <input
+                                    aria-label={`Guide point ${index + 1} x`}
+                                    value={String(point.x)}
+                                    onChange={(event) => {
+                                      const nextPoints = [...guideShape.points];
+                                      nextPoints[index] = { ...point, x: Number(event.target.value) };
+                                      updateSelectedGenerationGuideShape({ type: "polygon", points: nextPoints });
+                                    }}
+                                  />
+                                  <input
+                                    aria-label={`Guide point ${index + 1} y`}
+                                    value={String(point.y)}
+                                    onChange={(event) => {
+                                      const nextPoints = [...guideShape.points];
+                                      nextPoints[index] = { ...point, y: Number(event.target.value) };
+                                      updateSelectedGenerationGuideShape({ type: "polygon", points: nextPoints });
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={guideShape.points.length <= 3}
+                                    onClick={() =>
+                                      updateSelectedGenerationGuideShape({
+                                        type: "polygon",
+                                        points: guideShape.points.filter((_, pointIndex) => pointIndex !== index)
+                                      })
+                                    }
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              ))}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const lastPoint = guideShape.points.at(-1) ?? { x: 0, y: 0 };
+                                  updateSelectedGenerationGuideShape({
+                                    type: "polygon",
+                                    points: [...guideShape.points, { x: lastPoint.x + 16, y: lastPoint.y + 16 }]
+                                  });
+                                }}
+                              >
+                                Add point
+                              </button>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="four-fields">
+                            {(["x", "y", "width", "height"] as const).map((field) => (
+                              <input
+                                aria-label={`Guide ${field}`}
+                                key={`generation-guide-bounds-${field}`}
+                                value={String(guideShape.bounds[field])}
+                                onChange={(event) =>
+                                  updateSelectedGenerationGuideShape({
+                                    ...guideShape,
+                                    bounds: {
+                                      ...guideShape.bounds,
+                                      [field]: Number(event.target.value)
+                                    }
+                                  })
+                                }
+                              />
+                            ))}
+                          </div>
+                        );
+                      })()}
+                      <div className="layer-action-row">
+                        <button
+                          className="danger"
+                          type="button"
+                          disabled={selectedGenerationGuide.locked}
+                          onClick={deleteSelectedGenerationGuide}
+                        >
+                          Delete guide
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+                <div className="field-group">
                   <span>Scene resolution</span>
                   <div className="four-fields">
                     <input
@@ -9316,96 +10874,6 @@ export function EditorApp() {
           </div>
         </aside>
       </div>
-      {backgroundCleanupTarget && workspace !== "assets" ? (
-        <div className="cleanup-modal-backdrop" role="presentation">
-          <section className="cleanup-modal" role="dialog" aria-modal="true" aria-label="Remove background">
-            <div className="cleanup-modal-heading">
-              <div>
-                <span className="overview-label">Remove background</span>
-                <strong>{backgroundCleanupTarget.assetId}</strong>
-                <p>{backgroundCleanupTarget.assetPath}</p>
-              </div>
-              <button
-                className="secondary-action compact-action"
-                type="button"
-                onClick={() => setBackgroundCleanupTarget(null)}
-              >
-                Close
-              </button>
-            </div>
-            <div className="cleanup-preview-grid">
-              <div className="cleanup-preview-pane">
-                <span>Source</span>
-                <canvas
-                  ref={cleanupSourceCanvasRef}
-                  className="cleanup-canvas"
-                  onPointerDown={pickCleanupColor}
-                />
-              </div>
-              <div className="cleanup-preview-pane checkerboard-pane">
-                <span>Preview</span>
-                <canvas ref={cleanupOutputCanvasRef} className="cleanup-canvas" />
-              </div>
-            </div>
-            <div className="cleanup-controls">
-              <label>
-                Key color
-                <input
-                  value={cleanupKeyColor}
-                  onChange={(event) => setCleanupKeyColor(event.target.value)}
-                />
-              </label>
-              <label>
-                Tolerance
-                <input
-                  min="0"
-                  max="255"
-                  type="range"
-                  value={cleanupTolerance}
-                  onChange={(event) => setCleanupTolerance(event.target.value)}
-                />
-                <small>{cleanupTolerance}</small>
-              </label>
-              <label>
-                Feather
-                <input
-                  min="0"
-                  max="120"
-                  type="range"
-                  value={cleanupFeather}
-                  onChange={(event) => setCleanupFeather(event.target.value)}
-                />
-                <small>{cleanupFeather}</small>
-              </label>
-              <label className="checkbox-field">
-                <input
-                  checked={cleanupSpillReduction}
-                  type="checkbox"
-                  onChange={(event) => setCleanupSpillReduction(event.target.checked)}
-                />
-                Reduce chroma spill
-              </label>
-            </div>
-            <div className="cleanup-status-row">
-              <p>{cleanupStatus}</p>
-              {cleanupSummary ? (
-                <span>
-                  {cleanupSummary.transparentPixels} transparent / {cleanupSummary.alphaPixels} soft /{" "}
-                  {cleanupSummary.totalPixels} total
-                </span>
-              ) : null}
-            </div>
-            <div className="cleanup-actions">
-              <button className="secondary-action" type="button" onClick={renderBackgroundCleanupPreview}>
-                Refresh Preview
-              </button>
-              <button className="play-action" type="button" onClick={saveBackgroundCleanupAsset}>
-                Save New Asset And Assign
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
       </>
       )}
     </div>

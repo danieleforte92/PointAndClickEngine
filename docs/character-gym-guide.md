@@ -20,7 +20,7 @@ can be saved for future tooling.
 ## Assign A Pack
 
 Add the pack to `animationPacks` in `adventure.project.json`, then assign it in
-a scene or through the editor's Player/Actor controls:
+a scene or through **Scene > Player** or the selected actor inspector:
 
 ```json
 "player": {
@@ -67,7 +67,12 @@ Use prompt-pack targets to generate source material for Character Gym:
 - **Character Turnaround** for consistent proportions;
 - **Walk Cycle Reference** for animation planning;
 - **Dialogue Portrait Sheet** for future portrait support.
+- `sprite-sheet` targets for assets intended to become animation packs;
+- `animation-reference` targets for guide images that should inform manual pack
+  slicing and clip timing.
 
 For sprite work, prefer ComfyUI workflows that output chroma or transparent PNGs.
-If the workflow does not preserve alpha, import the result as a reference asset
-and keep the animation pack tied to a cleaned spritesheet.
+After generation/import, open the asset in Asset Studio and use Character Gym to
+create or update the pack. If the workflow does not preserve alpha, use Chroma
+Key first or keep the result as an animation reference instead of a runtime
+spritesheet.

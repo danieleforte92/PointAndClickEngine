@@ -18,6 +18,8 @@ import {
   type ProjectManifest,
   type Rect,
   type SceneActor,
+  type SceneGenerationGuide,
+  type SceneLayer,
   type ScenePlayerConfig,
   type ScenePickup,
   type SceneDocument,
@@ -67,6 +69,8 @@ export type ActorPatch = SceneActor;
 
 export interface ScenePatch {
   background: string;
+  generationGuides?: SceneGenerationGuide[];
+  layers?: SceneLayer[];
   name: string;
   player?: ScenePlayerConfig;
   playerStart: Vector2;
@@ -437,6 +441,96 @@ function validateScenePoint(
   }
 }
 
+function validateSceneRect(
+  diagnostics: ProjectDiagnostic[],
+  scene: Layered2DScene,
+  rect: Rect | undefined,
+  pathValue: string,
+  code: string
+): void {
+  if (!rect) return;
+  if (rect.x < 0 || rect.y < 0 || rect.x + rect.width > scene.size.width || rect.y + rect.height > scene.size.height) {
+    diagnostics.push(
+      createDiagnostic(
+        "warning",
+        code,
+        `Scene rectangle is outside scene "${scene.id}".`,
+        { documentId: scene.id, path: pathValue }
+      )
+    );
+  }
+}
+
+function guideShapeBounds(guide: SceneGenerationGuide): Rect {
+  if (guide.shape.type === "polygon") {
+    const xs = guide.shape.points.map((point) => point.x);
+    const ys = guide.shape.points.map((point) => point.y);
+    const minX = Math.min(...xs);
+    const minY = Math.min(...ys);
+    const maxX = Math.max(...xs);
+    const maxY = Math.max(...ys);
+    return {
+      x: minX,
+      y: minY,
+      width: Math.max(1, maxX - minX),
+      height: Math.max(1, maxY - minY)
+    };
+  }
+  return guide.shape.bounds;
+}
+
+function validateGenerationGuide(
+  diagnostics: ProjectDiagnostic[],
+  scene: Layered2DScene,
+  guide: SceneGenerationGuide
+): void {
+  validateSceneRect(
+    diagnostics,
+    scene,
+    guideShapeBounds(guide),
+    `scenes/${scene.id}/generationGuides/${guide.id}/shape`,
+    "scene.generation-guide-outside-scene"
+  );
+
+  const source = guide.source;
+  if (!source) return;
+
+  const idRequired = source.kind === "layer" || source.kind === "actor" || source.kind === "pickup" || source.kind === "hotspot";
+  if (idRequired && !source.id) {
+    diagnostics.push(
+      createDiagnostic(
+        "error",
+        "scene.generation-guide-source-id-missing",
+        `Generation guide "${guide.id}" source "${source.kind}" requires an id.`,
+        { documentId: scene.id, path: `scenes/${scene.id}/generationGuides/${guide.id}/source/id` }
+      )
+    );
+    return;
+  }
+
+  const exists =
+    source.kind === "scene" || source.kind === "background" || source.kind === "player"
+      ? true
+      : source.kind === "layer"
+        ? (scene.layers ?? []).some((layer) => layer.id === source.id)
+        : source.kind === "actor"
+          ? scene.actors.some((actor) => actor.id === source.id)
+          : source.kind === "pickup"
+            ? scene.pickups.some((pickup) => pickup.id === source.id)
+            : scene.hotspots.some((hotspot) => hotspot.id === source.id);
+
+  if (!exists) {
+    diagnostics.push(
+      createDiagnostic(
+        "error",
+        "scene.generation-guide-source-missing",
+        `Generation guide "${guide.id}" source "${source.kind}:${source.id ?? ""}" does not exist.`,
+        { documentId: scene.id, path: `scenes/${scene.id}/generationGuides/${guide.id}/source` }
+      )
+    );
+  }
+}
+
 function validateActions(
   bundle: ProjectBundle,
   diagnostics: ProjectDiagnostic[],
@@ -680,6 +774,26 @@ export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[
       );
     }
 
+    for (const layer of scene.layers ?? []) {
+      if (!bundle.assets[layer.assetId]) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "scene.layer-asset-missing",
+            `Scene "${scene.id}" layer "${layer.id}" references missing asset "${layer.assetId}".`,
+            { documentId: scene.id, path: `scenes/${scene.id}/layers/${layer.id}/assetId` }
+          )
+        );
+      }
+      validateSceneRect(
+        diagnostics,
+        scene,
+        layer.bounds,
+        `scenes/${scene.id}/layers/${layer.id}/bounds`,
+        "scene.layer-bounds-outside-scene"
+      );
+    }
+
     for (const hotspot of scene.hotspots) {
       if (defaultLocale && !(hotspot.labelKey in defaultLocale.strings)) {
         diagnostics.push(
@@ -831,6 +945,22 @@ export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[
       actorIds.add(actor.id);
       validateActor(bundle, diagnostics, scene, actor, defaultLocale);
     }
+
+    const generationGuideIds = new Set<string>();
+    for (const guide of scene.generationGuides ?? []) {
+      if (generationGuideIds.has(guide.id)) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "scene.generation-guide-duplicate-id",
+            `Scene "${scene.id}" contains duplicate generation guide "${guide.id}".`,
+            { documentId: scene.id, path: `scenes/${scene.id}/generationGuides/${guide.id}` }
+          )
+        );
+      }
+      generationGuideIds.add(guide.id);
+      validateGenerationGuide(diagnostics, scene, guide);
+    }
   }
 
   for (const promptPack of Object.values(bundle.promptPacks)) {
@@ -844,6 +974,12 @@ export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[
         )
       );
     }
+
+    const promptPackScene = bundle.scenes[promptPack.sceneId];
+    const promptPackGuideIds =
+      promptPackScene?.type === "layered-2d"
+        ? new Set((promptPackScene.generationGuides ?? []).map((guide) => guide.id))
+        : new Set<string>();
 
     for (const target of promptPack.outputs.generationTargets) {
       if (target.referenceAssetId && !bundle.assets[target.referenceAssetId]) {
@@ -865,6 +1001,18 @@ export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[
             { documentId: promptPack.id, path: `prompt-packs/${promptPack.id}/generationTargets/${target.id}/maskAssetId` }
           )
         );
+      }
+      for (const guideId of target.guideIds ?? []) {
+        if (!promptPackGuideIds.has(guideId)) {
+          diagnostics.push(
+            createDiagnostic(
+              "error",
+              "prompt-pack.generation-guide-missing",
+              `Prompt pack "${promptPack.id}" target "${target.id}" references missing generation guide "${guideId}".`,
+              { documentId: promptPack.id, path: `prompt-packs/${promptPack.id}/generationTargets/${target.id}/guideIds/${guideId}` }
+            )
+          );
+        }
       }
     }
   }
@@ -1309,12 +1457,26 @@ function findAssetReferences(
 ): Array<{
   documentId: string;
   path: string;
-  use: "sceneBackground" | "scenePlayer" | "sceneActor" | "scenePickup" | "promptTargetReference" | "promptTargetMask";
+  use:
+    | "sceneBackground"
+    | "sceneLayer"
+    | "scenePlayer"
+    | "sceneActor"
+    | "scenePickup"
+    | "promptTargetReference"
+    | "promptTargetMask";
 }> {
   const references: Array<{
     documentId: string;
     path: string;
-    use: "sceneBackground" | "scenePlayer" | "sceneActor" | "scenePickup" | "promptTargetReference" | "promptTargetMask";
+    use:
+      | "sceneBackground"
+      | "sceneLayer"
+      | "scenePlayer"
+      | "sceneActor"
+      | "scenePickup"
+      | "promptTargetReference"
+      | "promptTargetMask";
   }> = [];
 
   for (const scene of Object.values(bundle.scenes)) {
@@ -1332,6 +1494,15 @@ function findAssetReferences(
         path: `scenes/${scene.id}/player/assetId`,
         use: "scenePlayer"
       });
+    }
+    for (const layer of scene.layers ?? []) {
+      if (layer.assetId === asset.id) {
+        references.push({
+          documentId: scene.id,
+          path: `scenes/${scene.id}/layers/${layer.id}/assetId`,
+          use: "sceneLayer"
+        });
+      }
     }
     for (const actor of scene.actors) {
       if (actor.assetId === asset.id) {
@@ -1443,6 +1614,8 @@ function patchScene(scene: Layered2DScene, patch: ScenePatch): Layered2DScene {
   return {
     ...scene,
     background: patch.background,
+    ...(patch.generationGuides ? { generationGuides: patch.generationGuides } : {}),
+    ...(patch.layers ? { layers: patch.layers } : {}),
     name: patch.name,
     ...(patch.player ? { player: patch.player } : {}),
     playerStart: patch.playerStart,
