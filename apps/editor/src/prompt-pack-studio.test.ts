@@ -185,12 +185,56 @@ describe("Prompt Pack Studio", () => {
     );
     expect(promptPack.outputs.generationTargets).toContainEqual(
       expect.objectContaining({
+        id: "dock-hook",
+        backgroundMode: "chroma-blue",
+        expectedAlpha: false,
+        intendedUse: "prop"
+      })
+    );
+    expect(promptPack.outputs.generationTargets).toContainEqual(
+      expect.objectContaining({
+        id: "keeper",
+        backgroundMode: "chroma-blue",
+        expectedAlpha: false,
+        intendedUse: "character-reference"
+      })
+    );
+    expect(promptPack.outputs.generationTargets).toContainEqual(
+      expect.objectContaining({
         id: "keeper-sprite-sheet",
         backgroundMode: "chroma-blue",
         intendedUse: "sprite-sheet"
       })
     );
     expect(validateDocument("promptPack", promptPack)).toEqual({ valid: true, errors: [] });
+  });
+
+  it("humanizes missing locale labels for new scene entities", () => {
+    const context = buildPromptPackContext(
+      {
+        ...bundle,
+        scenes: {
+          [scene.id]: {
+            ...scene,
+            actors: [
+              ...scene.actors,
+              {
+                actions: { useItemFlows: [] },
+                bounds: { x: 10, y: 10, width: 64, height: 96 },
+                depth: 5,
+                id: "new-actor",
+                labelKey: "actor.new-actor",
+                role: "npc"
+              }
+            ]
+          }
+        }
+      },
+      scene.id,
+      "Ink wash coastal noir."
+    );
+
+    expect(context.labels["actor.new-actor"]).toBe("New Actor");
   });
 
   it("keeps art direction and core negative prompt when provider output is sparse", () => {
@@ -222,6 +266,11 @@ describe("Prompt Pack Studio", () => {
     expect(promptPack.outputs.negativePrompt).toContain("existing franchise character");
     expect(promptPack.outputs.negativePrompt).toContain("LucasArts logo");
     expect(promptPack.outputs.styleNotes.join(" ")).toContain("Provider style note.");
+    expect(promptPack.outputs.propPrompts.map((prompt) => prompt.id)).toEqual(["dock-hook", "radio"]);
+    expect(promptPack.outputs.characterReferencePrompts.map((prompt) => prompt.id)).toEqual([
+      "keeper",
+      "keeper-sprite-sheet"
+    ]);
     expect(validateDocument("promptPack", promptPack)).toEqual({ valid: true, errors: [] });
   });
 });

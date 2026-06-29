@@ -1,4 +1,11 @@
-import type { AnimationPackDocument, AssetDocument, Layered2DScene, SceneActor, Vector2 } from "@pointclick/contracts";
+import type {
+  AnimationPackDocument,
+  AssetDocument,
+  Layered2DScene,
+  SceneActor,
+  ScenePickup,
+  Vector2
+} from "@pointclick/contracts";
 import { AnimatedSprite, Application, Assets, Container, Graphics, Rectangle, Sprite, Texture } from "pixi.js";
 
 export interface SceneInteractionHandlers {
@@ -26,7 +33,7 @@ export class PixiSceneRenderer {
   private readonly app = new Application();
   private readonly actorTargets = new Map<string, Container>();
   private readonly player = new Container();
-  private readonly pickupTargets = new Map<string, Graphics>();
+  private readonly pickupTargets = new Map<string, Container>();
   private playerAnimatedSprite: AnimatedSprite | null = null;
   private playerClipTextures = new Map<string, Texture[]>();
   private playerCurrentClipId: string | null = null;
@@ -125,22 +132,7 @@ export class PixiSceneRenderer {
     }
 
     for (const pickup of this.scene.pickups) {
-      const target = new Graphics()
-        .roundRect(
-          pickup.bounds.x,
-          pickup.bounds.y,
-          pickup.bounds.width,
-          pickup.bounds.height,
-          8
-        )
-        .fill({ color: 0x9bd8b6, alpha: 0.18 });
-      target.zIndex = 90;
-      target.eventMode = "static";
-      target.cursor = "pointer";
-      target.on("pointertap", (event) => {
-        event.stopPropagation();
-        this.handlers.onPickup(pickup.id);
-      });
+      const target = await this.createPickupTarget(pickup);
       this.pickupTargets.set(pickup.id, target);
       this.app.stage.addChild(target);
     }
@@ -344,6 +336,52 @@ export class PixiSceneRenderer {
       .roundRect(0, 0, actor.bounds.width, actor.bounds.height, 8)
       .fill({ color: 0x66d9ef, alpha: actor.role === "decoration" ? 0.08 : 0.18 })
       .stroke({ color: 0x66d9ef, alpha: 0.72, width: 2 });
+  }
+
+  private async createPickupTarget(pickup: ScenePickup): Promise<Container> {
+    const container = new Container();
+    container.x = pickup.bounds.x;
+    container.y = pickup.bounds.y;
+    container.zIndex = 90;
+    container.eventMode = "static";
+    container.cursor = "pointer";
+    container.on("pointertap", (event) => {
+      event.stopPropagation();
+      this.handlers.onPickup(pickup.id);
+    });
+
+    if (pickup.assetId) {
+      const asset = this.options.assets?.[pickup.assetId];
+      if (asset) {
+        const assetUrl = new URL(asset.path, this.options.assetBaseUrl ?? window.location.href).toString();
+        try {
+          const texture = await Assets.load(assetUrl);
+          const sprite = new Sprite(texture);
+          sprite.width = pickup.bounds.width;
+          sprite.height = pickup.bounds.height;
+          container.addChild(sprite);
+        } catch {
+          container.addChild(this.createPickupDebugShape(pickup));
+        }
+      } else {
+        container.addChild(this.createPickupDebugShape(pickup));
+      }
+    } else {
+      container.addChild(this.createPickupDebugShape(pickup));
+    }
+
+    const hitArea = new Graphics()
+      .rect(0, 0, pickup.bounds.width, pickup.bounds.height)
+      .fill({ color: 0xffffff, alpha: 0.001 });
+    container.addChild(hitArea);
+
+    return container;
+  }
+
+  private createPickupDebugShape(pickup: ScenePickup): Graphics {
+    return new Graphics()
+      .roundRect(0, 0, pickup.bounds.width, pickup.bounds.height, 8)
+      .fill({ color: 0x9bd8b6, alpha: 0.18 });
   }
 
   private async createAnimatedSprite(

@@ -10,6 +10,8 @@ export interface PromptTargetResolution {
 }
 
 function shouldUseCharacterPrompts(target: PromptPackGenerationTarget) {
+  if (target.intendedUse === "prop") return false;
+
   return (
     target.intendedUse === "character-reference" ||
     target.intendedUse === "animation-reference" ||
@@ -91,4 +93,34 @@ export function resolvePromptForGenerationTarget(
     prompt: promptPack.outputs.sceneBackgroundPrompt,
     warning: `No ${target.intendedUse} prompt matched target "${target.id}". Falling back to the scene background prompt.`
   };
+}
+
+export function composeTargetPositivePrompt(basePrompt: string, target: PromptPackGenerationTarget): string {
+  const customization = target.customPositivePrompt?.trim();
+  return [basePrompt.trim(), customization ? `Target customization: ${customization}` : ""]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+export function composeTargetNegativePrompt(
+  promptPack: PromptPackDocument,
+  target: PromptPackGenerationTarget
+): string {
+  const parts = [
+    target.safetyNegativePrompt,
+    target.customNegativePrompt,
+    promptPack.outputs.negativePrompt
+  ];
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const part of parts) {
+    for (const item of part?.split(",") ?? []) {
+      const trimmed = item.trim();
+      const key = trimmed.toLowerCase();
+      if (!trimmed || seen.has(key)) continue;
+      seen.add(key);
+      merged.push(trimmed);
+    }
+  }
+  return merged.join(", ");
 }

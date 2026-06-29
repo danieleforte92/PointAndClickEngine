@@ -70,7 +70,7 @@ a time and import the resulting PNG into the project asset library.
 2. In the editor AI workspace, use **ComfyUI Image Generation**.
 3. Set the base URL to `http://127.0.0.1:8188`.
 4. Enter the exact checkpoint filename visible in ComfyUI, including extension,
-   or provide a ComfyUI workflow API JSON path.
+   or provide a project-relative ComfyUI workflow API JSON path.
 5. Choose an output preset and generation target from the active prompt pack.
 6. Optionally set a seed.
 7. Set a timeout long enough for the workflow. Krea/Qwen workflows can take many
@@ -83,8 +83,15 @@ it under `assets/imported`, and registers a normal image asset document.
 
 ### Custom ComfyUI API Workflows
 
-The **Workflow API JSON path** field accepts either an absolute path or a path
-relative to the current project directory or editor working directory.
+The **Workflow API JSON path** field accepts a path relative to the loaded
+project directory. For example, if the loaded project is
+`apps/starter-game/project`, copy the workflow to
+`apps/starter-game/project/workflows/image_krea2_turbo_t2i.json` and enter
+`workflows/image_krea2_turbo_t2i.json`.
+
+Absolute paths and paths outside the loaded project are rejected in Creator
+Alpha to prevent project-file path traversal. Root-level experimental workflow
+JSON files are ignored by release checks and are not searched automatically.
 
 When a custom workflow is provided, the editor patches:
 

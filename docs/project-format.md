@@ -55,6 +55,24 @@ Creator Alpha's editor exposes player assignment today. The full Character Gym
 sprite editor is the next UX milestone for editing frame grids, foot origins,
 clip frame lists, and preview loops without manual JSON edits.
 
+## Pickup Assets
+
+Pickups can optionally reference a registered image asset:
+
+```json
+{
+  "id": "rusty-hook",
+  "itemId": "rusty-hook",
+  "labelKey": "pickup.rusty-hook",
+  "assetId": "rusty-hook-image",
+  "bounds": { "x": 300, "y": 560, "width": 70, "height": 60 }
+}
+```
+
+`assetId` is optional. If it is present, validation requires the asset document
+to exist and the renderer draws the image inside the pickup bounds. If it is
+absent, the renderer falls back to the debug pickup shape.
+
 ## Flow Transitions
 
 Flows can change scenes with a `change-scene` node:

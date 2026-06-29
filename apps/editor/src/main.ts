@@ -342,6 +342,34 @@ function assetKindFromExtension(filePath: string): "image" {
   return "image";
 }
 
+const supportedImageExtensions = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg"]);
+
+function assertSupportedImagePath(filePath: string, label: string) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (!supportedImageExtensions.has(extension)) {
+    throw new Error(`${label} must be a supported image file.`);
+  }
+}
+
+function assertStringArray(value: unknown, label: string): string[] {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+    throw new Error(`${label} must be a list of file paths.`);
+  }
+  return value;
+}
+
+function assertProcessedImageRequest(value: unknown): { dataUrl: string; filenameHint: string } {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    typeof (value as { dataUrl?: unknown }).dataUrl !== "string" ||
+    typeof (value as { filenameHint?: unknown }).filenameHint !== "string"
+  ) {
+    throw new Error("Processed image save request must include a PNG data URL and filename hint.");
+  }
+  return value as { dataUrl: string; filenameHint: string };
+}
+
 function slugifyAssetId(value: string): string {
   const slug = value
     .toLowerCase()
@@ -367,6 +395,94 @@ async function uniquePath(basePath: string): Promise<string> {
       throw error;
     }
   }
+}
+
+interface ImportImageSource {
+  filename: string;
+  writeTo(targetPath: string): Promise<void>;
+}
+
+async function importImageSources(projectDirectory: string, sources: ImportImageSource[]) {
+  if (sources.length === 0) {
+    throw new Error("No image files were provided for import.");
+  }
+
+  const importedAssetsDirectory = path.join(projectDirectory, "assets", "imported");
+  await mkdir(importedAssetsDirectory, { recursive: true });
+
+  const existing = await loadProjectFromDirectory(projectDirectory);
+  const existingAssetIds = new Set(Object.keys(existing.bundle.assets));
+  const assets = [];
+  const assetIds: string[] = [];
+
+  for (const source of sources) {
+    assertSupportedImagePath(source.filename, "Imported asset");
+    const sourceName = path.basename(source.filename);
+    const targetPath = await uniquePath(path.join(importedAssetsDirectory, sourceName));
+    const relativeFilePath = path.relative(projectDirectory, targetPath).replace(/\\/g, "/");
+    const baseId = slugifyAssetId(path.basename(targetPath, path.extname(targetPath)));
+    let assetId = baseId;
+    let counter = 1;
+    while (existingAssetIds.has(assetId)) {
+      assetId = `${baseId}-${counter}`;
+      counter += 1;
+    }
+    existingAssetIds.add(assetId);
+    assetIds.push(assetId);
+
+    await source.writeTo(targetPath);
+
+    assets.push({
+      documentPath: `assets/${assetId}.asset.json`,
+      filePath: relativeFilePath,
+      id: assetId,
+      kind: assetKindFromExtension(targetPath),
+      source: "imported" as const
+    });
+  }
+
+  const loaded = await applyProjectCommand(projectDirectory, {
+    type: "asset/import",
+    assets
+  });
+  loadedProjectDirectory = loaded.directory;
+  return {
+    assetIds,
+    snapshot: await summarizeProject(loaded.directory, loaded.bundle)
+  };
+}
+
+async function importProjectAssetFiles(filePaths: unknown) {
+  const imageFilePaths = assertStringArray(filePaths, "Imported assets");
+  const projectDirectory = currentProjectPath();
+  return importImageSources(
+    projectDirectory,
+    imageFilePaths.map((sourcePath) => ({
+      filename: sourcePath,
+      writeTo: (targetPath) => copyFile(sourcePath, targetPath)
+    }))
+  );
+}
+
+async function saveProcessedImageAsset(requestValue: unknown) {
+  const request = assertProcessedImageRequest(requestValue);
+  const match = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(request.dataUrl.trim());
+  if (!match) {
+    throw new Error("Processed image must be a PNG data URL.");
+  }
+  const filename = path.basename(request.filenameHint.trim() || "processed-alpha.png");
+  const filenameWithExtension = path.extname(filename).toLowerCase() === ".png" ? filename : `${filename}.png`;
+  const bytes = Buffer.from(match[1]!, "base64");
+  if (bytes.byteLength === 0) {
+    throw new Error("Processed image PNG is empty.");
+  }
+
+  return importImageSources(currentProjectPath(), [
+    {
+      filename: filenameWithExtension,
+      writeTo: (targetPath) => writeFile(targetPath, bytes)
+    }
+  ]);
 }
 
 async function summarizeProject(projectDirectory: string, bundle: ProjectBundle) {
@@ -467,44 +583,7 @@ async function importProjectAssets(browserWindow: BrowserWindow) {
     return null;
   }
 
-  const projectDirectory = currentProjectPath();
-  const importedAssetsDirectory = path.join(projectDirectory, "assets", "imported");
-  await mkdir(importedAssetsDirectory, { recursive: true });
-
-  const existing = await loadProjectFromDirectory(projectDirectory);
-  const existingAssetIds = new Set(Object.keys(existing.bundle.assets));
-  const assets = [];
-
-  for (const sourcePath of result.filePaths) {
-    const sourceName = path.basename(sourcePath);
-    const targetPath = await uniquePath(path.join(importedAssetsDirectory, sourceName));
-    const relativeFilePath = path.relative(projectDirectory, targetPath).replace(/\\/g, "/");
-    const baseId = slugifyAssetId(path.basename(targetPath, path.extname(targetPath)));
-    let assetId = baseId;
-    let counter = 1;
-    while (existingAssetIds.has(assetId)) {
-      assetId = `${baseId}-${counter}`;
-      counter += 1;
-    }
-    existingAssetIds.add(assetId);
-
-    await copyFile(sourcePath, targetPath);
-
-    assets.push({
-      documentPath: `assets/${assetId}.asset.json`,
-      filePath: relativeFilePath,
-      id: assetId,
-      kind: assetKindFromExtension(targetPath),
-      source: "imported" as const
-    });
-  }
-
-  const loaded = await applyProjectCommand(projectDirectory, {
-    type: "asset/import",
-    assets
-  });
-  loadedProjectDirectory = loaded.directory;
-  return summarizeProject(loaded.directory, loaded.bundle);
+  return (await importProjectAssetFiles(result.filePaths)).snapshot;
 }
 
 async function promptForProjectDirectory(browserWindow: BrowserWindow) {
@@ -591,7 +670,10 @@ async function readComfyWorkflowJson(projectDirectory: string, workflowPath: str
     return JSON.parse(contents) as unknown;
   } catch (error) {
     const detail = error instanceof Error ? ` ${error.message}` : "";
-    throw new Error(`Unable to read ComfyUI workflow API JSON at "${trimmedPath}".${detail}`);
+    throw new Error(
+      `Unable to read ComfyUI workflow API JSON at "${trimmedPath}" inside the loaded project "${projectDirectory}". ` +
+        `Workflow paths are project-relative for Creator Alpha; copy the workflow into the project, for example "workflows/${path.basename(trimmedPath)}", and use that relative path.${detail}`
+    );
   }
 }
 
@@ -725,6 +807,15 @@ app.whenReady().then(() => {
     }
     return importProjectAssets(browserWindow);
   });
+  ipcMain.handle("project:import-asset-files", async (_event, filePaths: unknown) => {
+    return importProjectAssetFiles(filePaths);
+  });
+  ipcMain.handle(
+    "project:save-processed-image-asset",
+    async (_event, request: unknown) => {
+      return saveProcessedImageAsset(request);
+    }
+  );
   ipcMain.handle("ai:prompt-pack", async (_event, request) => {
     return generatePromptPack(request);
   });

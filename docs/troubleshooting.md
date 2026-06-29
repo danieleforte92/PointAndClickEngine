@@ -72,10 +72,12 @@ Use a ComfyUI workflow for one of these paths:
 
 - generate directly with alpha if the model/workflow supports it;
 - generate on flat blue/green chroma and remove the background in ComfyUI;
-- import the chroma image as a reference and clean it in an external tool.
+- import the chroma image, open **Remove Background** in the editor inspector,
+  preview the chroma cleanup, then save it as a new PNG asset.
 
 If the workflow saves an RGB PNG, the editor will still import it, but it is not
-ready as a transparent prop or character asset.
+ready as a transparent prop or character asset until you run chroma cleanup or
+replace it with an alpha-capable workflow output.
 
 ## Packaged Preview
 

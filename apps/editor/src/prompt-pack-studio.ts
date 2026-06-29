@@ -82,9 +82,18 @@ function defaultLocale(bundle: ProjectBundle) {
   return bundle.locales[bundle.manifest.defaultLocale] ?? Object.values(bundle.locales)[0] ?? null;
 }
 
+function humanizeId(value: string) {
+  const idSegment = value.split(".").pop() ?? value;
+  return idSegment
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
 function labelFor(bundle: ProjectBundle, labelKey: string) {
   const locale = defaultLocale(bundle);
-  return locale?.strings[labelKey] ?? labelKey;
+  return locale?.strings[labelKey] ?? humanizeId(labelKey);
 }
 
 function sentenceList(values: string[], fallback: string) {
@@ -114,16 +123,18 @@ function providerLabel(provider: PromptProviderId) {
 function targetForPickup(pickup: ScenePickup): PromptPackGenerationTarget {
   return {
     id: pickup.id,
-    backgroundMode: "transparent-alpha",
-    expectedAlpha: true,
+    backgroundMode: "chroma-blue",
+    chromaColor: "#00A2FF",
+    expectedAlpha: false,
     intendedUse: "prop",
     marginPercent: 8,
-    safetyNegativePrompt: "background, floor shadow baked into alpha, cropped object, multiple objects",
+    safetyNegativePrompt:
+      "room background, scenery, floor plane, cast shadow, cropped object, multiple objects, object merged into background",
     sourceEntityId: pickup.id,
     sourceEntityKind: "pickup",
     width: Math.max(1, Math.round(pickup.bounds.width)),
     height: Math.max(1, Math.round(pickup.bounds.height)),
-    transparent: true
+    transparent: false
   };
 }
 
@@ -131,19 +142,20 @@ function targetForActor(actor: SceneActor): PromptPackGenerationTarget {
   const intendedUse = actor.role === "npc" ? "character-reference" : "prop";
   return {
     id: actor.id,
-    backgroundMode: "transparent-alpha",
-    expectedAlpha: true,
+    backgroundMode: "chroma-blue",
+    chromaColor: "#00A2FF",
+    expectedAlpha: false,
     intendedUse,
     marginPercent: intendedUse === "prop" ? 8 : 12,
     safetyNegativePrompt:
       intendedUse === "prop"
-        ? "background, scenery, cropped object, multiple objects"
-        : "background, cropped feet, extra characters, duplicate character, inconsistent costume",
+        ? "room background, scenery, floor plane, cast shadow, cropped object, multiple objects, object merged into background"
+        : "room background, scenery, floor plane, cropped feet, extra characters, duplicate character, inconsistent costume, character merged into background",
     sourceEntityId: actor.id,
     sourceEntityKind: "actor",
     width: Math.max(1, Math.round(actor.bounds.width)),
     height: Math.max(1, Math.round(actor.bounds.height)),
-    transparent: true
+    transparent: false
   };
 }
 
@@ -203,13 +215,13 @@ function buildOutputs(scene: Layered2DScene, context: PromptPackContext): Prompt
   const propPrompts = [
     ...scene.pickups.map((pickup) => ({
       id: pickup.id,
-      prompt: `Transparent alpha prop asset for "${labels[pickup.labelKey] ?? pickup.id}" in ${context.sceneName}. Single isolated object, clean PNG alpha edge, 8 percent padding, readable at ${Math.round(pickup.bounds.width)}x${Math.round(pickup.bounds.height)} pixels. Match brief: ${context.artBrief}.`
+      prompt: `Single isolated prop asset for "${labels[pickup.labelKey] ?? pickup.id}" in ${context.sceneName}, centered on a flat #00A2FF chroma-blue background. Full object visible, no floor, no cast shadow, no scene background, clean readable silhouette, 8 percent padding, readable at ${Math.round(pickup.bounds.width)}x${Math.round(pickup.bounds.height)} pixels. Match brief: ${context.artBrief}.`
     })),
     ...scene.actors
       .filter((actor) => actor.role !== "npc")
       .map((actor) => ({
         id: actor.id,
-        prompt: `Transparent alpha ${actor.role} asset for "${labels[actor.labelKey] ?? actor.id}" in ${context.sceneName}. Single isolated subject with clean PNG alpha edge, strong silhouette, and the same palette as the scene.`
+        prompt: `Single isolated ${actor.role} asset for "${labels[actor.labelKey] ?? actor.id}" in ${context.sceneName}, centered on a flat #00A2FF chroma-blue background. Full object visible, no floor, no cast shadow, no scene background, strong silhouette, and the same palette as the scene.`
       }))
   ];
 
@@ -218,7 +230,7 @@ function buildOutputs(scene: Layered2DScene, context: PromptPackContext): Prompt
     .flatMap((actor) => [
       {
         id: actor.id,
-        prompt: `Transparent alpha full-body character reference for "${labels[actor.labelKey] ?? actor.id}", an NPC in ${context.sceneName}. Neutral readable pose, visible feet, clean PNG alpha edge, 12 percent padding, style brief: ${context.artBrief}.`
+        prompt: `Full-body character reference for "${labels[actor.labelKey] ?? actor.id}", an NPC in ${context.sceneName}, centered on a flat #00A2FF chroma-blue background. Neutral readable pose, visible feet, no floor plane, no cast shadow, no scene background, 12 percent padding, style brief: ${context.artBrief}.`
       },
       {
         id: `${actor.id}-sprite-sheet`,
@@ -232,7 +244,7 @@ function buildOutputs(scene: Layered2DScene, context: PromptPackContext): Prompt
     characterReferencePrompts,
     animationNotes: [
       "Keep walk cycles centered on a stable foot origin so Character Gym can align depth and path playback.",
-      "Author idle, walk, and talk clips as short loops with consistent frame size and transparent backgrounds.",
+      "Author idle, walk, and talk clips as short loops with consistent frame size on chroma or transparent backgrounds.",
       `Scene interactables to preserve: ${sentenceList([...pickupLabels, ...actorLabels], "none yet")}.`
     ],
     negativePrompt: defaultNegativePrompt,
@@ -320,6 +332,17 @@ function mergeUniqueTextParts(parts: Array<string | undefined>) {
   return merged.join(", ");
 }
 
+function mergePromptEntriesById(
+  deterministicPrompts: Array<{ id: string; prompt: string }>,
+  overridePrompts: Array<{ id: string; prompt: string }> | undefined
+) {
+  const merged = new Map(deterministicPrompts.map((entry) => [entry.id, entry]));
+  for (const prompt of overridePrompts ?? []) {
+    merged.set(prompt.id, prompt);
+  }
+  return [...merged.values()];
+}
+
 function mergeOutputsWithArtDirection(
   deterministicOutputs: PromptPackOutputs,
   context: PromptPackContext,
@@ -334,11 +357,14 @@ function mergeOutputsWithArtDirection(
   return {
     ...merged,
     sceneBackgroundPrompt: appendArtDirection(merged.sceneBackgroundPrompt, context),
-    propPrompts: merged.propPrompts.map((prompt) => ({
+    propPrompts: mergePromptEntriesById(deterministicOutputs.propPrompts, outputsOverride?.propPrompts).map((prompt) => ({
       ...prompt,
       prompt: appendArtDirection(prompt.prompt, context)
     })),
-    characterReferencePrompts: merged.characterReferencePrompts.map((prompt) => ({
+    characterReferencePrompts: mergePromptEntriesById(
+      deterministicOutputs.characterReferencePrompts,
+      outputsOverride?.characterReferencePrompts
+    ).map((prompt) => ({
       ...prompt,
       prompt: appendArtDirection(prompt.prompt, context)
     })),

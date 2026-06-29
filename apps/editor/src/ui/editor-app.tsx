@@ -21,10 +21,12 @@ import {
   useMemo,
   useRef,
   useState,
+  type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent
 } from "react";
 import {
   CheckCircle2,
+  Eraser,
   ExternalLink,
   FilePlus2,
   FolderOpen,
@@ -35,6 +37,12 @@ import {
   UserRound,
   WandSparkles
 } from "lucide-react";
+import {
+  applyChromaKeyToImageData,
+  parseHexColor,
+  rgbToHex,
+  type ChromaKeySummary
+} from "../chroma-key";
 import {
   capabilityBadgeLabel,
   capabilityStatusTone,
@@ -125,7 +133,11 @@ import {
   settingPresets,
   visualStylePresets
 } from "../prompt-pack-presets";
-import { resolvePromptForGenerationTarget } from "../prompt-pack-targets";
+import {
+  composeTargetNegativePrompt,
+  composeTargetPositivePrompt,
+  resolvePromptForGenerationTarget
+} from "../prompt-pack-targets";
 import type { EditorProjectSnapshot } from "../preload";
 import type {
   BuildReadinessIssue,
@@ -179,6 +191,23 @@ interface AnimationPackDraft {
 }
 
 type ImageGenerationEntityKind = "scene-background" | "actor" | "pickup" | "player" | "asset";
+type EntityAssetTargetKind = "scene-background" | "player" | "actor" | "pickup";
+type TargetBackgroundMode = NonNullable<PromptPackGenerationTarget["backgroundMode"]>;
+
+const targetBackgroundModeOptions: Array<{ label: string; value: TargetBackgroundMode }> = [
+  { label: "Opaque scene", value: "opaque-scene" },
+  { label: "Transparent alpha", value: "transparent-alpha" },
+  { label: "Chroma blue", value: "chroma-blue" },
+  { label: "Chroma green", value: "chroma-green" },
+  { label: "Reference only", value: "reference-only" }
+];
+
+interface TargetPromptDraft {
+  backgroundMode?: TargetBackgroundMode;
+  customNegativePrompt?: string;
+  customPositivePrompt?: string;
+  safetyNegativePrompt?: string;
+}
 
 interface ImageGenerationSceneContext {
   entityId?: string;
@@ -196,6 +225,28 @@ interface GeneratedAssetHandoff extends ImageGenerationSceneContext {
   hasAlphaPixels: boolean;
   outputWarning?: string;
   seed: number;
+}
+
+interface BackgroundCleanupTarget {
+  assetId: string;
+  assetPath: string;
+  assetUrl: string;
+  entityId?: string | undefined;
+  filenameHint: string;
+  sceneId?: string | undefined;
+  targetKind: EntityAssetTargetKind;
+}
+
+interface EntityAssetDropZoneProps {
+  assetId?: string | undefined;
+  assetPath?: string | undefined;
+  assetUrl?: string | undefined;
+  label: string;
+  missing?: boolean | undefined;
+  onCleanup?: () => void;
+  onDropFiles: (filePaths: string[]) => void;
+  onImportClick: () => void;
+  onOpenAsset?: () => void;
 }
 
 function createAnimationPackDraft(
@@ -965,6 +1016,132 @@ function dimensionsForGenerationTarget(target: PromptPackGenerationTarget) {
   };
 }
 
+function expectedAlphaForBackgroundMode(
+  backgroundMode: PromptPackGenerationTarget["backgroundMode"],
+  fallback: boolean
+) {
+  return backgroundMode === "transparent-alpha" ? true : backgroundMode ? false : fallback;
+}
+
+function targetWithPromptDraft(
+  target: PromptPackGenerationTarget,
+  draft: TargetPromptDraft | undefined
+): PromptPackGenerationTarget {
+  if (!draft) return target;
+
+  const backgroundMode = draft.backgroundMode ?? target.backgroundMode;
+  const expectedAlpha = expectedAlphaForBackgroundMode(
+    backgroundMode,
+    target.expectedAlpha ?? target.transparent ?? false
+  );
+  const nextTarget: PromptPackGenerationTarget = {
+    ...target,
+    expectedAlpha,
+    transparent: expectedAlpha
+  };
+
+  delete nextTarget.backgroundMode;
+  delete nextTarget.chromaColor;
+  delete nextTarget.customNegativePrompt;
+  delete nextTarget.customPositivePrompt;
+  delete nextTarget.safetyNegativePrompt;
+
+  if (backgroundMode) nextTarget.backgroundMode = backgroundMode;
+  if (backgroundMode === "chroma-blue") nextTarget.chromaColor = "#00A2FF";
+  if (backgroundMode === "chroma-green") nextTarget.chromaColor = "#00FF00";
+
+  const customPositivePrompt = draft.customPositivePrompt?.trim() ?? target.customPositivePrompt?.trim();
+  const customNegativePrompt = draft.customNegativePrompt?.trim() ?? target.customNegativePrompt?.trim();
+  const safetyNegativePrompt = draft.safetyNegativePrompt?.trim() ?? target.safetyNegativePrompt?.trim();
+  if (customPositivePrompt) nextTarget.customPositivePrompt = customPositivePrompt;
+  if (customNegativePrompt) nextTarget.customNegativePrompt = customNegativePrompt;
+  if (safetyNegativePrompt) nextTarget.safetyNegativePrompt = safetyNegativePrompt;
+
+  return nextTarget;
+}
+
+function promptPackWithUpdatedTarget(
+  promptPack: PromptPackDocument,
+  targetId: string,
+  nextTarget: PromptPackGenerationTarget
+): PromptPackDocument {
+  return {
+    ...promptPack,
+    outputs: {
+      ...promptPack.outputs,
+      generationTargets: promptPack.outputs.generationTargets.map((target) =>
+        target.id === targetId ? nextTarget : target
+      )
+    }
+  };
+}
+
+function droppedFilePaths(event: ReactDragEvent<HTMLElement>) {
+  return Array.from(event.dataTransfer.files)
+    .map((file) => (file as File & { path?: string }).path)
+    .filter((filePath): filePath is string => Boolean(filePath));
+}
+
+function EntityAssetDropZone({
+  assetId,
+  assetPath,
+  assetUrl,
+  label,
+  missing,
+  onCleanup,
+  onDropFiles,
+  onImportClick,
+  onOpenAsset
+}: EntityAssetDropZoneProps) {
+  const handleDrop = (event: ReactDragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const filePaths = droppedFilePaths(event);
+    onDropFiles(filePaths);
+  };
+
+  return (
+    <div
+      className={`entity-asset-drop-zone ${missing ? "missing" : ""} ${assetUrl ? "has-preview" : ""}`}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={handleDrop}
+    >
+      <div
+        className="entity-asset-preview"
+        style={assetUrl ? { backgroundImage: `url("${assetUrl}")` } : undefined}
+        aria-hidden="true"
+      >
+        {assetUrl ? null : <Image size={24} />}
+      </div>
+      <div className="entity-asset-drop-copy">
+        <span className="overview-label">{label}</span>
+        <strong>{assetId || "No asset assigned"}</strong>
+        <p>{missing ? "Missing registered asset" : assetPath || "Drop an image here or import one."}</p>
+      </div>
+      <div className="entity-asset-actions">
+        <button className="secondary-action compact-action" type="button" onClick={onImportClick}>
+          <FilePlus2 size={iconSize} /> Import
+        </button>
+        <button
+          className="secondary-action compact-action"
+          disabled={!assetUrl || !onCleanup}
+          type="button"
+          onClick={onCleanup}
+        >
+          <Eraser size={iconSize} /> Remove Background
+        </button>
+        <button
+          className="secondary-action compact-action"
+          disabled={!assetId || !onOpenAsset}
+          type="button"
+          onClick={onOpenAsset}
+        >
+          <ExternalLink size={iconSize} /> Open Asset
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function textList(value: unknown) {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === "string").join(" ")
@@ -1032,6 +1209,15 @@ export function EditorApp() {
   const [activeImageGenerationContext, setActiveImageGenerationContext] =
     useState<ImageGenerationSceneContext | null>(null);
   const [lastGeneratedImageAsset, setLastGeneratedImageAsset] = useState<GeneratedAssetHandoff | null>(null);
+  const [targetPromptDrafts, setTargetPromptDrafts] = useState<Record<string, TargetPromptDraft>>({});
+  const [backgroundCleanupTarget, setBackgroundCleanupTarget] = useState<BackgroundCleanupTarget | null>(null);
+  const [cleanupKeyColor, setCleanupKeyColor] = useState("#00A2FF");
+  const [cleanupTolerance, setCleanupTolerance] = useState("28");
+  const [cleanupFeather, setCleanupFeather] = useState("18");
+  const [cleanupSpillReduction, setCleanupSpillReduction] = useState(true);
+  const [cleanupPreviewUrl, setCleanupPreviewUrl] = useState<string | null>(null);
+  const [cleanupSummary, setCleanupSummary] = useState<ChromaKeySummary | null>(null);
+  const [cleanupStatus, setCleanupStatus] = useState("Pick a key color or adjust tolerance.");
   const [selectedPromptPackId, setSelectedPromptPackId] = useState<string | null>(null);
   const [validationRunState, setValidationRunState] = useState<EditorValidationRunState>("idle");
   const [validationReport, setValidationReport] = useState<EditorValidationReport | null>(null);
@@ -1040,6 +1226,8 @@ export function EditorApp() {
   const [activeSceneTool, setActiveSceneTool] = useState<SceneTool>("select");
   const [sceneInspectorTarget, setSceneInspectorTarget] = useState<SceneInspectorTarget>("scene");
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const cleanupSourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const cleanupOutputCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const hotspotLabelInputRef = useRef<HTMLInputElement | null>(null);
   const hotspotLookFlowRef = useRef<HTMLSelectElement | null>(null);
   const hotspotTalkFlowRef = useRef<HTMLSelectElement | null>(null);
@@ -1242,6 +1430,7 @@ export function EditorApp() {
             ...(currentPickupDraft.pickupFlowId
               ? { pickupFlowId: currentPickupDraft.pickupFlowId }
               : {}),
+            ...(currentPickupDraft.assetId.trim() ? { assetId: currentPickupDraft.assetId.trim() } : {}),
             bounds,
             itemId: currentPickupDraft.itemId,
             labelKey: currentPickupDraft.labelKey
@@ -1301,25 +1490,42 @@ export function EditorApp() {
     imageGenerationTargets.find((target) => target.id === selectedGenerationTargetId) ??
     imageGenerationTargets[0] ??
     null;
+  const selectedTargetPromptDraftKey =
+    activeImagePromptPack && selectedGenerationTarget
+      ? `${activeImagePromptPack.id}:${selectedGenerationTarget.id}`
+      : "";
+  const selectedTargetPromptDraft = selectedTargetPromptDraftKey
+    ? targetPromptDrafts[selectedTargetPromptDraftKey]
+    : undefined;
+  const selectedEffectiveGenerationTarget = selectedGenerationTarget
+    ? targetWithPromptDraft(selectedGenerationTarget, selectedTargetPromptDraft)
+    : null;
   const selectedImageGenerationContext =
-    selectedGenerationTarget && promptPackScene
-      ? imageGenerationContextForTarget(selectedGenerationTarget, promptPackScene)
+    selectedEffectiveGenerationTarget && promptPackScene
+      ? imageGenerationContextForTarget(selectedEffectiveGenerationTarget, promptPackScene)
       : null;
   const selectedComfyOutputPreset = comfyOutputPresetById(comfyUiOutputPresetId);
   const selectedGenerationPromptResolution =
-    activeImagePromptPack && selectedGenerationTarget
-      ? resolvePromptForGenerationTarget(activeImagePromptPack, selectedGenerationTarget)
+    activeImagePromptPack && selectedEffectiveGenerationTarget
+      ? resolvePromptForGenerationTarget(activeImagePromptPack, selectedEffectiveGenerationTarget)
       : null;
-  const selectedGenerationPrompt = selectedGenerationPromptResolution?.prompt ?? "";
-  const targetGenerationDimensions = selectedGenerationTarget
-    ? dimensionsForGenerationTarget(selectedGenerationTarget)
+  const selectedGenerationBasePrompt = selectedGenerationPromptResolution?.prompt ?? "";
+  const selectedGenerationPrompt = selectedEffectiveGenerationTarget
+    ? composeTargetPositivePrompt(selectedGenerationBasePrompt, selectedEffectiveGenerationTarget)
+    : "";
+  const selectedGenerationNegativePrompt =
+    activeImagePromptPack && selectedEffectiveGenerationTarget
+      ? composeTargetNegativePrompt(activeImagePromptPack, selectedEffectiveGenerationTarget)
+      : "";
+  const targetGenerationDimensions = selectedEffectiveGenerationTarget
+    ? dimensionsForGenerationTarget(selectedEffectiveGenerationTarget)
     : { height: 512, width: 512 };
   const selectedGenerationDimensions =
     selectedComfyOutputPreset.id === "target_default"
       ? targetGenerationDimensions
       : { height: selectedComfyOutputPreset.height, width: selectedComfyOutputPreset.width };
   const selectedImageTargetWorkflow = describeImageTargetWorkflow(
-    selectedGenerationTarget,
+    selectedEffectiveGenerationTarget,
     selectedComfyOutputPreset,
     selectedGenerationPrompt
   );
@@ -1382,6 +1588,7 @@ export function EditorApp() {
     () => new Map((project?.assets ?? []).map((asset) => [asset.id, asset.path])),
     [project]
   );
+  const previewSceneBackgroundAsset = imageAssets.find((asset) => asset.path === previewSceneBackground) ?? null;
   const animationPreviewClip = chooseAnimationPreviewClip(
     animationPackDraft.clips,
     selectedAnimationClipPreviewId
@@ -1439,6 +1646,16 @@ export function EditorApp() {
   const previewPlayerAssetUrl = previewPlayerAssetPath
     ? assetPreviewUrls[previewPlayerAssetPath]
     : undefined;
+  const currentActorAssetId = currentActorDraft.assetId.trim();
+  const currentActorAsset = project?.assets.find((asset) => asset.id === currentActorAssetId) ?? null;
+  const currentActorAssetPath = currentActorAssetId ? assetPathById.get(currentActorAssetId) : undefined;
+  const currentActorAssetUrl = currentActorAssetPath ? assetPreviewUrls[currentActorAssetPath] : undefined;
+  const currentPickupAssetId = currentPickupDraft.assetId.trim();
+  const currentPickupAsset = project?.assets.find((asset) => asset.id === currentPickupAssetId) ?? null;
+  const currentPickupAssetPath = currentPickupAssetId ? assetPathById.get(currentPickupAssetId) : undefined;
+  const currentPickupAssetUrl = currentPickupAssetPath ? assetPreviewUrls[currentPickupAssetPath] : undefined;
+  const currentPlayerAsset =
+    project?.assets.find((asset) => asset.id === currentSceneDraft.playerAssetId.trim()) ?? null;
   const previewAssetPaths = useMemo(() => {
     const paths = new Set<string>();
     if (previewSceneBackground && !isHexColor(previewSceneBackground)) {
@@ -1454,8 +1671,19 @@ export function EditorApp() {
       const assetPath = actor.assetId ? assetPathById.get(actor.assetId) : null;
       if (assetPath) paths.add(assetPath);
     }
+    for (const pickup of previewPickups) {
+      const assetPath = pickup.assetId ? assetPathById.get(pickup.assetId) : null;
+      if (assetPath) paths.add(assetPath);
+    }
     return [...paths];
-  }, [animationPreviewAssetPath, assetPathById, previewActors, previewPlayerAssetPath, previewSceneBackground]);
+  }, [
+    animationPreviewAssetPath,
+    assetPathById,
+    previewActors,
+    previewPickups,
+    previewPlayerAssetPath,
+    previewSceneBackground
+  ]);
 
   useEffect(() => {
     if (imageGenerationTargets.length === 0) {
@@ -1493,6 +1721,17 @@ export function EditorApp() {
       cancelled = true;
     };
   }, [assetPreviewUrls, previewAssetPaths, project]);
+
+  useEffect(() => {
+    if (!backgroundCleanupTarget) return;
+    void renderBackgroundCleanupPreview();
+  }, [
+    backgroundCleanupTarget?.assetUrl,
+    cleanupFeather,
+    cleanupKeyColor,
+    cleanupSpillReduction,
+    cleanupTolerance
+  ]);
 
   useEffect(() => {
     if (workspace !== "assets" || !animationPreviewClip) {
@@ -1856,6 +2095,7 @@ export function EditorApp() {
     const itemId = currentPickupDraft.itemId.trim();
     const labelKey = currentPickupDraft.labelKey.trim();
     const pickupFlowId = currentPickupDraft.pickupFlowId.trim();
+    const assetId = currentPickupDraft.assetId.trim();
 
     if (!itemId) {
       blockingIssues.push("Pickup item is required.");
@@ -1865,6 +2105,10 @@ export function EditorApp() {
 
     if (pickupFlowId && !availableFlowIdsSet.has(pickupFlowId)) {
       blockingIssues.push(`Pickup flow "${pickupFlowId}" no longer exists.`);
+    }
+
+    if (assetId && !availableAssetIdsSet.has(assetId)) {
+      blockingIssues.push(`Pickup asset "${assetId}" no longer exists.`);
     }
 
     if (!labelKey) {
@@ -1883,7 +2127,9 @@ export function EditorApp() {
     );
   }, [
     availableFlowIdsSet,
+    availableAssetIdsSet,
     availableItemIdsSet,
+    currentPickupDraft.assetId,
     currentPickupDraft.itemId,
     currentPickupDraft.labelKey,
     currentPickupDraft.pickupFlowId,
@@ -1977,6 +2223,8 @@ export function EditorApp() {
   const pickupLabelMissing =
     currentPickupDraft.labelKey.trim().length === 0 ||
     (!!defaultLocaleStrings && !(currentPickupDraft.labelKey.trim() in defaultLocaleStrings));
+  const pickupAssetMissing =
+    !!currentPickupDraft.assetId.trim() && !availableAssetIdsSet.has(currentPickupDraft.assetId.trim());
   const pickupFlowMissing =
     !!currentPickupDraft.pickupFlowId.trim() && !availableFlowIdsSet.has(currentPickupDraft.pickupFlowId.trim());
   const firstHotspotOverrideIssueIndex = hotspotOverrideIssues.findIndex(
@@ -2811,6 +3059,115 @@ export function EditorApp() {
     }
   };
 
+  const assignAssetToTargetDraft = (
+    targetKind: EntityAssetTargetKind,
+    asset: AssetDocument,
+    target?: BackgroundCleanupTarget | null
+  ) => {
+    if (targetKind === "scene-background") {
+      updateSceneDraft("background", asset.path);
+      setStatus(`Assigned ${asset.id} as the scene background draft. Apply Scene Changes to save.`);
+      return;
+    }
+    if (targetKind === "player") {
+      updateSceneDraft("playerAssetId", asset.id);
+      setStatus(`Assigned ${asset.id} to the player draft. Apply Scene Changes to save.`);
+      return;
+    }
+    if (targetKind === "actor") {
+      const sceneId = target?.sceneId ?? selectedScene?.id;
+      const actorId = target?.entityId ?? selectedActor?.id;
+      if (!sceneId || !actorId) return;
+      updateActorDraftById(sceneId, actorId, { assetId: asset.id });
+      setStatus(`Assigned ${asset.id} to actor ${actorId}. Apply Actor Changes to save.`);
+      return;
+    }
+    if (targetKind === "pickup") {
+      const sceneId = target?.sceneId ?? selectedScene?.id;
+      const pickupId = target?.entityId ?? selectedPickup?.id;
+      if (!sceneId || !pickupId) return;
+      updatePickupDraftById(sceneId, pickupId, { assetId: asset.id });
+      setStatus(`Assigned ${asset.id} to pickup ${pickupId}. Apply Pickup Changes to save.`);
+    }
+  };
+
+  const importAssetFilesForTarget = async (filePaths: string[], targetKind: EntityAssetTargetKind) => {
+    if (!project) {
+      setStatus("Open or create a project before importing assets.");
+      return;
+    }
+    if (filePaths.length === 0) {
+      setStatus("Dropped file paths are unavailable. Use Import instead.");
+      return;
+    }
+
+    setStatus(`Importing ${filePaths.length} asset file(s)...`);
+    try {
+      const result = await window.pointClick.importAssetFiles(filePaths);
+      const assetId = result.assetIds[0];
+      const asset = assetId ? result.snapshot.assets.find((entry) => entry.id === assetId) : null;
+      setProject(result.snapshot);
+      if (asset) {
+        setSelectedAssetId(asset.id);
+        assignAssetToTargetDraft(targetKind, asset);
+        setStatus(
+          `Imported ${result.assetIds.length} asset(s); assigned ${asset.id}. Apply changes to save the entity.`
+        );
+      } else {
+        setStatus(`Imported ${result.assetIds.length} asset(s).`);
+      }
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Dropped assets could not be imported");
+    }
+  };
+
+  const importPickedAssetForTarget = async (targetKind: EntityAssetTargetKind) => {
+    if (!project) {
+      setStatus("Open or create a project before importing assets.");
+      return;
+    }
+    const beforeIds = new Set(project.assets.map((asset) => asset.id));
+    setStatus("Importing asset...");
+    try {
+      const snapshot = await window.pointClick.importAssets();
+      if (!snapshot) {
+        setStatus("Asset import cancelled");
+        return;
+      }
+      const asset = snapshot.assets.find((entry) => !beforeIds.has(entry.id)) ?? snapshot.assets.at(-1) ?? null;
+      setProject(snapshot);
+      if (asset) {
+        setSelectedAssetId(asset.id);
+        assignAssetToTargetDraft(targetKind, asset);
+        return;
+      }
+      setStatus("No new asset was imported.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Asset could not be imported");
+    }
+  };
+
+  const openCleanupForAsset = (
+    targetKind: EntityAssetTargetKind,
+    asset: AssetDocument | null | undefined,
+    assetUrl: string | undefined,
+    entityId?: string
+  ) => {
+    if (!asset || !assetUrl) {
+      setStatus("Assign a previewable image asset before removing a background.");
+      return;
+    }
+    openBackgroundCleanup({
+      assetId: asset.id,
+      assetPath: asset.path,
+      assetUrl,
+      entityId,
+      filenameHint: `${asset.id}-alpha.png`,
+      sceneId: selectedScene?.id,
+      targetKind
+    });
+  };
+
   const createAnimationPackDraftFromSelection = () => {
     const nextId = nextAnimationPackId(project);
     const fallbackAssetId = project?.assets.find((asset) => asset.kind === "image")?.id ?? "";
@@ -3148,6 +3505,64 @@ export function EditorApp() {
     }
   };
 
+  const updateTargetPromptDraft = (patch: TargetPromptDraft) => {
+    if (!selectedTargetPromptDraftKey) return;
+    setTargetPromptDrafts((current) => ({
+      ...current,
+      [selectedTargetPromptDraftKey]: {
+        ...current[selectedTargetPromptDraftKey],
+        ...patch
+      }
+    }));
+  };
+
+  const saveTargetPromptSettings = async () => {
+    if (!activeImagePromptPack || !selectedGenerationTarget || !selectedEffectiveGenerationTarget) return;
+    const updatedPromptPack = promptPackWithUpdatedTarget(
+      activeImagePromptPack,
+      selectedGenerationTarget.id,
+      selectedEffectiveGenerationTarget
+    );
+
+    if (promptPackCandidate?.promptPack.id === activeImagePromptPack.id) {
+      if (promptPackJob) {
+        setPromptPackJob({
+          ...promptPackJob,
+          candidates: promptPackJob.candidates.map((candidate) =>
+            candidate.promptPack.id === activeImagePromptPack.id
+              ? { ...candidate, promptPack: updatedPromptPack }
+              : candidate
+          )
+        });
+      }
+      setTargetPromptDrafts((current) => {
+        const next = { ...current };
+        delete next[selectedTargetPromptDraftKey];
+        return next;
+      });
+      setStatus(`Updated target settings for ${selectedGenerationTarget.id}. Save the prompt pack to persist them.`);
+      return;
+    }
+
+    setStatus(`Saving target settings for ${selectedGenerationTarget.id}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "prompt-pack/upsert",
+        patch: { promptPack: updatedPromptPack }
+      });
+      setProject(snapshot);
+      setSelectedPromptPackId(updatedPromptPack.id);
+      setTargetPromptDrafts((current) => {
+        const next = { ...current };
+        delete next[selectedTargetPromptDraftKey];
+        return next;
+      });
+      setStatus(`Saved target settings for ${selectedGenerationTarget.id}.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Target prompt settings could not be saved");
+    }
+  };
+
   const generateImageAsset = async () => {
     if (!project) {
       setComfyUiGenerationStatus("Open or create a project before generating image assets.");
@@ -3160,6 +3575,11 @@ export function EditorApp() {
       return;
     }
     if (!selectedGenerationTarget) {
+      setComfyUiGenerationStatus("Select a prompt-pack generation target before queueing ComfyUI.");
+      setStatus("Select a prompt-pack generation target before queueing ComfyUI.");
+      return;
+    }
+    if (!selectedEffectiveGenerationTarget) {
       setComfyUiGenerationStatus("Select a prompt-pack generation target before queueing ComfyUI.");
       setStatus("Select a prompt-pack generation target before queueing ComfyUI.");
       return;
@@ -3196,16 +3616,17 @@ export function EditorApp() {
     setStatus(queuedStatus);
     try {
       const imageRequest = {
-        expectedAlpha: selectedGenerationTarget.expectedAlpha ?? selectedGenerationTarget.transparent ?? false,
+        expectedAlpha:
+          selectedEffectiveGenerationTarget.expectedAlpha ?? selectedEffectiveGenerationTarget.transparent ?? false,
         height: selectedGenerationDimensions.height,
-        negativePrompt: [selectedGenerationTarget.safetyNegativePrompt, activeImagePromptPack.outputs.negativePrompt]
-          .filter((part): part is string => Boolean(part?.trim()))
-          .join(", "),
+        negativePrompt: selectedGenerationNegativePrompt,
         prompt: selectedGenerationPrompt,
         providerId: "comfyui" as const,
-        targetId: selectedGenerationTarget.id,
+        targetId: selectedEffectiveGenerationTarget.id,
         width: selectedGenerationDimensions.width,
-        ...(selectedGenerationTarget.backgroundMode ? { backgroundMode: selectedGenerationTarget.backgroundMode } : {}),
+        ...(selectedEffectiveGenerationTarget.backgroundMode
+          ? { backgroundMode: selectedEffectiveGenerationTarget.backgroundMode }
+          : {}),
         ...(comfyUiBaseUrl.trim() ? { baseUrl: comfyUiBaseUrl.trim() } : {}),
         ...(checkpointName ? { checkpointName } : {}),
         ...(parsedSeed !== null ? { seed: parsedSeed } : {}),
@@ -4007,6 +4428,25 @@ export function EditorApp() {
     return true;
   };
 
+  const updatePickupDraftById = (sceneId: string, pickupId: string, patch: Partial<typeof currentPickupDraft>) => {
+    const scene = project?.scenes.find((entry) => entry.id === sceneId);
+    if (!scene || scene.type !== "layered-2d") return false;
+    const pickup = scene.pickups.find((entry) => entry.id === pickupId);
+    if (!pickup) return false;
+    const key = createPickupKey(scene.id, pickup.id);
+    updateDraftWithHistory((current) => ({
+      ...current,
+      pickupDrafts: {
+        ...current.pickupDrafts,
+        [key]: {
+          ...(current.pickupDrafts[key] ?? createPickupDraft(pickup)),
+          ...patch
+        }
+      }
+    }));
+    return true;
+  };
+
   const selectSceneEntityFromHandoff = (
     sceneId: string,
     selection: { actorId?: string; pickupId?: string; player?: boolean } = {}
@@ -4026,6 +4466,120 @@ export function EditorApp() {
       activePickupId: selection.pickupId ?? null,
       activeSceneId: sceneId
     }));
+  };
+
+  const openBackgroundCleanup = (target: BackgroundCleanupTarget) => {
+    setBackgroundCleanupTarget(target);
+    setCleanupKeyColor("#00A2FF");
+    setCleanupTolerance("28");
+    setCleanupFeather("18");
+    setCleanupSpillReduction(true);
+    setCleanupPreviewUrl(null);
+    setCleanupSummary(null);
+    setCleanupStatus("Loading image for chroma cleanup...");
+  };
+
+  const renderBackgroundCleanupPreview = async () => {
+    if (!backgroundCleanupTarget) return;
+    const keyColor = parseHexColor(cleanupKeyColor);
+    if (!keyColor) {
+      setCleanupStatus("Key color must be a valid hex color.");
+      return;
+    }
+    const tolerance = Number(cleanupTolerance);
+    const feather = Number(cleanupFeather);
+    if (!Number.isFinite(tolerance) || tolerance < 0 || !Number.isFinite(feather) || feather < 0) {
+      setCleanupStatus("Tolerance and feather must be positive numbers.");
+      return;
+    }
+
+    try {
+      const image = new window.Image();
+      image.decoding = "async";
+      image.src = backgroundCleanupTarget.assetUrl;
+      await image.decode();
+
+      const sourceCanvas = cleanupSourceCanvasRef.current;
+      const outputCanvas = cleanupOutputCanvasRef.current;
+      if (!sourceCanvas || !outputCanvas) return;
+      sourceCanvas.width = image.naturalWidth;
+      sourceCanvas.height = image.naturalHeight;
+      outputCanvas.width = image.naturalWidth;
+      outputCanvas.height = image.naturalHeight;
+
+      const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
+      const outputContext = outputCanvas.getContext("2d");
+      if (!sourceContext || !outputContext) {
+        setCleanupStatus("Canvas is unavailable for background cleanup.");
+        return;
+      }
+      sourceContext.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+      sourceContext.drawImage(image, 0, 0);
+      const sourceImageData = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+      const result = applyChromaKeyToImageData(sourceImageData, {
+        feather,
+        keyColor,
+        spillReduction: cleanupSpillReduction,
+        tolerance
+      });
+      const outputImageData = outputContext.createImageData(result.imageData.width, result.imageData.height);
+      outputImageData.data.set(result.imageData.data);
+      outputContext.putImageData(outputImageData, 0, 0);
+      setCleanupPreviewUrl(outputCanvas.toDataURL("image/png"));
+      setCleanupSummary(result.summary);
+      setCleanupStatus(
+        result.summary.transparentPixels === 0 && result.summary.alphaPixels === 0
+          ? "No background pixels matched the current key settings."
+          : `Removed ${result.summary.transparentPixels} pixel(s); softened ${result.summary.alphaPixels} edge pixel(s).`
+      );
+    } catch (error) {
+      setCleanupStatus(error instanceof Error ? error.message : "Background cleanup preview failed.");
+    }
+  };
+
+  const pickCleanupColor = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const canvas = cleanupSourceCanvasRef.current;
+    const context = canvas?.getContext("2d", { willReadFrequently: true });
+    if (!canvas || !context) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.max(0, Math.min(canvas.width - 1, Math.floor(((event.clientX - rect.left) / rect.width) * canvas.width)));
+    const y = Math.max(
+      0,
+      Math.min(canvas.height - 1, Math.floor(((event.clientY - rect.top) / rect.height) * canvas.height))
+    );
+    const pixel = context.getImageData(x, y, 1, 1).data;
+    setCleanupKeyColor(rgbToHex({ r: pixel[0]!, g: pixel[1]!, b: pixel[2]! }));
+  };
+
+  const saveBackgroundCleanupAsset = async () => {
+    if (!backgroundCleanupTarget) return;
+    const outputCanvas = cleanupOutputCanvasRef.current;
+    const dataUrl = outputCanvas?.toDataURL("image/png") ?? cleanupPreviewUrl;
+    if (!dataUrl) {
+      setCleanupStatus("Generate a cleanup preview before saving.");
+      return;
+    }
+
+    setCleanupStatus("Saving processed PNG asset...");
+    try {
+      const result = await window.pointClick.saveProcessedImageAsset({
+        dataUrl,
+        filenameHint: backgroundCleanupTarget.filenameHint
+      });
+      const assetId = result.assetIds[0];
+      const asset = assetId ? result.snapshot.assets.find((entry) => entry.id === assetId) : null;
+      setProject(result.snapshot);
+      if (asset) {
+        setSelectedAssetId(asset.id);
+        assignAssetToTargetDraft(backgroundCleanupTarget.targetKind, asset, backgroundCleanupTarget);
+        setCleanupStatus(`Saved ${asset.id}.`);
+        setBackgroundCleanupTarget(null);
+      } else {
+        setCleanupStatus("Processed asset was saved, but no asset id was returned.");
+      }
+    } catch (error) {
+      setCleanupStatus(error instanceof Error ? error.message : "Processed image could not be saved.");
+    }
   };
 
   const openImageGenerationForSceneTarget = (targetId: string) => {
@@ -4485,6 +5039,7 @@ export function EditorApp() {
     const itemId = currentPickupDraft.itemId.trim();
     const labelKey = currentPickupDraft.labelKey.trim();
     const pickupFlowId = currentPickupDraft.pickupFlowId.trim();
+    const assetId = currentPickupDraft.assetId.trim();
 
     if (x === null || y === null || width === null || height === null) {
       setStatus("Pickup bounds must be valid numbers, with width and height above zero");
@@ -4513,8 +5068,12 @@ export function EditorApp() {
         bounds: { x: number; y: number; width: number; height: number };
         itemId: string;
         labelKey: string;
+        assetId?: string;
         pickupFlowId?: string;
       };
+      if (assetId) {
+        patch.assetId = assetId;
+      }
       if (pickupFlowId) {
         patch.pickupFlowId = pickupFlowId;
       }
@@ -4816,6 +5375,7 @@ export function EditorApp() {
           </section>
         </main>
       ) : (
+      <>
       <div className="workspace-grid">
         <aside className="project-panel panel">
           <div className="panel-heading">
@@ -5722,7 +6282,7 @@ export function EditorApp() {
                   <label className="prompt-studio-field">
                     Workflow API JSON path
                     <input
-                      placeholder="Optional, e.g. ImgGenSDXLTurbo.json or an absolute path"
+                      placeholder="Optional project-relative path, e.g. workflows/image_krea2_turbo_t2i.json"
                       value={comfyUiWorkflowPath}
                       onChange={(event) => setComfyUiWorkflowPath(event.target.value)}
                     />
@@ -5749,6 +6309,80 @@ export function EditorApp() {
                       ))}
                     </select>
                   </label>
+                  <div className="target-customization-panel">
+                    <div className="target-customization-heading">
+                      <div>
+                        <span className="overview-label">Target prompting</span>
+                        <strong>{selectedEffectiveGenerationTarget?.id ?? "No target selected"}</strong>
+                      </div>
+                      <button
+                        className="secondary-action"
+                        disabled={!selectedEffectiveGenerationTarget}
+                        type="button"
+                        onClick={saveTargetPromptSettings}
+                      >
+                        Save Target Settings
+                      </button>
+                    </div>
+                    <div className="target-customization-grid">
+                      <label className="prompt-studio-field">
+                        Background mode
+                        <select
+                          disabled={!selectedEffectiveGenerationTarget}
+                          value={selectedEffectiveGenerationTarget?.backgroundMode ?? "opaque-scene"}
+                          onChange={(event) =>
+                            updateTargetPromptDraft({
+                              backgroundMode: event.target.value as TargetBackgroundMode
+                            })
+                          }
+                        >
+                          {targetBackgroundModeOptions.map((option) => (
+                            <option key={`target-bg-${option.value}`} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="prompt-studio-field">
+                        Safety negative prompt
+                        <textarea
+                          disabled={!selectedEffectiveGenerationTarget}
+                          value={selectedEffectiveGenerationTarget?.safetyNegativePrompt ?? ""}
+                          onChange={(event) =>
+                            updateTargetPromptDraft({ safetyNegativePrompt: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label className="prompt-studio-field">
+                        Custom positive prompt
+                        <textarea
+                          disabled={!selectedEffectiveGenerationTarget}
+                          placeholder="Add provider-agnostic target details, e.g. exact costume, material, silhouette."
+                          value={selectedEffectiveGenerationTarget?.customPositivePrompt ?? ""}
+                          onChange={(event) =>
+                            updateTargetPromptDraft({ customPositivePrompt: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label className="prompt-studio-field">
+                        Custom negative prompt
+                        <textarea
+                          disabled={!selectedEffectiveGenerationTarget}
+                          placeholder="Exclude target-specific mistakes, e.g. floor, room background, extra limbs."
+                          value={selectedEffectiveGenerationTarget?.customNegativePrompt ?? ""}
+                          onChange={(event) =>
+                            updateTargetPromptDraft({ customNegativePrompt: event.target.value })
+                          }
+                        />
+                      </label>
+                    </div>
+                    {selectedEffectiveGenerationTarget?.backgroundMode?.startsWith("chroma-") ? (
+                      <p className="target-customization-note">
+                        Chroma targets are imported as opaque images; use chroma-key cleanup or a provider workflow
+                        before treating them as transparent-ready assets.
+                      </p>
+                    ) : null}
+                  </div>
                   <label className="prompt-studio-field">
                     Seed
                     <input
@@ -5765,8 +6399,12 @@ export function EditorApp() {
                     />
                   </label>
                   <label className="prompt-studio-field">
-                    Prompt preview
+                    Positive prompt preview
                     <textarea readOnly value={selectedGenerationPrompt} />
+                  </label>
+                  <label className="prompt-studio-field">
+                    Negative prompt preview
+                    <textarea readOnly value={selectedGenerationNegativePrompt} />
                   </label>
                   {selectedGenerationPromptResolution?.warning ? (
                     <div className="contract-warning-card">
@@ -6736,6 +7374,8 @@ export function EditorApp() {
                 {previewPickups.map((pickup) => (
                   (() => {
                     const pickupIssues = previewPickupIssueMap[pickup.id];
+                    const pickupAssetPath = pickup.assetId ? assetPathById.get(pickup.assetId) : null;
+                    const pickupAssetUrl = pickupAssetPath ? assetPreviewUrls[pickupAssetPath] : undefined;
                     const pickupIsGenerating =
                       activeImageGenerationContext?.entityKind === "pickup" &&
                       activeImageGenerationContext.sceneId === selectedScene.id &&
@@ -6751,7 +7391,11 @@ export function EditorApp() {
                       height: `${(pickup.bounds.height / previewSceneSize.height) * 100}%`,
                       left: `${(pickup.bounds.x / previewSceneSize.width) * 100}%`,
                       top: `${(pickup.bounds.y / previewSceneSize.height) * 100}%`,
-                      width: `${(pickup.bounds.width / previewSceneSize.width) * 100}%`
+                      width: `${(pickup.bounds.width / previewSceneSize.width) * 100}%`,
+                      backgroundImage: pickupAssetUrl ? `url("${pickupAssetUrl}")` : undefined,
+                      backgroundPosition: pickupAssetUrl ? "center" : undefined,
+                      backgroundRepeat: pickupAssetUrl ? "no-repeat" : undefined,
+                      backgroundSize: pickupAssetUrl ? "100% 100%" : undefined
                     }}
                     title={
                       pickupIssues?.hasIssues
@@ -6964,6 +7608,23 @@ export function EditorApp() {
                     <small className="field-hint error">Selected player asset no longer exists.</small>
                   ) : null}
                 </label>
+                <EntityAssetDropZone
+                  assetId={currentSceneDraft.playerAssetId.trim()}
+                  assetPath={previewPlayerAssetPath}
+                  assetUrl={previewPlayerAssetUrl}
+                  label="Player image"
+                  missing={playerAssetMissing}
+                  onCleanup={() =>
+                    openCleanupForAsset("player", currentPlayerAsset, previewPlayerAssetUrl)
+                  }
+                  onDropFiles={(filePaths) => importAssetFilesForTarget(filePaths, "player")}
+                  onImportClick={() => importPickedAssetForTarget("player")}
+                  onOpenAsset={() => {
+                    if (!currentSceneDraft.playerAssetId.trim()) return;
+                    setSelectedAssetId(currentSceneDraft.playerAssetId.trim());
+                    setWorkspace("assets");
+                  }}
+                />
                 <label>
                   Player animation pack
                   <select
@@ -7450,6 +8111,23 @@ export function EditorApp() {
                     <small className="field-hint error">Selected actor asset no longer exists.</small>
                   ) : null}
                 </label>
+                <EntityAssetDropZone
+                  assetId={currentActorAssetId}
+                  assetPath={currentActorAssetPath}
+                  assetUrl={currentActorAssetUrl}
+                  label="Actor image"
+                  missing={actorAssetMissing}
+                  onCleanup={() =>
+                    openCleanupForAsset("actor", currentActorAsset, currentActorAssetUrl, selectedActor.id)
+                  }
+                  onDropFiles={(filePaths) => importAssetFilesForTarget(filePaths, "actor")}
+                  onImportClick={() => importPickedAssetForTarget("actor")}
+                  onOpenAsset={() => {
+                    if (!currentActorAssetId) return;
+                    setSelectedAssetId(currentActorAssetId);
+                    setWorkspace("assets");
+                  }}
+                />
                 <label>
                   Animation pack
                   <select
@@ -8000,6 +8678,41 @@ export function EditorApp() {
                   ) : null}
                 </label>
                 <label>
+                  Asset
+                  <select
+                    className={pickupAssetMissing ? "field-input-invalid" : ""}
+                    value={currentPickupDraft.assetId}
+                    onChange={(event) => updatePickupDraft("assetId", event.target.value)}
+                  >
+                    <option value="">Debug bounds only</option>
+                    {availableAssetIds.map((assetId) => (
+                      <option key={`pickup-asset-${assetId}`} value={assetId}>
+                        {assetId}
+                      </option>
+                    ))}
+                  </select>
+                  {pickupAssetMissing ? (
+                    <small className="field-hint error">Selected pickup asset no longer exists.</small>
+                  ) : null}
+                </label>
+                <EntityAssetDropZone
+                  assetId={currentPickupAssetId}
+                  assetPath={currentPickupAssetPath}
+                  assetUrl={currentPickupAssetUrl}
+                  label="Pickup image"
+                  missing={pickupAssetMissing}
+                  onCleanup={() =>
+                    openCleanupForAsset("pickup", currentPickupAsset, currentPickupAssetUrl, selectedPickup.id)
+                  }
+                  onDropFiles={(filePaths) => importAssetFilesForTarget(filePaths, "pickup")}
+                  onImportClick={() => importPickedAssetForTarget("pickup")}
+                  onOpenAsset={() => {
+                    if (!currentPickupAssetId) return;
+                    setSelectedAssetId(currentPickupAssetId);
+                    setWorkspace("assets");
+                  }}
+                />
+                <label>
                   Pickup flow
                   <select
                     className={pickupFlowMissing ? "field-input-invalid" : ""}
@@ -8141,6 +8854,23 @@ export function EditorApp() {
                   Use `#RRGGBB` for color backgrounds or a registered asset path such as
                   `assets/imported/example.png`.
                 </p>
+                <EntityAssetDropZone
+                  assetId={previewSceneBackgroundAsset?.id}
+                  assetPath={!isHexColor(previewSceneBackground) ? previewSceneBackground : undefined}
+                  assetUrl={previewSceneBackgroundUrl}
+                  label="Scene background image"
+                  missing={!isHexColor(previewSceneBackground) && !previewSceneBackgroundAsset}
+                  onCleanup={() =>
+                    openCleanupForAsset("scene-background", previewSceneBackgroundAsset, previewSceneBackgroundUrl)
+                  }
+                  onDropFiles={(filePaths) => importAssetFilesForTarget(filePaths, "scene-background")}
+                  onImportClick={() => importPickedAssetForTarget("scene-background")}
+                  onOpenAsset={() => {
+                    if (!previewSceneBackgroundAsset) return;
+                    setSelectedAssetId(previewSceneBackgroundAsset.id);
+                    setWorkspace("assets");
+                  }}
+                />
                 <div className="field-group">
                   <span>Scene resolution</span>
                   <div className="four-fields">
@@ -8279,6 +9009,97 @@ export function EditorApp() {
           </div>
         </aside>
       </div>
+      {backgroundCleanupTarget ? (
+        <div className="cleanup-modal-backdrop" role="presentation">
+          <section className="cleanup-modal" role="dialog" aria-modal="true" aria-label="Remove background">
+            <div className="cleanup-modal-heading">
+              <div>
+                <span className="overview-label">Remove background</span>
+                <strong>{backgroundCleanupTarget.assetId}</strong>
+                <p>{backgroundCleanupTarget.assetPath}</p>
+              </div>
+              <button
+                className="secondary-action compact-action"
+                type="button"
+                onClick={() => setBackgroundCleanupTarget(null)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="cleanup-preview-grid">
+              <div className="cleanup-preview-pane">
+                <span>Source</span>
+                <canvas
+                  ref={cleanupSourceCanvasRef}
+                  className="cleanup-canvas"
+                  onPointerDown={pickCleanupColor}
+                />
+              </div>
+              <div className="cleanup-preview-pane checkerboard-pane">
+                <span>Preview</span>
+                <canvas ref={cleanupOutputCanvasRef} className="cleanup-canvas" />
+              </div>
+            </div>
+            <div className="cleanup-controls">
+              <label>
+                Key color
+                <input
+                  value={cleanupKeyColor}
+                  onChange={(event) => setCleanupKeyColor(event.target.value)}
+                />
+              </label>
+              <label>
+                Tolerance
+                <input
+                  min="0"
+                  max="255"
+                  type="range"
+                  value={cleanupTolerance}
+                  onChange={(event) => setCleanupTolerance(event.target.value)}
+                />
+                <small>{cleanupTolerance}</small>
+              </label>
+              <label>
+                Feather
+                <input
+                  min="0"
+                  max="120"
+                  type="range"
+                  value={cleanupFeather}
+                  onChange={(event) => setCleanupFeather(event.target.value)}
+                />
+                <small>{cleanupFeather}</small>
+              </label>
+              <label className="checkbox-field">
+                <input
+                  checked={cleanupSpillReduction}
+                  type="checkbox"
+                  onChange={(event) => setCleanupSpillReduction(event.target.checked)}
+                />
+                Reduce chroma spill
+              </label>
+            </div>
+            <div className="cleanup-status-row">
+              <p>{cleanupStatus}</p>
+              {cleanupSummary ? (
+                <span>
+                  {cleanupSummary.transparentPixels} transparent / {cleanupSummary.alphaPixels} soft /{" "}
+                  {cleanupSummary.totalPixels} total
+                </span>
+              ) : null}
+            </div>
+            <div className="cleanup-actions">
+              <button className="secondary-action" type="button" onClick={renderBackgroundCleanupPreview}>
+                Refresh Preview
+              </button>
+              <button className="play-action" type="button" onClick={saveBackgroundCleanupAsset}>
+                Save New Asset And Assign
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+      </>
       )}
     </div>
   );

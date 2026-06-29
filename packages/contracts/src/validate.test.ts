@@ -104,6 +104,7 @@ describe("project contracts", () => {
       pickups: [
         {
           id: "dock-hook",
+          assetId: "rusty-hook-image",
           itemId: "rusty-hook",
           labelKey: "pickup.rusty-hook",
           bounds: { x: 300, y: 560, width: 70, height: 60 },
@@ -250,6 +251,8 @@ describe("project contracts", () => {
             backgroundMode: "chroma-blue",
             expectedAlpha: false,
             chromaColor: "#00A2FF",
+            customPositivePrompt: "Longer raincoat, brass buttons, same visual style.",
+            customNegativePrompt: "extra arms, scene background",
             intendedUse: "sprite-sheet",
             marginPercent: 4,
             safetyNegativePrompt: "transparent alpha, cropped feet"

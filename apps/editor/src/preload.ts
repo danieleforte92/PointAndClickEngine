@@ -66,11 +66,17 @@ export interface EditorProjectSnapshot {
   selectedScene: Layered2DScene | null;
 }
 
+export interface ImportedAssetResult {
+  assetIds: string[];
+  snapshot: EditorProjectSnapshot;
+}
+
 export interface PointClickEditorApi {
   applyCommand(command: EditorProjectCommand): Promise<EditorProjectSnapshot>;
   clearRecovery(projectDirectory: string): Promise<void>;
   createBlankProject(): Promise<EditorProjectSnapshot | null>;
   createProjectFromStarter(): Promise<EditorProjectSnapshot | null>;
+  importAssetFiles(filePaths: string[]): Promise<ImportedAssetResult>;
   importAssets(): Promise<EditorProjectSnapshot | null>;
   generatePromptPack(
     request: GeneratePromptPackRequest & {
@@ -89,6 +95,7 @@ export interface PointClickEditorApi {
   openPreview(request?: EditorPreviewRequest): Promise<void>;
   openInBrowser(request?: EditorPreviewRequest): Promise<void>;
   pickProject(): Promise<EditorProjectSnapshot | null>;
+  saveProcessedImageAsset(request: { dataUrl: string; filenameHint: string }): Promise<ImportedAssetResult>;
   resolveAssetUrl(assetPath: string): Promise<string>;
   runValidation(): Promise<EditorValidationReport>;
   saveRecovery(snapshot: EditorRecoverySnapshot): Promise<void>;
@@ -101,12 +108,14 @@ const api: PointClickEditorApi = {
   createProjectFromStarter: () => ipcRenderer.invoke("project:create-from-starter"),
   generatePromptPack: (request) => ipcRenderer.invoke("ai:prompt-pack", request),
   generateImageAsset: (request) => ipcRenderer.invoke("ai:image-asset", request),
+  importAssetFiles: (filePaths) => ipcRenderer.invoke("project:import-asset-files", filePaths),
   importAssets: () => ipcRenderer.invoke("project:import-assets"),
   loadProject: (projectDirectory) => ipcRenderer.invoke("project:load", projectDirectory),
   loadRecovery: (projectDirectory) => ipcRenderer.invoke("recovery:load", projectDirectory),
   openPreview: (request) => ipcRenderer.invoke("preview:open", request),
   openInBrowser: (request) => ipcRenderer.invoke("preview:browser", request),
   pickProject: () => ipcRenderer.invoke("project:pick"),
+  saveProcessedImageAsset: (request) => ipcRenderer.invoke("project:save-processed-image-asset", request),
   resolveAssetUrl: (assetPath) => ipcRenderer.invoke("project:asset-url", assetPath),
   runValidation: () => ipcRenderer.invoke("project:validate"),
   saveRecovery: (snapshot) => ipcRenderer.invoke("recovery:save", snapshot)

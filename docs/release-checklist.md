@@ -31,11 +31,15 @@ Expected result:
 5. In **Scene**, move a hotspot, pickup, player start, and walk-area point.
 6. In **Player**, change player asset or animation pack settings, then preview.
 7. In **Assets**, import an image and assign it as a scene background.
-8. In **AI**, generate a mock prompt pack.
-9. With LM Studio running, generate a local prompt pack.
-10. With ComfyUI running, generate and import one image asset.
-11. In **Build**, run validation.
-12. Use **Play from here** and **Browser** preview.
+8. Drop or import an image from a Scene, Player, Actor, or Pickup inspector and
+   verify the new asset is assigned to that draft.
+9. Run **Remove Background** on a flat chroma image, save the processed PNG, and
+   verify it is assigned as a new asset without overwriting the source.
+10. In **AI**, generate a mock prompt pack.
+11. With LM Studio running, generate a local prompt pack.
+12. With ComfyUI running, generate and import one image asset.
+13. In **Build**, run validation.
+14. Use **Play from here** and **Browser** preview.
 
 ## Package
 
@@ -68,7 +72,8 @@ Include:
 
 - Character Gym runtime support exists, but the full sprite editor UX is still
   being completed.
-- Transparent PNG output depends on the selected ComfyUI workflow.
+- Transparent PNG output depends on the selected ComfyUI workflow or a clean
+  flat chroma source for editor cleanup.
 - OpenAI integration requires API platform access; ChatGPT subscriptions do not
   cover API calls.
 - Flow graph editing, hosted demo, and public website are later milestones.

@@ -216,6 +216,7 @@ describe("buildDraftProjectBundle", () => {
       y: "315"
     };
     session.pickupDrafts[`${scene.id}::pickup::dock-hook`] = {
+      assetId: "",
       height: "48",
       itemId: "rusty-hook",
       labelKey: "pickup.rusty-hook.updated",

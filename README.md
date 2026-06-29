@@ -11,7 +11,9 @@ local-first AI asset workflows.
 - Open the Electron editor and create, open, or start from a starter project.
 - Edit layered 2D scenes, hotspots, pickups, actors, player start, and walk areas.
 - Author linear dialogue and scene-transition flows.
-- Import image assets and assign them to scenes, actors, or the player.
+- Import or drop image assets and assign them to scenes, actors, pickups, or the player.
+- Remove flat blue/green chroma backgrounds in the editor and save the result
+  as a new PNG asset.
 - Configure player asset, animation pack, scale-by-depth, and walk speed.
 - Run the sample adventure in the web player or editor preview.
 - Generate prompt packs with the deterministic mock provider, LM Studio, or OpenAI.
@@ -71,10 +73,12 @@ the player in your system browser.
 3. In **Player**, choose the player asset or animation pack and adjust walk speed.
 4. In **AI**, generate a mock prompt pack, then review the background, prop,
    character, and animation prompts.
-5. If ComfyUI is running, choose a workflow API JSON and generate/import one
-   image asset.
-6. Open **Build** and run validation.
-7. Preview the sample and play the dock-to-tavern loop.
+5. If ComfyUI is running, choose a project-relative workflow API JSON and
+   generate/import one image asset.
+6. Drop or import an image in an inspector, then try **Remove Background** on a
+   flat chroma output.
+7. Open **Build** and run validation.
+8. Preview the sample and play the dock-to-tavern loop.
 
 ## AI Is Local-First And Reviewable
 
@@ -140,7 +144,8 @@ packages/cli           Project validation commands
 - Flow authoring is structured but not a full graph editor yet.
 - Character Gym has runtime and document support, but the full sprite editor UX
   is still being completed.
-- Transparent PNG generation depends on the selected ComfyUI workflow.
+- Transparent PNG generation depends on the selected ComfyUI workflow or
+  in-editor chroma cleanup from a flat blue/green background.
 - Hosted web demo and marketing site are not required for the first public
   release.
 

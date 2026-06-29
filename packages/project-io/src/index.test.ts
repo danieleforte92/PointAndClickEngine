@@ -949,6 +949,7 @@ describe("loadProjectFromDirectory", () => {
       type: "pickup/update",
       pickupId: "dock-hook",
       patch: {
+        assetId: "dock-sky",
         bounds: {
           x: 320,
           y: 548,
@@ -977,7 +978,8 @@ describe("loadProjectFromDirectory", () => {
       },
       itemId: "rusty-hook",
       labelKey: "pickup.rusty-hook.updated",
-      pickupFlowId: "pickup-rusty-hook"
+      pickupFlowId: "pickup-rusty-hook",
+      assetId: "dock-sky"
     });
   });
 
@@ -1217,7 +1219,10 @@ describe("loadProjectFromDirectory", () => {
               role: "prop",
               visibleWhen: { type: "item-in-inventory", itemId: "missing-item" }
             }
-          ]
+          ],
+          pickups: scene.pickups.map((pickup, index) =>
+            index === 0 ? { ...pickup, assetId: "missing-pickup-asset" } : pickup
+          )
         }
       },
       promptPacks: {
@@ -1231,6 +1236,7 @@ describe("loadProjectFromDirectory", () => {
     });
 
     expect(diagnostics.some((item) => item.code === "scene.actor-asset-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "scene.pickup-asset-missing")).toBe(true);
     expect(diagnostics.some((item) => item.code === "scene.actor-interact-spot-outside-scene")).toBe(true);
     expect(diagnostics.some((item) => item.code === "scene.actor-visible-item-missing")).toBe(true);
     expect(diagnostics.some((item) => item.code === "prompt-pack.scene-missing")).toBe(true);
@@ -1532,5 +1538,56 @@ describe("loadProjectFromDirectory", () => {
         assetId: "dock-sky"
       })
     ).rejects.toThrow('Asset "dock-sky" is still referenced by moonlit-dock');
+  });
+
+  it("blocks deleting an asset that is still referenced by a pickup", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+    await mkdir(path.join(projectRoot, "assets", "imported"), { recursive: true });
+    await writeFile(path.join(projectRoot, "assets", "imported", "dock-hook.png"), "fake image", "utf8");
+
+    await applyProjectCommand(projectRoot, {
+      type: "asset/import",
+      assets: [
+        {
+          documentPath: "assets/dock-hook.asset.json",
+          filePath: "assets/imported/dock-hook.png",
+          id: "dock-hook",
+          kind: "image",
+          source: "imported"
+        }
+      ]
+    });
+
+    const loaded = await loadProjectFromDirectory(projectRoot);
+    const sourceScene = loaded.bundle.scenes["moonlit-dock"];
+    expect(sourceScene?.type).toBe("layered-2d");
+    if (!sourceScene || sourceScene.type !== "layered-2d") {
+      throw new Error("Expected layered 2D scene");
+    }
+    const sourcePickup = sourceScene.pickups.find((pickup) => pickup.id === "dock-hook");
+    if (!sourcePickup) {
+      throw new Error("Expected dock hook pickup");
+    }
+
+    await applyProjectCommand(projectRoot, {
+      type: "pickup/update",
+      pickupId: sourcePickup.id,
+      patch: {
+        ...sourcePickup,
+        assetId: "dock-hook"
+      },
+      sceneId: sourceScene.id
+    });
+
+    await expect(
+      applyProjectCommand(projectRoot, {
+        type: "asset/delete",
+        assetId: "dock-hook"
+      })
+    ).rejects.toThrow('Asset "dock-hook" is still referenced by dock-hook');
   });
 });

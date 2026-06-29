@@ -39,6 +39,7 @@ export interface HotspotDraft {
 }
 
 export interface PickupDraft {
+  assetId: string;
   height: string;
   itemId: string;
   labelKey: string;
@@ -242,6 +243,7 @@ export function createHotspotDraft(hotspot: Hotspot | null): HotspotDraft {
 
 export function createPickupDraft(pickup: ScenePickup | null): PickupDraft {
   return {
+    assetId: pickup?.assetId ?? "",
     height: pickup ? String(pickup.bounds.height) : "",
     itemId: pickup?.itemId ?? "",
     labelKey: pickup?.labelKey ?? "",

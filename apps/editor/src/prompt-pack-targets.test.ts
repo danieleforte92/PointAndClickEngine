@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { PromptPackDocument, PromptPackGenerationTarget } from "@pointclick/contracts";
-import { resolvePromptForGenerationTarget } from "./prompt-pack-targets";
+import {
+  composeTargetNegativePrompt,
+  composeTargetPositivePrompt,
+  resolvePromptForGenerationTarget
+} from "./prompt-pack-targets";
 
 const promptPack: PromptPackDocument = {
   schemaVersion: 1,
@@ -23,7 +27,10 @@ const promptPack: PromptPackDocument = {
   },
   outputs: {
     sceneBackgroundPrompt: "BACKGROUND PROMPT",
-    propPrompts: [{ id: "rusty-hook", prompt: "PROP PROMPT" }],
+    propPrompts: [
+      { id: "rusty-hook", prompt: "PROP PROMPT" },
+      { id: "radio", prompt: "RADIO PROP PROMPT" }
+    ],
     characterReferencePrompts: [
       { id: "keeper", prompt: "CHARACTER PROMPT" },
       { id: "keeper-sprite-sheet", prompt: "SPRITE SHEET PROMPT" },
@@ -78,6 +85,19 @@ describe("resolvePromptForGenerationTarget", () => {
     expect(resolution.prompt).toBe("CHARACTER PROMPT");
   });
 
+  it("uses prop templates for actor targets that are authored as props", () => {
+    const resolution = resolvePromptForGenerationTarget(
+      promptPack,
+      target({
+        id: "radio",
+        intendedUse: "prop",
+        sourceEntityKind: "actor",
+        sourceEntityId: "radio"
+      })
+    );
+    expect(resolution.prompt).toBe("RADIO PROP PROMPT");
+  });
+
   it("uses the sprite-sheet template for sprite-sheet targets", () => {
     const resolution = resolvePromptForGenerationTarget(
       promptPack,
@@ -89,5 +109,29 @@ describe("resolvePromptForGenerationTarget", () => {
       })
     );
     expect(resolution.prompt).toBe("SPRITE SHEET PROMPT");
+  });
+
+  it("composes target prompt customizations", () => {
+    expect(
+      composeTargetPositivePrompt("BASE", target({ customPositivePrompt: "Use a brass hook." }))
+    ).toBe("BASE\n\nTarget customization: Use a brass hook.");
+  });
+
+  it("merges target and pack negative prompts without duplicates", () => {
+    expect(
+      composeTargetNegativePrompt(
+        {
+          ...promptPack,
+          outputs: {
+            ...promptPack.outputs,
+            negativePrompt: "blur, room background"
+          }
+        },
+        target({
+          customNegativePrompt: "extra fingers, blur",
+          safetyNegativePrompt: "room background, floor"
+        })
+      )
+    ).toBe("room background, floor, extra fingers, blur");
   });
 });

@@ -54,6 +54,7 @@ export interface HotspotPatch {
 }
 
 export interface PickupPatch {
+  assetId?: string;
   bounds: Rect;
   interactSpot?: Vector2 | null;
   itemId: string;
@@ -757,6 +758,17 @@ export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[
     }
 
     for (const pickup of scene.pickups) {
+      if (pickup.assetId && !bundle.assets[pickup.assetId]) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "scene.pickup-asset-missing",
+            `Pickup "${pickup.id}" references missing asset "${pickup.assetId}".`,
+            { documentId: scene.id, path: `scenes/${scene.id}/pickups/${pickup.id}/assetId` }
+          )
+        );
+      }
+
       if (!bundle.items[pickup.itemId]) {
         diagnostics.push(
           createDiagnostic(
@@ -1271,8 +1283,12 @@ function findItemReferences(
 function findAssetReferences(
   bundle: ProjectBundle,
   asset: AssetDocument
-): Array<{ documentId: string; path: string; use: "sceneBackground" | "scenePlayer" | "sceneActor" }> {
-  const references: Array<{ documentId: string; path: string; use: "sceneBackground" | "scenePlayer" | "sceneActor" }> = [];
+): Array<{ documentId: string; path: string; use: "sceneBackground" | "scenePlayer" | "sceneActor" | "scenePickup" }> {
+  const references: Array<{
+    documentId: string;
+    path: string;
+    use: "sceneBackground" | "scenePlayer" | "sceneActor" | "scenePickup";
+  }> = [];
 
   for (const scene of Object.values(bundle.scenes)) {
     if (scene.type !== "layered-2d") continue;
@@ -1296,6 +1312,15 @@ function findAssetReferences(
           documentId: actor.id,
           path: `scenes/${scene.id}/actors/${actor.id}/assetId`,
           use: "sceneActor"
+        });
+      }
+    }
+    for (const pickup of scene.pickups) {
+      if (pickup.assetId === asset.id) {
+        references.push({
+          documentId: pickup.id,
+          path: `scenes/${scene.id}/pickups/${pickup.id}/assetId`,
+          use: "scenePickup"
         });
       }
     }
@@ -1393,6 +1418,11 @@ function patchPickup(scene: Layered2DScene, pickupId: string, patch: PickupPatch
     itemId: patch.itemId,
     labelKey: patch.labelKey
   };
+  if (patch.assetId) {
+    nextPickup.assetId = patch.assetId;
+  } else {
+    delete nextPickup.assetId;
+  }
   if ("interactSpot" in patch) {
     if (patch.interactSpot) {
       nextPickup.interactSpot = patch.interactSpot;

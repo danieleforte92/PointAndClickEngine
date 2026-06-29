@@ -127,6 +127,12 @@ function applyPickupDraft(scene: Layered2DScene, pickupId: string, draft: Editor
           : { x, y, width, height }
     };
 
+    if (draft.assetId.trim()) {
+      nextPickup.assetId = draft.assetId.trim();
+    } else {
+      delete nextPickup.assetId;
+    }
+
     if (draft.pickupFlowId.trim()) {
       nextPickup.pickupFlowId = draft.pickupFlowId.trim();
     } else {
