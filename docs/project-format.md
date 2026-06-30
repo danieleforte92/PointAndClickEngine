@@ -119,8 +119,9 @@ Asset Studio:
 ```
 
 `referenceAssetId` and `maskAssetId` must point to registered image assets.
-Creator Alpha stores these guides for review and future image-to-image
-workflows; the current ComfyUI text-to-image path does not upload guide images.
+Custom ComfyUI workflows with `LoadImage` or `LoadImageMask` nodes can receive
+these files before prompt queueing. The built-in text-to-image workflow has no
+image input nodes, so it ignores reference and mask assets.
 
 ## AI Workflow Engine Documents
 

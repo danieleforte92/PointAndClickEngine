@@ -1,4 +1,4 @@
-import { ComfyUIClient } from "./comfyui-client";
+import { ComfyUIClient, type ComfyUIUploadedImage, type ComfyUIUploadInput } from "./comfyui-client";
 import { type ComfyUIJobStore, InMemoryComfyUIJobStore } from "./comfyui-job-store";
 import { findImageReference } from "./comfyui-output-parser";
 import {
@@ -12,6 +12,8 @@ export interface ComfyUIImageProviderConfig {
   checkpointName?: string;
   outputNodeId?: string;
   pollIntervalMs?: number;
+  referenceImages?: ComfyUIUploadInput[];
+  maskImage?: ComfyUIUploadInput;
   timeoutMs?: number;
   workflowJson?: unknown;
 }
@@ -73,14 +75,33 @@ export async function generateComfyUIImage(
   const wait = options.sleep ?? sleep;
   const pollIntervalMs = config.pollIntervalMs ?? 1_000;
   const timeoutMs = config.timeoutMs ?? 120_000;
-  const workflow = config.workflowJson
-    ? patchCustomWorkflow(config.workflowJson, request, checkpointName, seed)
-    : buildTextToImageWorkflow(request, checkpointName!, seed);
-  const model = checkpointName ?? checkpointNameFromWorkflow(workflow);
   const client = new ComfyUIClient({
     ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {})
   });
+  const uploadedReferenceImages: ComfyUIUploadedImage[] = [];
+  for (const referenceImage of config.referenceImages ?? []) {
+    uploadedReferenceImages.push(await client.uploadImage(referenceImage));
+  }
+  const uploadedMaskImage = config.maskImage
+    ? await client.uploadMask(
+        config.maskImage,
+        uploadedReferenceImages[0] ?? (await client.uploadImage(config.maskImage))
+      )
+    : undefined;
+  const workflow = config.workflowJson
+    ? patchCustomWorkflow(
+        config.workflowJson,
+        {
+          ...request,
+          ...(uploadedReferenceImages.length ? { uploadedReferenceImages } : {}),
+          ...(uploadedMaskImage ? { uploadedMaskImage } : {})
+        },
+        checkpointName,
+        seed
+      )
+    : buildTextToImageWorkflow(request, checkpointName!, seed);
+  const model = checkpointName ?? checkpointNameFromWorkflow(workflow);
   const jobStore = options.jobStore ?? new InMemoryComfyUIJobStore();
 
   const promptId = await client.queuePrompt(workflow);

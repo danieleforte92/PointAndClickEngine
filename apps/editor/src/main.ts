@@ -677,14 +677,38 @@ async function readComfyWorkflowJson(projectDirectory: string, workflowPath: str
   }
 }
 
+async function readAssetUploadInput(projectDirectory: string, bundle: ProjectBundle, assetId: string) {
+  const asset = bundle.assets[assetId];
+  if (!asset) {
+    throw new Error(`ComfyUI input asset "${assetId}" is not registered in the loaded project.`);
+  }
+
+  const assetPath = safeProjectPath(projectDirectory, asset.path, `ComfyUI input asset "${assetId}"`);
+  const bytes = await readFile(assetPath);
+  return {
+    bytes,
+    filename: path.basename(assetPath),
+    mimeType: path.extname(assetPath).toLowerCase() === ".png" ? "image/png" : "application/octet-stream"
+  };
+}
+
 async function generateImageAsset(request: GenerateImageAssetRequest) {
   if (request.providerId !== "comfyui") {
     throw new Error(`Unsupported image provider "${request.providerId}"`);
   }
 
   const projectDirectory = currentProjectPath();
+  const projectBeforeGeneration = await loadProjectFromDirectory(projectDirectory);
   const workflowJson = request.workflowPath
     ? await readComfyWorkflowJson(projectDirectory, request.workflowPath)
+    : undefined;
+  const referenceImages = await Promise.all(
+    (request.referenceAssetIds ?? []).map((assetId) =>
+      readAssetUploadInput(projectDirectory, projectBeforeGeneration.bundle, assetId)
+    )
+  );
+  const maskImage = request.maskAssetId
+    ? await readAssetUploadInput(projectDirectory, projectBeforeGeneration.bundle, request.maskAssetId)
     : undefined;
   console.info(
     `[ComfyUI] Queueing ${request.targetId} at ${request.baseUrl ?? "http://127.0.0.1:8188"} using ${
@@ -703,6 +727,8 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
     {
       ...(request.baseUrl ? { baseUrl: request.baseUrl } : {}),
       ...(request.checkpointName ? { checkpointName: request.checkpointName } : {}),
+      ...(referenceImages.length ? { referenceImages } : {}),
+      ...(maskImage ? { maskImage } : {}),
       ...(request.timeoutMs ? { timeoutMs: request.timeoutMs } : {}),
       ...(workflowJson ? { workflowJson } : {})
     }

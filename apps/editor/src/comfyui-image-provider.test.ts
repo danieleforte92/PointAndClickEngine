@@ -469,6 +469,162 @@ describe("generateComfyUIImage", () => {
     expect(result.filename).toBe("final_00001_.png");
   });
 
+  it("uploads reference and mask assets before patching LoadImage nodes", async () => {
+    const calls: Array<{ body?: unknown; url: string }> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      calls.push({
+        url,
+        body: init?.body
+      });
+
+      if (url.endsWith("/upload/image")) {
+        const body = init?.body as FormData;
+        expect(body.get("type")).toBe("input");
+        expect(body.get("overwrite")).toBe("true");
+        return {
+          ok: true,
+          json: async () => ({ name: "layout-reference.png", subfolder: "", type: "input" })
+        } as Response;
+      }
+
+      if (url.endsWith("/upload/mask")) {
+        const body = init?.body as FormData;
+        expect(body.get("type")).toBe("input");
+        expect(JSON.parse(String(body.get("original_ref")))).toEqual({
+          filename: "layout-reference.png",
+          subfolder: "",
+          type: "input"
+        });
+        return {
+          ok: true,
+          json: async () => ({ name: "layout-mask.png", subfolder: "", type: "input" })
+        } as Response;
+      }
+
+      if (url.endsWith("/prompt")) {
+        return {
+          ok: true,
+          json: async () => ({ prompt_id: "prompt-inputs" })
+        } as Response;
+      }
+
+      if (url.endsWith("/history/prompt-inputs")) {
+        return {
+          ok: true,
+          json: async () => ({
+            "prompt-inputs": {
+              outputs: {
+                "20": {
+                  images: [{ filename: "inpaint_00001_.png", subfolder: "", type: "output" }]
+                }
+              }
+            }
+          })
+        } as Response;
+      }
+
+      if (url.includes("/view?")) {
+        return {
+          headers: new Headers({ "content-type": "image/png" }),
+          ok: true,
+          arrayBuffer: async () => new Uint8Array([7, 8, 9]).buffer
+        } as Response;
+      }
+
+      throw new Error(`Unexpected URL ${url}`);
+    }) as typeof fetch;
+
+    await generateComfyUIImage(
+      {
+        height: 720,
+        negativePrompt: "messy",
+        prompt: "Repair the tavern door area.",
+        seed: 123,
+        targetId: "door-inpaint",
+        width: 1280
+      },
+      {
+        pollIntervalMs: 1,
+        timeoutMs: 1_000,
+        referenceImages: [
+          {
+            bytes: new Uint8Array([1, 2, 3]),
+            filename: "reference.png",
+            mimeType: "image/png"
+          }
+        ],
+        maskImage: {
+          bytes: new Uint8Array([4, 5, 6]),
+          filename: "mask.png",
+          mimeType: "image/png"
+        },
+        workflowJson: {
+          "1": {
+            inputs: {
+              ckpt_name: "sdxl.safetensors"
+            },
+            class_type: "CheckpointLoaderSimple"
+          },
+          "10": {
+            inputs: {
+              image: "old-layout.png"
+            },
+            class_type: "LoadImage",
+            _meta: { title: "Reference Layout" }
+          },
+          "11": {
+            inputs: {
+              image: "old-mask.png",
+              channel: "alpha"
+            },
+            class_type: "LoadImageMask",
+            _meta: { title: "Inpaint Mask" }
+          },
+          "12": {
+            inputs: {
+              text: "old positive",
+              clip: ["1", 1]
+            },
+            class_type: "CLIPTextEncode"
+          },
+          "13": {
+            inputs: {
+              text: "old negative",
+              clip: ["1", 1]
+            },
+            class_type: "CLIPTextEncode",
+            _meta: { title: "Negative Prompt" }
+          },
+          "20": {
+            inputs: {
+              filename_prefix: "old",
+              images: ["21", 0]
+            },
+            class_type: "SaveImage"
+          }
+        }
+      },
+      {
+        fetchImpl,
+        sleep: async () => {}
+      }
+    );
+
+    expect(calls.map((call) => call.url)).toEqual([
+      "http://127.0.0.1:8188/upload/image",
+      "http://127.0.0.1:8188/upload/mask",
+      "http://127.0.0.1:8188/prompt",
+      "http://127.0.0.1:8188/history/prompt-inputs",
+      "http://127.0.0.1:8188/view?filename=inpaint_00001_.png&subfolder=&type=output"
+    ]);
+
+    const promptBody = JSON.parse(String(calls[2]!.body)) as { prompt: Record<string, any> };
+    expect(promptBody.prompt["10"].inputs.image).toBe("layout-reference.png");
+    expect(promptBody.prompt["11"].inputs.image).toBe("layout-mask.png");
+    expect(promptBody.prompt["12"].inputs.text).toBe("Repair the tavern door area.");
+    expect(promptBody.prompt["13"].inputs.text).toBe("messy");
+  });
+
   it("records job state through completion and timeout", async () => {
     const completedStore = new InMemoryComfyUIJobStore();
     const completedFetch = (async (url: string) => {

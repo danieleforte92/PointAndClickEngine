@@ -110,6 +110,18 @@ When a custom workflow is provided, the editor patches:
 - every numeric `inputs.seed`;
 - `SaveImage.inputs.filename_prefix`;
 - existing `CLIPTextEncode.inputs.text` prompt nodes.
+- `LoadImage.inputs.image` with the first linked reference image when present;
+- `LoadImageMask.inputs.image` or mask-like `LoadImage` nodes with the linked
+  mask image when present.
+
+Reference images are sent to `/upload/image`. Mask images are sent to
+`/upload/mask` with the uploaded reference image as `original_ref`, matching the
+ComfyUI server API. If a mask is supplied without a separate reference, the
+editor first uploads the mask as an image to provide the required original
+reference.
+
+The built-in text-to-image workflow has no image input nodes, so reference and
+mask assets are useful only with custom workflows that expose image loader nodes.
 
 If the workflow has no `CLIPTextEncode` nodes but has `CheckpointLoaderSimple`
 and standard `KSampler` nodes, the provider injects positive and negative prompt

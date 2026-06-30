@@ -7629,8 +7629,9 @@ export function EditorApp() {
                     {selectedEffectiveGenerationTarget?.referenceAssetId || selectedEffectiveGenerationTarget?.maskAssetId ? (
                       <p className="target-customization-note">
                         Guide assets linked: reference {selectedEffectiveGenerationTarget.referenceAssetId ?? "none"},
-                        mask {selectedEffectiveGenerationTarget.maskAssetId ?? "none"}. Current ComfyUI text-to-image
-                        generation does not upload these guide images yet.
+                        mask {selectedEffectiveGenerationTarget.maskAssetId ?? "none"}. Custom ComfyUI workflows with
+                        LoadImage/LoadImageMask nodes receive these files before queueing; the default text-to-image
+                        workflow ignores them.
                       </p>
                     ) : null}
                   </div>
@@ -7988,7 +7989,7 @@ export function EditorApp() {
                     <>
                       <span className="overview-label">Generation Guide</span>
                       <strong>{selectedSavedGenerationTarget?.id ?? "No saved target"}</strong>
-                      <p>Creates a reusable mask asset and links this asset as the target reference. ComfyUI text-to-image does not consume it yet.</p>
+                      <p>Creates reusable reference and mask assets for custom ComfyUI workflows with LoadImage/LoadImageMask nodes.</p>
                       <div className="prompt-studio-controls">
                         <label className="prompt-studio-field">Saved prompt pack<select value={selectedPromptPack?.id ?? ""} onChange={(event) => setSelectedPromptPackId(event.target.value || null)}><option value="">Select pack</option>{project?.promptPacks.map((pack) => <option key={`guide-pack-${pack.id}`} value={pack.id}>{pack.id}</option>)}</select></label>
                         <label className="prompt-studio-field">Target<select value={selectedSavedGenerationTarget?.id ?? ""} onChange={(event) => setSelectedGenerationTargetId(event.target.value)}><option value="">Select target</option>{savedPromptPackTargets.map((target) => <option key={`guide-target-${target.id}`} value={target.id}>{target.id} ({target.intendedUse})</option>)}</select></label>

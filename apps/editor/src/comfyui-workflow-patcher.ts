@@ -8,11 +8,19 @@ export interface ComfyWorkflowNode {
 
 export type ComfyWorkflow = Record<string, ComfyWorkflowNode>;
 
+export interface ComfyUploadedInputImage {
+  name: string;
+  subfolder: string;
+  type: string;
+}
+
 export interface ComfyWorkflowPatchRequest {
   height: number;
   negativePrompt?: string;
   prompt: string;
   targetId: string;
+  uploadedMaskImage?: ComfyUploadedInputImage;
+  uploadedReferenceImages?: ComfyUploadedInputImage[];
   width: number;
 }
 
@@ -134,6 +142,55 @@ function ensureInputs(node: ComfyWorkflowNode) {
   return node.inputs;
 }
 
+function isImageLoaderNode(node: ComfyWorkflowNode) {
+  return (
+    typeof node.inputs?.image === "string" &&
+    (node.class_type === "LoadImage" ||
+      node.class_type === "LoadImageMask" ||
+      `${node.class_type ?? ""}`.toLowerCase().includes("loadimage"))
+  );
+}
+
+function isMaskLoaderNode(id: string, node: ComfyWorkflowNode) {
+  const haystack = `${id} ${node.class_type ?? ""} ${node._meta?.title ?? ""}`.toLowerCase();
+  return (
+    isImageLoaderNode(node) &&
+    (node.class_type === "LoadImageMask" ||
+      haystack.includes("mask") ||
+      haystack.includes("inpaint"))
+  );
+}
+
+function patchUploadedInputImages(workflow: ComfyWorkflow, request: ComfyWorkflowPatchRequest) {
+  const loaderNodes = Object.entries(workflow).filter((entry): entry is [string, ComfyWorkflowNode] =>
+    isImageLoaderNode(entry[1])
+  );
+  if (loaderNodes.length === 0) return;
+
+  const maskUpload = request.uploadedMaskImage;
+  const referenceUpload = request.uploadedReferenceImages?.[0];
+  const maskNode = maskUpload ? loaderNodes.find(([id, node]) => isMaskLoaderNode(id, node)) : undefined;
+
+  if (maskUpload && maskNode) {
+    ensureInputs(maskNode[1]).image = maskUpload.name;
+  }
+
+  if (referenceUpload) {
+    const referenceNode = loaderNodes.find(([id, node]) => maskNode?.[0] !== id && !isMaskLoaderNode(id, node));
+    if (referenceNode) {
+      ensureInputs(referenceNode[1]).image = referenceUpload.name;
+      return;
+    }
+  }
+
+  if (maskUpload && !maskNode) {
+    const fallbackNode = loaderNodes.find(([id]) => id !== maskNode?.[0]);
+    if (fallbackNode) {
+      ensureInputs(fallbackNode[1]).image = maskUpload.name;
+    }
+  }
+}
+
 function patchExistingPromptNodes(workflow: ComfyWorkflow, request: ComfyWorkflowPatchRequest) {
   const promptNodes = Object.entries(workflow).filter((entry): entry is [string, ComfyWorkflowNode] =>
     isTextEncodeNode(entry[1])
@@ -253,6 +310,8 @@ export function patchCustomWorkflow(
       inputs.filename_prefix = `pointclick_${request.targetId}`;
     }
   }
+
+  patchUploadedInputImages(workflow, request);
 
   if (!patchPrimitivePromptNodes(workflow, request) && !patchExistingPromptNodes(workflow, request)) {
     if (hasLinkedPromptConditioning(workflow)) {

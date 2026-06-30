@@ -9,6 +9,18 @@ async function readError(response: Response) {
   return response.text().catch(() => response.statusText);
 }
 
+export interface ComfyUIUploadInput {
+  bytes: Uint8Array;
+  filename: string;
+  mimeType?: string;
+}
+
+export interface ComfyUIUploadedImage {
+  name: string;
+  subfolder: string;
+  type: string;
+}
+
 export class ComfyUIClient {
   readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
@@ -37,6 +49,20 @@ export class ComfyUIClient {
     return promptId;
   }
 
+  async uploadImage(input: ComfyUIUploadInput): Promise<ComfyUIUploadedImage> {
+    return this.uploadMultipart("/upload/image", input);
+  }
+
+  async uploadMask(input: ComfyUIUploadInput, originalRef: ComfyUIUploadedImage): Promise<ComfyUIUploadedImage> {
+    return this.uploadMultipart("/upload/mask", input, {
+      original_ref: JSON.stringify({
+        filename: originalRef.name,
+        subfolder: originalRef.subfolder,
+        type: originalRef.type
+      })
+    });
+  }
+
   async getHistory(promptId: string): Promise<unknown> {
     const response = await this.fetchImpl(`${this.baseUrl}/history/${encodeURIComponent(promptId)}`);
     if (!response.ok) {
@@ -63,6 +89,46 @@ export class ComfyUIClient {
     return {
       bytes: new Uint8Array(await response.arrayBuffer()),
       mimeType: response.headers.get("content-type") ?? "image/png"
+    };
+  }
+
+  private async uploadMultipart(
+    route: "/upload/image" | "/upload/mask",
+    input: ComfyUIUploadInput,
+    extraFields: Record<string, string> = {}
+  ): Promise<ComfyUIUploadedImage> {
+    const body = new FormData();
+    const bytes = new Uint8Array(input.bytes);
+    const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    body.set(
+      "image",
+      new Blob([arrayBuffer], { type: input.mimeType ?? "application/octet-stream" }),
+      input.filename
+    );
+    body.set("type", "input");
+    body.set("overwrite", "true");
+    for (const [key, value] of Object.entries(extraFields)) {
+      body.set(key, value);
+    }
+
+    const response = await this.fetchImpl(`${this.baseUrl}${route}`, {
+      method: "POST",
+      body
+    });
+    if (!response.ok) {
+      throw new Error(`ComfyUI ${route} failed (${response.status}): ${await readError(response)}`);
+    }
+
+    const payload = (await response.json()) as Partial<ComfyUIUploadedImage> & { filename?: string };
+    const name = payload.name ?? payload.filename;
+    if (!name) {
+      throw new Error(`ComfyUI ${route} response did not include an uploaded filename.`);
+    }
+
+    return {
+      name,
+      subfolder: payload.subfolder ?? "",
+      type: payload.type ?? "input"
     };
   }
 }
