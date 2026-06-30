@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bitmapHasAlphaPixels, generatedImageOutputWarning } from "./image-generation";
+import { bitmapHasAlphaPixels, estimateImageWorkflowFamily, generatedImageOutputWarning } from "./image-generation";
 
 describe("generated image output contract", () => {
   it("detects alpha pixels in nativeImage RGBA bitmaps", () => {
@@ -28,5 +28,34 @@ describe("generated image output contract", () => {
         hasAlphaPixels: false
       })
     ).toBeUndefined();
+  });
+});
+
+describe("image workflow family estimation", () => {
+  it("prefers inpaint when a mask asset is linked", () => {
+    expect(
+      estimateImageWorkflowFamily({
+        intendedUse: "scene-background",
+        maskAssetId: "door-mask"
+      })
+    ).toBe("scene_inpaint_masked");
+  });
+
+  it("uses img2img layout when a reference asset is linked", () => {
+    expect(
+      estimateImageWorkflowFamily({
+        intendedUse: "scene-background",
+        referenceAssetId: "room-layout"
+      })
+    ).toBe("background_img2img_layout");
+  });
+
+  it("keeps transparent props in the isolated alpha or chroma family", () => {
+    expect(
+      estimateImageWorkflowFamily({
+        backgroundMode: "transparent-alpha",
+        intendedUse: "prop"
+      })
+    ).toBe("prop_isolated_alpha_or_chroma");
   });
 });

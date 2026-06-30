@@ -415,12 +415,24 @@ export const AssetSourceSchema = Type.Union([
   Type.Literal("processed")
 ]);
 
+export const WorkflowFamilySchema = Type.Union([
+  Type.Literal("background_t2i_fast"),
+  Type.Literal("background_img2img_layout"),
+  Type.Literal("scene_inpaint_masked"),
+  Type.Literal("prop_isolated_alpha_or_chroma"),
+  Type.Literal("character_reference_sheet"),
+  Type.Literal("sprite_sheet_reference"),
+  Type.Literal("style_reference_generation"),
+  Type.Literal("micro_animation_i2v")
+]);
+
 export const AssetGenerationMetadataSchema = Type.Object(
   {
     provider: Type.String({ minLength: 1 }),
     generatedAt: Type.Optional(Type.String({ format: "date-time" })),
     model: Type.Optional(Type.String({ minLength: 1 })),
     workflowId: Type.Optional(Id),
+    workflowFamily: Type.Optional(WorkflowFamilySchema),
     recipeId: Type.Optional(Id),
     promptPackId: Type.Optional(Id),
     targetId: Type.Optional(Id),
@@ -463,17 +475,6 @@ export const AssetDocumentSchema = Type.Object(
   },
   { additionalProperties: false }
 );
-
-export const WorkflowFamilySchema = Type.Union([
-  Type.Literal("background_t2i_fast"),
-  Type.Literal("background_img2img_layout"),
-  Type.Literal("scene_inpaint_masked"),
-  Type.Literal("prop_isolated_alpha_or_chroma"),
-  Type.Literal("character_reference_sheet"),
-  Type.Literal("sprite_sheet_reference"),
-  Type.Literal("style_reference_generation"),
-  Type.Literal("micro_animation_i2v")
-]);
 
 export const WorkflowInputKindSchema = Type.Union([
   Type.Literal("prompt"),

@@ -209,6 +209,7 @@ document:
   "generation": {
     "provider": "comfyui",
     "workflowId": "sdxl-background",
+    "workflowFamily": "background_t2i_fast",
     "recipeId": "moonlit-dock-background-recipe",
     "promptPackId": "moonlit-dock-art",
     "targetId": "moonlit-dock-background",

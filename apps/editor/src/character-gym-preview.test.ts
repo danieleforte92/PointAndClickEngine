@@ -129,6 +129,20 @@ describe("ComfyUI target workflow guidance", () => {
     });
   });
 
+  it("describes linked reference targets as custom workflow inputs", () => {
+    expect(describeImageTargetWorkflow(target({ referenceAssetId: "room-layout" }), basePreset)).toMatchObject({
+      label: "Reference workflow expected",
+      mode: "reference"
+    });
+  });
+
+  it("describes linked mask targets as inpaint workflow inputs", () => {
+    expect(describeImageTargetWorkflow(target({ maskAssetId: "door-mask" }), basePreset)).toMatchObject({
+      label: "Inpaint workflow expected",
+      mode: "inpaint"
+    });
+  });
+
   it("prefers chroma guidance when target text requests a key color", () => {
     expect(
       describeImageTargetWorkflow(

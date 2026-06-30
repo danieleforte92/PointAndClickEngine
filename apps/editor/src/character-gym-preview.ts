@@ -42,7 +42,7 @@ export interface ComfyOutputPresetLike {
   useCase: string;
 }
 
-export type ImageTargetWorkflowMode = "opaque" | "transparent" | "chroma";
+export type ImageTargetWorkflowMode = "opaque" | "transparent" | "chroma" | "reference" | "inpaint";
 
 export interface ImageTargetWorkflowDescription {
   detail: string;
@@ -217,6 +217,24 @@ export function describeImageTargetWorkflow(
   }
 
   const searchableText = `${target.id} ${target.intendedUse} ${target.backgroundMode ?? ""} ${preset.label} ${preset.useCase} ${promptText}`;
+  if (target.maskAssetId) {
+    return {
+      detail:
+        "Use a custom ComfyUI workflow with LoadImage and LoadImageMask nodes. The editor uploads the linked reference and mask before queueing.",
+      label: "Inpaint workflow expected",
+      mode: "inpaint"
+    };
+  }
+
+  if (target.referenceAssetId) {
+    return {
+      detail:
+        "Use a custom ComfyUI workflow with a LoadImage node so the linked reference asset can guide the generated layout or style.",
+      label: "Reference workflow expected",
+      mode: "reference"
+    };
+  }
+
   if (
     target.backgroundMode === "chroma-blue" ||
     target.backgroundMode === "chroma-green" ||

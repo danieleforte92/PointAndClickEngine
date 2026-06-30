@@ -1,4 +1,5 @@
 import type { EditorProjectSnapshot } from "./preload";
+import type { PromptPackGenerationTarget, WorkflowFamily } from "@pointclick/contracts";
 
 export interface GenerateImageAssetRequest {
   baseUrl?: string;
@@ -17,6 +18,7 @@ export interface GenerateImageAssetRequest {
   targetId: string;
   timeoutMs?: number;
   width: number;
+  workflowFamily?: WorkflowFamily;
   workflowPath?: string;
 }
 
@@ -60,4 +62,40 @@ export function generatedImageOutputWarning(options: {
   }
 
   return undefined;
+}
+
+export function estimateImageWorkflowFamily(
+  target: Pick<
+    PromptPackGenerationTarget,
+    "backgroundMode" | "expectedAlpha" | "intendedUse" | "maskAssetId" | "referenceAssetId" | "transparent"
+  > | null
+): WorkflowFamily {
+  if (target?.maskAssetId) {
+    return "scene_inpaint_masked";
+  }
+
+  if (target?.referenceAssetId) {
+    return "background_img2img_layout";
+  }
+
+  if (target?.intendedUse === "character-reference") {
+    return "character_reference_sheet";
+  }
+
+  if (target?.intendedUse === "animation-reference" || target?.intendedUse === "sprite-sheet") {
+    return "sprite_sheet_reference";
+  }
+
+  if (
+    target?.intendedUse === "prop" ||
+    target?.backgroundMode === "transparent-alpha" ||
+    target?.backgroundMode === "chroma-blue" ||
+    target?.backgroundMode === "chroma-green" ||
+    target?.expectedAlpha ||
+    target?.transparent
+  ) {
+    return "prop_isolated_alpha_or_chroma";
+  }
+
+  return "background_t2i_fast";
 }

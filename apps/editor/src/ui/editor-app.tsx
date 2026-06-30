@@ -145,6 +145,7 @@ import {
   composeTargetPositivePrompt,
   resolvePromptForGenerationTarget
 } from "../prompt-pack-targets";
+import { estimateImageWorkflowFamily } from "../image-generation";
 import type { EditorProjectSnapshot } from "../preload";
 import type {
   BuildReadinessIssue,
@@ -1790,8 +1791,17 @@ export function EditorApp() {
     selectedComfyOutputPreset,
     selectedGenerationPrompt
   );
+  const selectedImageWorkflowFamily = estimateImageWorkflowFamily(selectedEffectiveGenerationTarget);
+  const selectedImageInputWorkflowWarning =
+    selectedEffectiveGenerationTarget?.referenceAssetId || selectedEffectiveGenerationTarget?.maskAssetId
+      ? comfyUiWorkflowPath.trim()
+        ? null
+        : "Linked reference or mask assets require a custom ComfyUI workflow API JSON path. The built-in text-to-image workflow has no LoadImage or LoadImageMask nodes."
+      : null;
   const selectedImageTargetWorkflowTone =
-    selectedImageTargetWorkflow.mode === "chroma"
+    selectedImageInputWorkflowWarning || selectedImageTargetWorkflow.mode === "inpaint"
+      ? "warn"
+      : selectedImageTargetWorkflow.mode === "chroma" || selectedImageTargetWorkflow.mode === "reference"
       ? "info"
       : selectedImageTargetWorkflow.mode === "transparent"
         ? "warn"
@@ -4504,6 +4514,16 @@ export function EditorApp() {
       setStatus("ComfyUI needs a checkpoint filename or a workflow API JSON path.");
       return;
     }
+    if (
+      !workflowPath &&
+      (selectedEffectiveGenerationTarget.referenceAssetId || selectedEffectiveGenerationTarget.maskAssetId)
+    ) {
+      const workflowInputStatus =
+        "Linked reference or mask assets require a custom ComfyUI workflow API JSON path before queueing.";
+      setComfyUiGenerationStatus(workflowInputStatus);
+      setStatus(workflowInputStatus);
+      return;
+    }
 
     const seedText = comfyUiSeed.trim();
     const parsedSeed = seedText ? Number(seedText) : null;
@@ -4544,6 +4564,7 @@ export function EditorApp() {
           : {}),
         targetId: selectedEffectiveGenerationTarget.id,
         width: selectedGenerationDimensions.width,
+        workflowFamily: selectedImageWorkflowFamily,
         ...(selectedEffectiveGenerationTarget.backgroundMode
           ? { backgroundMode: selectedEffectiveGenerationTarget.backgroundMode }
           : {}),
@@ -7634,6 +7655,12 @@ export function EditorApp() {
                         workflow ignores them.
                       </p>
                     ) : null}
+                    {selectedImageInputWorkflowWarning ? (
+                      <div className="contract-warning-card">
+                        <strong>Image input workflow required</strong>
+                        <p>{selectedImageInputWorkflowWarning}</p>
+                      </div>
+                    ) : null}
                   </div>
                   <label className="prompt-studio-field">
                     Seed
@@ -7765,6 +7792,7 @@ export function EditorApp() {
                       <span className={`target-mode-pill ${selectedImageTargetWorkflowTone}`}>
                         {selectedImageTargetWorkflow.label}
                       </span>
+                      <span className="prompt-chip">{selectedImageWorkflowFamily}</span>
                       <span className="prompt-chip">
                         {selectedGenerationDimensions.width} x {selectedGenerationDimensions.height}
                       </span>

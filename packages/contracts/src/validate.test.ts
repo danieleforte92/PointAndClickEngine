@@ -542,6 +542,7 @@ describe("project contracts", () => {
         generatedAt: "2026-06-29T12:00:00.000Z",
         model: "sdxl-turbo",
         workflowId: "sdxl-background",
+        workflowFamily: "scene_inpaint_masked",
         recipeId: "dock-background-recipe",
         promptPackId: "dock-art",
         targetId: "dock-background",

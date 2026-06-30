@@ -122,6 +122,9 @@ reference.
 
 The built-in text-to-image workflow has no image input nodes, so reference and
 mask assets are useful only with custom workflows that expose image loader nodes.
+The editor blocks queueing linked reference or mask targets until a custom
+workflow API JSON path is set, preventing a plain text-to-image job from
+silently ignoring those inputs.
 
 If the workflow has no `CLIPTextEncode` nodes but has `CheckpointLoaderSimple`
 and standard `KSampler` nodes, the provider injects positive and negative prompt
@@ -168,9 +171,9 @@ save a processed PNG while keeping the source asset unchanged.
 
 Generated ComfyUI assets are marked with `source: "generated"` and store
 provenance when available: provider, model, seed, positive and negative prompt,
-dimensions, prompt pack target, linked reference or mask assets, guide IDs, and
-output warnings. This keeps generated art reviewable and reproducible without
-making the runtime depend on ComfyUI.
+dimensions, prompt pack target, estimated workflow family, linked reference or
+mask assets, guide IDs, and output warnings. This keeps generated art reviewable
+and reproducible without making the runtime depend on ComfyUI.
 
 Keep ComfyUI and LM Studio bound to localhost for this workflow. Do not expose
 either local server to a public network without authentication and firewalling.

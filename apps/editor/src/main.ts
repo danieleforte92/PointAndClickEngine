@@ -776,6 +776,7 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
           provider: "comfyui",
           model: result.model,
           seed: result.seed,
+          ...(request.workflowFamily ? { workflowFamily: request.workflowFamily } : {}),
           prompt: {
             positive: request.prompt,
             ...(request.negativePrompt ? { negative: request.negativePrompt } : {})
