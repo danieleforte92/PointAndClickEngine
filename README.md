@@ -88,12 +88,16 @@ Creator Alpha does not require paid provider keys.
 - **LM Studio local** can draft prompt packs through a local OpenAI-compatible
   server.
 - **ComfyUI local** can generate image assets from exported API workflows.
+  Custom workflow API exports can receive linked reference and mask assets
+  through `LoadImage` / `LoadImageMask` nodes.
 - **OpenAI** is optional and requires an API platform key; ChatGPT subscriptions
   do not replace API billing.
 
 AI output is treated as draft authoring material. Prompt packs are saved only
 after approval, image generation imports normal asset documents, and provider
-provenance stays visible.
+provenance stays visible. Generated image assets record prompt, seed, model,
+workflow family, references, masks, parent asset lineage, warnings, and prompt
+pack target links when available.
 
 ## Verify
 
@@ -146,8 +150,9 @@ packages/cli           Project validation commands
   is still being completed.
 - Transparent PNG generation depends on the selected ComfyUI workflow or
   in-editor chroma cleanup from a flat blue/green background.
-- Generation guide masks can be saved on prompt targets, but current ComfyUI
-  generation is still text-to-image and does not upload guide images yet.
+- Reference and mask inputs require a project-relative custom ComfyUI workflow
+  API JSON with compatible image loader nodes; the built-in text-to-image path
+  intentionally ignores image inputs.
 - Hosted web demo and marketing site are not required for the first public
   release.
 

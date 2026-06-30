@@ -25,6 +25,13 @@ comfortable with local developer tools.
 - Public sample game, minimal starter project, and authoring docs.
 - Local-first AI workflows with mock prompt generation, LM Studio, OpenAI API,
   and ComfyUI image import.
+- AI workflow documents for style bibles, workflow templates, generation
+  recipes, and generated asset provenance.
+- ComfyUI custom workflow patching for prompt, negative prompt, seed,
+  dimensions, checkpoint, output prefix, reference images, and mask images.
+- Generated image asset provenance for workflow family, prompt pack target,
+  linked reference and mask assets, parent asset lineage, dimensions, warnings,
+  model, and seed.
 - Inspector asset import/drop, pickup image assets, and chroma cleanup for flat
   blue/green backgrounds.
 
@@ -35,6 +42,9 @@ comfortable with local developer tools.
   UX is still being completed.
 - Transparent PNG quality depends on the selected ComfyUI workflow or a clean
   flat chroma source for editor cleanup.
+- Reference and mask inputs require a custom ComfyUI API workflow with
+  compatible image loader nodes; the built-in text-to-image path does not use
+  image inputs.
 - Flow graph editing, hosted demo, marketing site, web export, and npm SDK
   publishing are outside this release.
 - AI provider keys are optional; OpenAI requires API platform access and is not

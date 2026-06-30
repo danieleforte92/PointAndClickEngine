@@ -49,10 +49,13 @@ Notes:
    verify it is assigned as a new asset without overwriting the source.
 11. In **AI**, generate a mock prompt pack.
 12. With LM Studio running, generate a local prompt pack.
-13. With ComfyUI running, generate and import one image asset.
-14. Send a `sprite-sheet` or `animation-reference` target to Asset Studio and verify Character Gym can slice it.
-15. In **Build**, run validation.
-16. Use **Play from here** and **Browser** preview.
+13. With ComfyUI running, generate and import one text-to-image asset.
+14. With a custom ComfyUI API workflow, queue one target with a linked reference
+    or mask asset and confirm provenance records `referenceAssetIds`,
+    `maskAssetId`, and `parentAssetIds`.
+15. Send a `sprite-sheet` or `animation-reference` target to Asset Studio and verify Character Gym can slice it.
+16. In **Build**, run validation.
+17. Use **Play from here** and **Browser** preview.
 
 For provider smoke tests:
 
@@ -85,9 +88,10 @@ Include:
 - quick start commands;
 - sample game loop;
 - local AI provider notes;
-- AI Workflow Engine status: mock prompt packs are stable, ComfyUI text-to-image
-  import is available, and recipe/registry/img2img/inpaint work is roadmap scope
-  unless completed before tagging;
+- AI Workflow Engine status: mock prompt packs are stable; workflow template,
+  generation recipe, style bible, generated provenance, ComfyUI text-to-image,
+  and custom reference/mask upload paths are available; advanced recipe approval
+  and richer job progress remain later polish;
 - known limitations;
 - screenshot or GIF from `docs/assets`;
 - links to README, roadmap, authoring tutorial, AI guide, and Character Gym guide.
@@ -98,6 +102,8 @@ Include:
   need stronger consistency presets before they are production-grade.
 - Transparent PNG output depends on the selected ComfyUI workflow or a clean
   flat chroma source for editor cleanup.
+- Reference and mask inputs require a custom ComfyUI API workflow with compatible
+  image loader nodes; the built-in text-to-image path ignores image inputs.
 - OpenAI integration requires API platform access; ChatGPT subscriptions do not
   cover API calls.
 - Flow graph editing, hosted demo, and public website are later milestones.
