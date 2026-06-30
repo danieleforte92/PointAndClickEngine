@@ -64,6 +64,22 @@ export function generatedImageOutputWarning(options: {
   return undefined;
 }
 
+export function generatedImageParentAssetIds(options: {
+  maskAssetId?: string | undefined;
+  referenceAssetIds?: string[] | undefined;
+}): string[] {
+  const parentAssetIds: string[] = [];
+  const seen = new Set<string>();
+  for (const assetId of [...(options.referenceAssetIds ?? []), options.maskAssetId].filter(
+    (value): value is string => Boolean(value?.trim())
+  )) {
+    if (seen.has(assetId)) continue;
+    seen.add(assetId);
+    parentAssetIds.push(assetId);
+  }
+  return parentAssetIds;
+}
+
 export function estimateImageWorkflowFamily(
   target: Pick<
     PromptPackGenerationTarget,

@@ -213,6 +213,7 @@ document:
     "recipeId": "moonlit-dock-background-recipe",
     "promptPackId": "moonlit-dock-art",
     "targetId": "moonlit-dock-background",
+    "parentAssetIds": ["dock-layout"],
     "seed": 39120481,
     "dimensions": { "width": 1280, "height": 720 }
   }

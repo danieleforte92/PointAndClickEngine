@@ -23,6 +23,7 @@ import type { EditorRecoverySnapshot } from "./editor-session";
 import { generateComfyUIImage } from "./comfyui-image-provider";
 import {
   bitmapHasAlphaPixels,
+  generatedImageParentAssetIds,
   generatedImageOutputWarning,
   type GenerateImageAssetRequest
 } from "./image-generation";
@@ -766,6 +767,10 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
   const savedPromptPack = request.promptPackId ? existing.bundle.promptPacks[request.promptPackId] : undefined;
   const savedTarget =
     savedPromptPack && savedPromptPack.outputs.generationTargets.some((target) => target.id === request.targetId);
+  const parentAssetIds = generatedImageParentAssetIds({
+    maskAssetId: request.maskAssetId,
+    referenceAssetIds: request.referenceAssetIds
+  });
   const baseAssetId = slugifyAssetId(path.basename(targetPath, path.extname(targetPath)));
   let assetId = baseAssetId;
   let counter = 1;
@@ -799,6 +804,7 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
           },
           ...(savedPromptPack ? { promptPackId: savedPromptPack.id } : {}),
           ...(savedPromptPack && savedTarget ? { targetId: request.targetId } : {}),
+          ...(parentAssetIds.length ? { parentAssetIds } : {}),
           ...(request.referenceAssetIds?.length ? { referenceAssetIds: request.referenceAssetIds } : {}),
           ...(request.maskAssetId ? { maskAssetId: request.maskAssetId } : {}),
           ...(request.guideIds?.length ? { guideIds: request.guideIds } : {}),

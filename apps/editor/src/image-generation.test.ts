@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { bitmapHasAlphaPixels, estimateImageWorkflowFamily, generatedImageOutputWarning } from "./image-generation";
+import {
+  bitmapHasAlphaPixels,
+  estimateImageWorkflowFamily,
+  generatedImageOutputWarning,
+  generatedImageParentAssetIds
+} from "./image-generation";
 
 describe("generated image output contract", () => {
   it("detects alpha pixels in nativeImage RGBA bitmaps", () => {
@@ -57,5 +62,25 @@ describe("image workflow family estimation", () => {
         intendedUse: "prop"
       })
     ).toBe("prop_isolated_alpha_or_chroma");
+  });
+});
+
+describe("generated image lineage", () => {
+  it("uses reference and mask assets as ordered parent assets", () => {
+    expect(
+      generatedImageParentAssetIds({
+        referenceAssetIds: ["dock-layout", "dock-style"],
+        maskAssetId: "door-mask"
+      })
+    ).toEqual(["dock-layout", "dock-style", "door-mask"]);
+  });
+
+  it("deduplicates mask and reference assets", () => {
+    expect(
+      generatedImageParentAssetIds({
+        referenceAssetIds: ["door-mask"],
+        maskAssetId: "door-mask"
+      })
+    ).toEqual(["door-mask"]);
   });
 });
