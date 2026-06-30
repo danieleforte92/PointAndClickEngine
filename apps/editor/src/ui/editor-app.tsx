@@ -43,7 +43,22 @@ import {
   UserRound,
   WandSparkles
 } from "lucide-react";
-import { clampCropRect, createCompositeGuideMask, createGuideMask, type ImagePixelData } from "../asset-processing";
+import {
+  bezierCropPathBounds,
+  buildBezierCropSegmentSvgPath,
+  buildBezierCropSvgPath,
+  createCompositeGuideMask,
+  createDefaultBezierCropPath,
+  createGuideMask,
+  insertBezierCropNodeAfter,
+  moveBezierCropHandle,
+  moveBezierCropNode,
+  removeBezierCropNode,
+  setBezierCropNodeMode,
+  type BezierCropNode,
+  type BezierCropNodeMode,
+  type ImagePixelData
+} from "../asset-processing";
 import {
   applyChromaKeyToImageData,
   parseHexColor,
@@ -1007,6 +1022,17 @@ type ViewportInteraction =
       startPosition: ScenePointDraftValue;
     };
 
+type AssetCropInteraction =
+  | {
+      handle: "inHandle" | "outHandle";
+      kind: "handle";
+      nodeIndex: number;
+    }
+  | {
+      kind: "node";
+      nodeIndex: number;
+    };
+
 type SceneTool = "select" | "actor" | "hotspot" | "pickup" | "player-start" | "walk-area";
 type SceneInspectorTarget = "scene" | "player";
 
@@ -1400,6 +1426,31 @@ async function loadImageElement(assetUrl: string) {
   return image;
 }
 
+function traceBezierCropPath(
+  context: CanvasRenderingContext2D,
+  nodes: BezierCropNode[],
+  offset: { x: number; y: number } = { x: 0, y: 0 }
+) {
+  if (nodes.length < 3) return;
+  const first = nodes[0]!;
+  context.moveTo(first.x - offset.x, first.y - offset.y);
+  for (let index = 0; index < nodes.length; index += 1) {
+    const current = nodes[index]!;
+    const next = nodes[(index + 1) % nodes.length]!;
+    const outHandle = current.outHandle ?? { x: current.x, y: current.y };
+    const inHandle = next.inHandle ?? { x: next.x, y: next.y };
+    context.bezierCurveTo(
+      outHandle.x - offset.x,
+      outHandle.y - offset.y,
+      inHandle.x - offset.x,
+      inHandle.y - offset.y,
+      next.x - offset.x,
+      next.y - offset.y
+    );
+  }
+  context.closePath();
+}
+
 export function EditorApp() {
   const [workspace, setWorkspace] = useState<Workspace>("overview");
   const [status, setStatus] = useState("Loading project...");
@@ -1409,11 +1460,14 @@ export function EditorApp() {
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [activeAssetTool, setActiveAssetTool] = useState<AssetTool>("info");
   const [assetEditTarget, setAssetEditTarget] = useState<BackgroundCleanupTarget | null>(null);
-  const [cropX, setCropX] = useState("0");
-  const [cropY, setCropY] = useState("0");
-  const [cropWidth, setCropWidth] = useState("256");
-  const [cropHeight, setCropHeight] = useState("256");
-  const [cropStatus, setCropStatus] = useState("Set crop bounds, then save a new PNG asset.");
+  const cropImageFrameRef = useRef<HTMLDivElement | null>(null);
+  const [cropImageSize, setCropImageSize] = useState({ width: 256, height: 256 });
+  const [cropInteraction, setCropInteraction] = useState<AssetCropInteraction | null>(null);
+  const [cropPath, setCropPath] = useState<BezierCropNode[]>(() =>
+    createDefaultBezierCropPath({ width: 256, height: 256 }, 16)
+  );
+  const [selectedCropNodeIndex, setSelectedCropNodeIndex] = useState(0);
+  const [cropStatus, setCropStatus] = useState("Adjust the bezier cut path, then save a new transparent PNG asset.");
   const [guideSourceId, setGuideSourceId] = useState("");
   const [guideShape, setGuideShape] = useState<"rect" | "ellipse">("rect");
   const [guideStatus, setGuideStatus] = useState("Choose a saved prompt target and a scene guide source.");
@@ -1838,6 +1892,10 @@ export function EditorApp() {
   const selectedAssetUsage = selectedAsset ? assetUsage(selectedAsset, project) : [];
   const selectedAssetHealth = selectedAsset ? assetHealth(selectedAsset, project) : "available";
   const selectedAssetUrl = selectedAsset ? assetPreviewUrls[selectedAsset.path] : undefined;
+  const cropSvgPath = buildBezierCropSvgPath(cropPath);
+  const selectedCropNode = cropPath[selectedCropNodeIndex] ?? cropPath[0] ?? null;
+  const cropPreviewBounds = bezierCropPathBounds(cropPath, cropImageSize);
+  const cropControlRadius = Math.max(8, Math.round(Math.min(cropImageSize.width, cropImageSize.height) * 0.012));
   const currentGenerationGuides = currentSceneDraft.generationGuides;
   const selectedGenerationGuide =
     currentGenerationGuides.find((guide) => guide.id === selectedGenerationGuideId) ??
@@ -2048,13 +2106,36 @@ export function EditorApp() {
   }, [currentGenerationGuides, selectedGenerationGuideId]);
 
   useEffect(() => {
-    setCropX("0");
-    setCropY("0");
-    setCropWidth("256");
-    setCropHeight("256");
-    setCropStatus("Set crop bounds, then save a new PNG asset.");
+    setCropInteraction(null);
+    setSelectedCropNodeIndex(0);
+    if (!selectedAssetUrl) {
+      const fallbackSize = { width: 256, height: 256 };
+      setCropImageSize(fallbackSize);
+      setCropPath(createDefaultBezierCropPath(fallbackSize, 16));
+      setCropStatus("Select a previewable image asset before cropping.");
+      setGuideStatus("Choose a saved prompt target and a scene guide source.");
+      return;
+    }
+
+    let cancelled = false;
+    loadImageElement(selectedAssetUrl)
+      .then((image) => {
+        if (cancelled) return;
+        const size = { width: image.naturalWidth, height: image.naturalHeight };
+        setCropImageSize(size);
+        setCropPath(createDefaultBezierCropPath(size, Math.round(Math.min(size.width, size.height) * 0.04)));
+        setCropStatus("Adjust the bezier cut path, then save a new transparent PNG asset.");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setCropStatus(error instanceof Error ? error.message : "Asset preview could not be loaded for cropping.");
+      });
     setGuideStatus("Choose a saved prompt target and a scene guide source.");
-  }, [selectedAsset?.id]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAsset?.id, selectedAssetUrl]);
 
   useEffect(() => {
     if (!project) return;
@@ -2105,6 +2186,31 @@ export function EditorApp() {
       ...(assetEditTarget?.sceneId ? { sceneId: assetEditTarget.sceneId } : selectedScene ? { sceneId: selectedScene.id } : {})
     });
   }, [activeAssetTool, selectedAsset?.id, selectedAssetUrl, workspace]);
+
+  useEffect(() => {
+    if (!cropInteraction) return;
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const point = cropPointFromClient(event.clientX, event.clientY);
+      if (!point) return;
+      setCropPath((current) =>
+        cropInteraction.kind === "node"
+          ? moveBezierCropNode(current, cropInteraction.nodeIndex, point, cropImageSize)
+          : moveBezierCropHandle(current, cropInteraction.nodeIndex, cropInteraction.handle, point, cropImageSize)
+      );
+    };
+
+    const handlePointerUp = () => {
+      setCropInteraction(null);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [cropImageSize, cropInteraction]);
 
   useEffect(() => {
     if (workspace !== "assets" || !animationPreviewClip) {
@@ -3292,6 +3398,80 @@ export function EditorApp() {
     insertGenerationGuidePolygonPointAfter(guide.id, afterIndex, point);
   };
 
+  const cropPointFromClient = (clientX: number, clientY: number): ScenePointDraftValue | null => {
+    const frame = cropImageFrameRef.current;
+    if (!frame || cropImageSize.width <= 0 || cropImageSize.height <= 0) return null;
+    const rect = frame.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+
+    const imageAspect = cropImageSize.width / cropImageSize.height;
+    const frameAspect = rect.width / rect.height;
+    const displayWidth = frameAspect > imageAspect ? rect.height * imageAspect : rect.width;
+    const displayHeight = frameAspect > imageAspect ? rect.height : rect.width / imageAspect;
+    const displayLeft = rect.left + (rect.width - displayWidth) / 2;
+    const displayTop = rect.top + (rect.height - displayHeight) / 2;
+
+    return {
+      x: Math.round(Math.min(Math.max(((clientX - displayLeft) / displayWidth) * cropImageSize.width, 0), cropImageSize.width)),
+      y: Math.round(Math.min(Math.max(((clientY - displayTop) / displayHeight) * cropImageSize.height, 0), cropImageSize.height))
+    };
+  };
+
+  const startCropNodeInteraction = (nodeIndex: number, event: ReactPointerEvent) => {
+    if (activeAssetTool !== "crop" || !selectedAssetUrl) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.shiftKey) {
+      setCropPath((current) => removeBezierCropNode(current, nodeIndex));
+      setSelectedCropNodeIndex((current) => Math.min(current, Math.max(0, cropPath.length - 2)));
+      return;
+    }
+    setSelectedCropNodeIndex(nodeIndex);
+    setCropInteraction({ kind: "node", nodeIndex });
+  };
+
+  const startCropHandleInteraction = (
+    nodeIndex: number,
+    handle: "inHandle" | "outHandle",
+    event: ReactPointerEvent
+  ) => {
+    if (activeAssetTool !== "crop" || !selectedAssetUrl) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setSelectedCropNodeIndex(nodeIndex);
+    setCropInteraction({ handle, kind: "handle", nodeIndex });
+  };
+
+  const insertCropNodeFromEvent = (afterIndex: number, event: ReactPointerEvent) => {
+    if (activeAssetTool !== "crop" || !selectedAssetUrl) return;
+    const point = cropPointFromClient(event.clientX, event.clientY);
+    if (!point) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setCropPath((current) => insertBezierCropNodeAfter(current, afterIndex, point, cropImageSize));
+    setSelectedCropNodeIndex(afterIndex + 1);
+  };
+
+  const updateCropNodePosition = (nodeIndex: number, axis: "x" | "y", value: string) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return;
+    setCropPath((current) => {
+      const node = current[nodeIndex];
+      if (!node) return current;
+      return moveBezierCropNode(current, nodeIndex, { x: axis === "x" ? parsed : node.x, y: axis === "y" ? parsed : node.y }, cropImageSize);
+    });
+  };
+
+  const updateCropNodeMode = (nodeIndex: number, mode: BezierCropNodeMode) => {
+    setCropPath((current) => setBezierCropNodeMode(current, nodeIndex, mode, cropImageSize));
+  };
+
+  const resetCropPath = () => {
+    setSelectedCropNodeIndex(0);
+    setCropPath(createDefaultBezierCropPath(cropImageSize, Math.round(Math.min(cropImageSize.width, cropImageSize.height) * 0.04)));
+    setCropStatus("Crop path reset.");
+  };
+
   const loadRecoveryForProject = async (projectDirectory: string) => {
     try {
       return await window.pointClick.loadRecovery(projectDirectory);
@@ -4041,21 +4221,15 @@ export function EditorApp() {
       setCropStatus("Select a previewable image asset before cropping.");
       return;
     }
-    const rect = {
-      x: Number(cropX),
-      y: Number(cropY),
-      width: Number(cropWidth),
-      height: Number(cropHeight)
-    };
-    if (!Object.values(rect).every(Number.isFinite)) {
-      setCropStatus("Crop bounds must be valid numbers.");
+    if (cropPath.length < 3) {
+      setCropStatus("Crop path needs at least three nodes.");
       return;
     }
 
-    setCropStatus("Cropping and saving a new PNG asset...");
+    setCropStatus("Clipping and saving a new transparent PNG asset...");
     try {
       const image = await loadImageElement(selectedAssetUrl);
-      const crop = clampCropRect(rect, { width: image.naturalWidth, height: image.naturalHeight });
+      const crop = bezierCropPathBounds(cropPath, { width: image.naturalWidth, height: image.naturalHeight });
       const canvas = document.createElement("canvas");
       canvas.width = crop.width;
       canvas.height = crop.height;
@@ -4064,10 +4238,16 @@ export function EditorApp() {
         setCropStatus("Canvas is unavailable for crop.");
         return;
       }
-      context.drawImage(image, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height);
+      context.clearRect(0, 0, crop.width, crop.height);
+      context.save();
+      context.beginPath();
+      traceBezierCropPath(context, cropPath, { x: crop.x, y: crop.y });
+      context.clip();
+      context.drawImage(image, -crop.x, -crop.y, image.naturalWidth, image.naturalHeight);
+      context.restore();
       const result = await window.pointClick.saveProcessedImageAsset({
         dataUrl: canvas.toDataURL("image/png"),
-        filenameHint: `${selectedAsset.id}-crop.png`
+        filenameHint: `${selectedAsset.id}-cutout.png`
       });
       const assetId = result.assetIds[0];
       const asset = assetId ? result.snapshot.assets.find((entry) => entry.id === assetId) : null;
@@ -4077,7 +4257,7 @@ export function EditorApp() {
         if (assetEditTarget) {
           assignAssetToTargetDraft(assetEditTarget.targetKind, asset, assetEditTarget);
         }
-        setCropStatus(`Saved cropped asset ${asset.id}.`);
+        setCropStatus(`Saved cutout asset ${asset.id}.`);
       } else {
         setCropStatus("Crop was saved, but no asset id was returned.");
       }
@@ -7907,12 +8087,75 @@ export function EditorApp() {
                 </div>
                 <div className="asset-studio-preview">
                   <div
-                    className={`asset-studio-image ${selectedAssetUrl ? "has-preview" : ""}`}
+                    className={`asset-studio-image ${selectedAssetUrl ? "has-preview" : ""} ${activeAssetTool === "crop" ? "crop-editor-active" : ""}`}
+                    ref={activeAssetTool === "crop" ? cropImageFrameRef : undefined}
                     style={selectedAssetUrl ? { backgroundImage: `url("${selectedAssetUrl}")` } : undefined}
                     aria-label={selectedAsset ? `${selectedAsset.id} preview` : "No asset preview"}
                     role="img"
                   >
-                    {selectedAssetUrl ? null : <Image size={32} />}
+                    {selectedAssetUrl && activeAssetTool === "crop" ? (
+                      <svg
+                        className="asset-crop-overlay"
+                        viewBox={`0 0 ${cropImageSize.width} ${cropImageSize.height}`}
+                        preserveAspectRatio="xMidYMid meet"
+                      >
+                        <path className="asset-crop-mask" d={cropSvgPath} />
+                        <path className="asset-crop-outline" d={cropSvgPath} />
+                        {cropPath.map((_, index) => (
+                          <path
+                            className="asset-crop-segment-hit"
+                            d={buildBezierCropSegmentSvgPath(cropPath, index)}
+                            key={`crop-segment-${index}`}
+                            onPointerDown={(event) => insertCropNodeFromEvent(index, event)}
+                          />
+                        ))}
+                        {cropPath.map((node, index) => {
+                          const inHandle = node.inHandle;
+                          const outHandle = node.outHandle;
+                          const selected = selectedCropNodeIndex === index;
+                          return (
+                            <g className={`asset-crop-node-group ${selected ? "selected" : ""}`} key={`crop-node-${index}`}>
+                              {inHandle ? (
+                                <>
+                                  <line className="asset-crop-handle-line" x1={node.x} x2={inHandle.x} y1={node.y} y2={inHandle.y} />
+                                  <circle
+                                    className="asset-crop-handle in"
+                                    cx={inHandle.x}
+                                    cy={inHandle.y}
+                                    r={Math.max(6, cropControlRadius * 0.75)}
+                                    onPointerDown={(event) => startCropHandleInteraction(index, "inHandle", event)}
+                                  />
+                                </>
+                              ) : null}
+                              {outHandle ? (
+                                <>
+                                  <line className="asset-crop-handle-line" x1={node.x} x2={outHandle.x} y1={node.y} y2={outHandle.y} />
+                                  <circle
+                                    className="asset-crop-handle out"
+                                    cx={outHandle.x}
+                                    cy={outHandle.y}
+                                    r={Math.max(6, cropControlRadius * 0.75)}
+                                    onPointerDown={(event) => startCropHandleInteraction(index, "outHandle", event)}
+                                  />
+                                </>
+                              ) : null}
+                              <circle
+                                className={`asset-crop-node ${node.mode}`}
+                                cx={node.x}
+                                cy={node.y}
+                                r={cropControlRadius}
+                                onPointerDown={(event) => startCropNodeInteraction(index, event)}
+                              />
+                              <text className="asset-crop-node-label" x={node.x + cropControlRadius + 6} y={node.y - cropControlRadius}>
+                                {index + 1}
+                              </text>
+                            </g>
+                          );
+                        })}
+                      </svg>
+                    ) : selectedAssetUrl ? null : (
+                      <Image size={32} />
+                    )}
                   </div>
                   <div className="asset-studio-meta">
                     <span className={`target-mode-pill ${selectedAssetHealth === "missing" ? "warn" : "good"}`}>
@@ -8002,16 +8245,67 @@ export function EditorApp() {
                     <>
                       <span className="overview-label">Crop</span>
                       <strong>{selectedAsset?.id ?? "Select an asset"}</strong>
-                      <div className="player-field-grid">
-                        <label>X<input value={cropX} onChange={(event) => setCropX(event.target.value)} /></label>
-                        <label>Y<input value={cropY} onChange={(event) => setCropY(event.target.value)} /></label>
-                        <label>Width<input value={cropWidth} onChange={(event) => setCropWidth(event.target.value)} /></label>
-                        <label>Height<input value={cropHeight} onChange={(event) => setCropHeight(event.target.value)} /></label>
+                      <div className="crop-stats-grid">
+                        <div><span>Image</span><strong>{cropImageSize.width} x {cropImageSize.height}</strong></div>
+                        <div><span>Output</span><strong>{cropPreviewBounds.width} x {cropPreviewBounds.height}</strong></div>
+                        <div><span>Nodes</span><strong>{cropPath.length}</strong></div>
+                        <div><span>Mode</span><strong>{selectedCropNode?.mode ?? "corner"}</strong></div>
+                      </div>
+                      {selectedCropNode ? (
+                        <div className="crop-node-editor">
+                          <div className="crop-node-editor-header">
+                            <strong>Node {selectedCropNodeIndex + 1}</strong>
+                            <div className="crop-mode-toggle" role="group" aria-label="Crop node mode">
+                              {(["corner", "smooth"] as const).map((mode) => (
+                                <button
+                                  className={selectedCropNode.mode === mode ? "active" : ""}
+                                  key={`crop-node-mode-${mode}`}
+                                  type="button"
+                                  onClick={() => updateCropNodeMode(selectedCropNodeIndex, mode)}
+                                >
+                                  {mode}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="player-field-grid">
+                            <label>
+                              X
+                              <input
+                                value={String(selectedCropNode.x)}
+                                onChange={(event) => updateCropNodePosition(selectedCropNodeIndex, "x", event.target.value)}
+                              />
+                            </label>
+                            <label>
+                              Y
+                              <input
+                                value={String(selectedCropNode.y)}
+                                onChange={(event) => updateCropNodePosition(selectedCropNodeIndex, "y", event.target.value)}
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      ) : null}
+                      <div className="crop-node-list">
+                        {cropPath.map((node, index) => (
+                          <button
+                            className={selectedCropNodeIndex === index ? "active" : ""}
+                            key={`crop-node-select-${index}`}
+                            type="button"
+                            onClick={() => setSelectedCropNodeIndex(index)}
+                          >
+                            {index + 1}
+                            <span>{node.mode}</span>
+                          </button>
+                        ))}
                       </div>
                       <p>{cropStatus}</p>
                       <div className="build-actions">
                         <button className="play-action compact-action" disabled={!selectedAssetUrl} type="button" onClick={saveCroppedAsset}>
-                          <Scissors size={iconSize} /> Save Crop As PNG
+                          <Scissors size={iconSize} /> Save Cutout PNG
+                        </button>
+                        <button className="secondary-action compact-action" disabled={!selectedAssetUrl} type="button" onClick={resetCropPath}>
+                          Reset Path
                         </button>
                       </div>
                     </>

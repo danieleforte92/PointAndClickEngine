@@ -1458,6 +1458,86 @@ button {
   background-size: contain;
 }
 
+.asset-studio-image.crop-editor-active {
+  position: relative;
+  cursor: crosshair;
+}
+
+.asset-crop-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+}
+
+.asset-crop-mask {
+  fill: rgba(48, 195, 140, 0.16);
+  stroke: none;
+  pointer-events: none;
+}
+
+.asset-crop-outline {
+  fill: none;
+  stroke: #9ee6c3;
+  stroke-width: 4;
+  stroke-dasharray: 16 10;
+  paint-order: stroke;
+  pointer-events: none;
+}
+
+.asset-crop-segment-hit {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.001);
+  stroke-width: 34;
+  cursor: copy;
+}
+
+.asset-crop-handle-line {
+  stroke: rgba(246, 197, 123, 0.72);
+  stroke-width: 3;
+  pointer-events: none;
+}
+
+.asset-crop-node,
+.asset-crop-handle {
+  vector-effect: non-scaling-stroke;
+}
+
+.asset-crop-node {
+  fill: #101922;
+  stroke: #eaf6f4;
+  stroke-width: 3;
+  cursor: grab;
+}
+
+.asset-crop-node.smooth {
+  fill: #d9a561;
+}
+
+.asset-crop-node-group.selected .asset-crop-node {
+  stroke: #9ee6c3;
+  stroke-width: 5;
+}
+
+.asset-crop-handle {
+  fill: #f6c57b;
+  stroke: #101922;
+  stroke-width: 3;
+  cursor: grab;
+}
+
+.asset-crop-node-label {
+  fill: #f8fbfc;
+  paint-order: stroke;
+  stroke: #0b1118;
+  stroke-width: 5px;
+  font-family: "Courier New", monospace;
+  font-size: 24px;
+  font-weight: 900;
+  pointer-events: none;
+}
+
 .asset-studio-meta {
   color: #708995;
   display: grid;
@@ -1475,6 +1555,102 @@ button {
 
 .cleanup-preview-grid.compact {
   grid-template-columns: repeat(2, minmax(120px, 1fr));
+}
+
+.crop-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.crop-stats-grid div,
+.crop-node-editor {
+  border: 1px solid #2f414b;
+  border-radius: 6px;
+  background: #121d26;
+}
+
+.crop-stats-grid div {
+  display: grid;
+  gap: 4px;
+  padding: 9px;
+}
+
+.crop-stats-grid span {
+  color: #708995;
+  font-size: 0.56rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.crop-stats-grid strong {
+  color: #dbe8ee;
+  font-family: "Courier New", monospace;
+  font-size: 0.68rem;
+}
+
+.crop-node-editor {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.crop-node-editor-header,
+.crop-mode-toggle,
+.crop-node-list {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.crop-node-editor-header {
+  justify-content: space-between;
+}
+
+.crop-node-editor-header strong {
+  color: #d9a561;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.crop-mode-toggle button,
+.crop-node-list button {
+  min-height: 28px;
+  border: 1px solid #30434e;
+  background: #101922;
+  color: #9cb3bc;
+  font-size: 0.62rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.crop-mode-toggle button {
+  padding: 0 8px;
+  text-transform: uppercase;
+}
+
+.crop-mode-toggle button.active,
+.crop-node-list button.active {
+  border-color: rgba(123, 211, 137, 0.54);
+  background: rgba(123, 211, 137, 0.14);
+  color: #dbe8ee;
+}
+
+.crop-node-list {
+  flex-wrap: wrap;
+}
+
+.crop-node-list button {
+  display: inline-grid;
+  min-width: 42px;
+  padding: 4px 7px;
+  line-height: 1.15;
+}
+
+.crop-node-list button span {
+  color: #708995;
+  font-size: 0.5rem;
 }
 
 .character-gym-actions {

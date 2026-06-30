@@ -6,6 +6,16 @@ export interface ImagePixelData {
   width: number;
 }
 
+export type BezierCropNodeMode = "corner" | "smooth";
+
+export interface BezierCropNode {
+  inHandle?: { x: number; y: number };
+  mode: BezierCropNodeMode;
+  outHandle?: { x: number; y: number };
+  x: number;
+  y: number;
+}
+
 export interface GuideMaskOptions {
   bounds: Rect;
   height: number;
@@ -24,6 +34,52 @@ function clampWhole(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, Math.round(value)));
 }
 
+function clampPoint(point: { x: number; y: number }, size: { height: number; width: number }) {
+  return {
+    x: clampWhole(point.x, 0, Math.max(0, size.width)),
+    y: clampWhole(point.y, 0, Math.max(0, size.height))
+  };
+}
+
+function formatPathNumber(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function cropNodePoint(node: BezierCropNode) {
+  return { x: node.x, y: node.y };
+}
+
+function handleOrNode(node: BezierCropNode, handle: "inHandle" | "outHandle") {
+  return node[handle] ?? cropNodePoint(node);
+}
+
+function reflectedHandle(point: { x: number; y: number }, handle: { x: number; y: number }) {
+  return {
+    x: point.x * 2 - handle.x,
+    y: point.y * 2 - handle.y
+  };
+}
+
+function defaultSmoothHandles(
+  nodes: BezierCropNode[],
+  index: number,
+  size: { height: number; width: number }
+) {
+  const node = nodes[index]!;
+  const previous = nodes[(index - 1 + nodes.length) % nodes.length]!;
+  const next = nodes[(index + 1) % nodes.length]!;
+  const direction = { x: next.x - previous.x, y: next.y - previous.y };
+  const length = Math.hypot(direction.x, direction.y) || 1;
+  const previousDistance = Math.hypot(node.x - previous.x, node.y - previous.y);
+  const nextDistance = Math.hypot(next.x - node.x, next.y - node.y);
+  const handleLength = Math.max(8, Math.min(previousDistance, nextDistance) / 3);
+  const unit = { x: direction.x / length, y: direction.y / length };
+  return {
+    inHandle: clampPoint({ x: node.x - unit.x * handleLength, y: node.y - unit.y * handleLength }, size),
+    outHandle: clampPoint({ x: node.x + unit.x * handleLength, y: node.y + unit.y * handleLength }, size)
+  };
+}
+
 export function clampCropRect(rect: Rect, image: { height: number; width: number }): Rect {
   const x = clampWhole(rect.x, 0, Math.max(0, image.width - 1));
   const y = clampWhole(rect.y, 0, Math.max(0, image.height - 1));
@@ -35,6 +91,178 @@ export function clampCropRect(rect: Rect, image: { height: number; width: number
     width: clampWhole(rect.width, 1, maxWidth),
     height: clampWhole(rect.height, 1, maxHeight)
   };
+}
+
+export function createDefaultBezierCropPath(
+  size: { height: number; width: number },
+  padding = 0
+): BezierCropNode[] {
+  const left = clampWhole(padding, 0, Math.max(0, size.width - 1));
+  const top = clampWhole(padding, 0, Math.max(0, size.height - 1));
+  const right = clampWhole(size.width - padding, left + 1, size.width);
+  const bottom = clampWhole(size.height - padding, top + 1, size.height);
+  return [
+    { mode: "corner", x: left, y: top },
+    { mode: "corner", x: right, y: top },
+    { mode: "corner", x: right, y: bottom },
+    { mode: "corner", x: left, y: bottom }
+  ];
+}
+
+export function buildBezierCropSvgPath(nodes: BezierCropNode[]): string {
+  if (nodes.length < 2) return "";
+  const commands = [`M ${formatPathNumber(nodes[0]!.x)} ${formatPathNumber(nodes[0]!.y)}`];
+  for (let index = 0; index < nodes.length; index += 1) {
+    const current = nodes[index]!;
+    const next = nodes[(index + 1) % nodes.length]!;
+    const outHandle = handleOrNode(current, "outHandle");
+    const inHandle = handleOrNode(next, "inHandle");
+    commands.push(
+      [
+        "C",
+        formatPathNumber(outHandle.x),
+        formatPathNumber(outHandle.y),
+        formatPathNumber(inHandle.x),
+        formatPathNumber(inHandle.y),
+        formatPathNumber(next.x),
+        formatPathNumber(next.y)
+      ].join(" ")
+    );
+  }
+  commands.push("Z");
+  return commands.join(" ");
+}
+
+export function buildBezierCropSegmentSvgPath(nodes: BezierCropNode[], index: number): string {
+  if (nodes.length < 2 || index < 0 || index >= nodes.length) return "";
+  const current = nodes[index]!;
+  const next = nodes[(index + 1) % nodes.length]!;
+  const outHandle = handleOrNode(current, "outHandle");
+  const inHandle = handleOrNode(next, "inHandle");
+  return [
+    `M ${formatPathNumber(current.x)} ${formatPathNumber(current.y)}`,
+    [
+      "C",
+      formatPathNumber(outHandle.x),
+      formatPathNumber(outHandle.y),
+      formatPathNumber(inHandle.x),
+      formatPathNumber(inHandle.y),
+      formatPathNumber(next.x),
+      formatPathNumber(next.y)
+    ].join(" ")
+  ].join(" ");
+}
+
+export function bezierCropPathBounds(
+  nodes: BezierCropNode[],
+  image?: { height: number; width: number }
+): Rect {
+  const points = nodes.flatMap((node) => [
+    cropNodePoint(node),
+    ...(node.inHandle ? [node.inHandle] : []),
+    ...(node.outHandle ? [node.outHandle] : [])
+  ]);
+  if (!points.length) {
+    return { x: 0, y: 0, width: 1, height: 1 };
+  }
+  const minX = Math.min(...points.map((point) => point.x));
+  const minY = Math.min(...points.map((point) => point.y));
+  const maxX = Math.max(...points.map((point) => point.x));
+  const maxY = Math.max(...points.map((point) => point.y));
+  const rect = {
+    x: Math.floor(minX),
+    y: Math.floor(minY),
+    width: Math.max(1, Math.ceil(maxX) - Math.floor(minX)),
+    height: Math.max(1, Math.ceil(maxY) - Math.floor(minY))
+  };
+  return image ? clampCropRect(rect, image) : rect;
+}
+
+export function moveBezierCropNode(
+  nodes: BezierCropNode[],
+  index: number,
+  point: { x: number; y: number },
+  size: { height: number; width: number }
+): BezierCropNode[] {
+  const node = nodes[index];
+  if (!node) return nodes;
+  const nextPoint = clampPoint(point, size);
+  const delta = { x: nextPoint.x - node.x, y: nextPoint.y - node.y };
+  return nodes.map((current, currentIndex) => {
+    if (currentIndex !== index) return current;
+    const moved: BezierCropNode = {
+      ...current,
+      x: nextPoint.x,
+      y: nextPoint.y
+    };
+    if (current.inHandle) {
+      moved.inHandle = clampPoint({ x: current.inHandle.x + delta.x, y: current.inHandle.y + delta.y }, size);
+    }
+    if (current.outHandle) {
+      moved.outHandle = clampPoint({ x: current.outHandle.x + delta.x, y: current.outHandle.y + delta.y }, size);
+    }
+    return moved;
+  });
+}
+
+export function moveBezierCropHandle(
+  nodes: BezierCropNode[],
+  index: number,
+  handle: "inHandle" | "outHandle",
+  point: { x: number; y: number },
+  size: { height: number; width: number }
+): BezierCropNode[] {
+  const node = nodes[index];
+  if (!node) return nodes;
+  const nextHandle = clampPoint(point, size);
+  const oppositeHandle = handle === "inHandle" ? "outHandle" : "inHandle";
+  return nodes.map((current, currentIndex) => {
+    if (currentIndex !== index) return current;
+    const nextNode = {
+      ...current,
+      [handle]: nextHandle
+    };
+    if (current.mode === "smooth") {
+      nextNode[oppositeHandle] = clampPoint(reflectedHandle(cropNodePoint(current), nextHandle), size);
+    }
+    return nextNode;
+  });
+}
+
+export function setBezierCropNodeMode(
+  nodes: BezierCropNode[],
+  index: number,
+  mode: BezierCropNodeMode,
+  size: { height: number; width: number }
+): BezierCropNode[] {
+  const node = nodes[index];
+  if (!node) return nodes;
+  const smoothHandles = mode === "smooth" ? defaultSmoothHandles(nodes, index, size) : {};
+  return nodes.map((current, currentIndex) =>
+    currentIndex === index
+      ? {
+          ...current,
+          ...smoothHandles,
+          mode
+        }
+      : current
+  );
+}
+
+export function insertBezierCropNodeAfter(
+  nodes: BezierCropNode[],
+  afterIndex: number,
+  point: { x: number; y: number },
+  size: { height: number; width: number }
+): BezierCropNode[] {
+  const nextNodes = [...nodes];
+  nextNodes.splice(afterIndex + 1, 0, { ...clampPoint(point, size), mode: "corner" });
+  return nextNodes;
+}
+
+export function removeBezierCropNode(nodes: BezierCropNode[], index: number): BezierCropNode[] {
+  if (nodes.length <= 3) return nodes;
+  return nodes.filter((_, currentIndex) => currentIndex !== index);
 }
 
 export function cropImageData(source: ImagePixelData, rect: Rect): ImagePixelData {
