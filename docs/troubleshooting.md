@@ -63,6 +63,56 @@ in place.
 The editor uses `POST /prompt`, polls `/history/{prompt_id}`, downloads through
 `/view`, saves under `assets/imported`, and registers a normal project asset.
 
+## Workflow Path Is Rejected
+
+Workflow paths must be relative to the loaded project directory.
+
+Use:
+
+```text
+workflows/my-background-api.json
+```
+
+Do not use:
+
+```text
+C:\Users\you\Downloads\workflow.json
+..\workflow.json
+```
+
+Creator Alpha rejects absolute paths and parent-directory traversal so project
+files cannot silently depend on machine-local locations outside the project.
+
+## Reference Or Mask Inputs Are Ignored
+
+Reference and mask assets only affect custom workflows that expose image loader
+nodes. Check the selected target and workflow:
+
+- the target should show **Reference workflow expected** or
+  **Inpaint workflow expected** in the AI workspace;
+- **Workflow API JSON path** must be set before queueing reference or mask
+  targets;
+- the exported ComfyUI workflow should contain `LoadImage`, `LoadImageMask`, or
+  mask-like `LoadImage` nodes;
+- after queueing, generated asset provenance should include `referenceAssetIds`,
+  `maskAssetId`, and `parentAssetIds`.
+
+If the editor reports that image inputs require a custom workflow, the built-in
+text-to-image path would ignore those files. Export or select an img2img/inpaint
+workflow first.
+
+## ComfyUI Times Out Or Runs Out Of VRAM
+
+- Use **Background Draft 16:9** (`1024x576`) or **Background Draft Plus 16:9**
+  (`1152x648`) for iteration.
+- Avoid latent 2048x2048 upscales in the default local workflow.
+- Increase **Timeout minutes** for Krea/Qwen-style workflows.
+- Leave checkpoint override empty when the workflow already loads its models.
+- Close other GPU-heavy applications and retry before changing prompts.
+
+For RTX 3070 8GB-class hardware, use direct 16:9 draft or preview dimensions
+first, then clean up selected regions with inpaint or chroma/alpha processing.
+
 ## Transparent PNGs Are Not Transparent
 
 Prompting alone is not enough. The workflow must preserve alpha or remove a
