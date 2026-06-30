@@ -360,6 +360,161 @@ describe("generateComfyUIImage", () => {
     expect(result.model).toBe("krea2_turbo_fp8_scaled.safetensors");
   });
 
+  it("patches Flux2 Klein workflows with primitive prompt, dimensions, and noise seed", async () => {
+    const calls: Array<{ body?: Record<string, any>; url: string }> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      calls.push({
+        url,
+        body: init?.body ? JSON.parse(String(init.body)) : undefined
+      });
+
+      if (url.endsWith("/prompt")) {
+        return {
+          ok: true,
+          json: async () => ({ prompt_id: "prompt-flux2" })
+        } as Response;
+      }
+
+      if (url.endsWith("/history/prompt-flux2")) {
+        return {
+          ok: true,
+          json: async () => ({
+            "prompt-flux2": {
+              outputs: {
+                "9": {
+                  images: [{ filename: "Flux2-Klein_00001_.png", subfolder: "", type: "output" }]
+                }
+              }
+            }
+          })
+        } as Response;
+      }
+
+      if (url.includes("/view?")) {
+        return {
+          headers: new Headers({ "content-type": "image/png" }),
+          ok: true,
+          arrayBuffer: async () => new Uint8Array([7, 8, 9]).buffer
+        } as Response;
+      }
+
+      throw new Error(`Unexpected URL ${url}`);
+    }) as typeof fetch;
+
+    const result = await generateComfyUIImage(
+      {
+        height: 576,
+        negativePrompt: "text, watermark",
+        prompt: "A foggy pirate market street.",
+        seed: 2468,
+        targetId: "flux2-market",
+        width: 1024
+      },
+      {
+        pollIntervalMs: 1,
+        timeoutMs: 1_000,
+        workflowJson: {
+          "9": {
+            inputs: {
+              filename_prefix: "Flux2-Klein",
+              images: ["75:65", 0]
+            },
+            class_type: "SaveImage"
+          },
+          "76": {
+            inputs: {
+              value: "Old flux prompt"
+            },
+            class_type: "PrimitiveStringMultiline",
+            _meta: {
+              title: "Prompt"
+            }
+          },
+          "75:66": {
+            inputs: {
+              width: ["75:68", 0],
+              height: ["75:69", 0],
+              batch_size: 1
+            },
+            class_type: "EmptyFlux2LatentImage"
+          },
+          "75:67": {
+            inputs: {
+              text: "",
+              clip: ["75:71", 0]
+            },
+            class_type: "CLIPTextEncode",
+            _meta: {
+              title: "CLIP Text Encode (Negative Prompt)"
+            }
+          },
+          "75:68": {
+            inputs: {
+              value: 1280
+            },
+            class_type: "PrimitiveInt",
+            _meta: {
+              title: "Width"
+            }
+          },
+          "75:69": {
+            inputs: {
+              value: 720
+            },
+            class_type: "PrimitiveInt",
+            _meta: {
+              title: "Height"
+            }
+          },
+          "75:73": {
+            inputs: {
+              noise_seed: 450943495531695
+            },
+            class_type: "RandomNoise"
+          },
+          "75:70": {
+            inputs: {
+              unet_name: "flux-2-klein-base-4b-fp8.safetensors",
+              weight_dtype: "default"
+            },
+            class_type: "UNETLoader"
+          },
+          "75:71": {
+            inputs: {
+              clip_name: "qwen_3_4b.safetensors",
+              type: "flux2"
+            },
+            class_type: "CLIPLoader"
+          },
+          "75:74": {
+            inputs: {
+              text: ["76", 0],
+              clip: ["75:71", 0]
+            },
+            class_type: "CLIPTextEncode",
+            _meta: {
+              title: "CLIP Text Encode (Positive Prompt)"
+            }
+          }
+        }
+      },
+      {
+        fetchImpl,
+        sleep: async () => {}
+      }
+    );
+
+    const workflow = calls[0]!.body!.prompt as Record<string, any>;
+    expect(workflow["76"].inputs.value).toBe("A foggy pirate market street.");
+    expect(workflow["75:68"].inputs.value).toBe(1024);
+    expect(workflow["75:69"].inputs.value).toBe(576);
+    expect(workflow["75:66"].inputs).toMatchObject({ height: 576, width: 1024 });
+    expect(workflow["75:73"].inputs.noise_seed).toBe(2468);
+    expect(workflow["75:67"].inputs.text).toBe("");
+    expect(workflow["9"].inputs.filename_prefix).toBe("pointclick_flux2-market");
+    expect(result.model).toBe("flux-2-klein-base-4b-fp8.safetensors");
+  });
+
   it("reports timeout in minutes for long-running workflows", async () => {
     let now = 0;
     const fetchImpl = (async (url: string) => {

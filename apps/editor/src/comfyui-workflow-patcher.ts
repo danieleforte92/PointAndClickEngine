@@ -220,7 +220,10 @@ function patchPrimitivePromptNodes(workflow: ComfyWorkflow, request: ComfyWorkfl
     return (
       node.class_type === "PrimitiveStringMultiline" &&
       typeof node.inputs?.value === "string" &&
-      (title.includes("user prompt") || title.includes("user input") || title.includes("positive prompt"))
+      (title.includes("user prompt") ||
+        title.includes("user input") ||
+        title.includes("positive prompt") ||
+        title.trim() === "prompt")
     );
   });
 
@@ -231,6 +234,19 @@ function patchPrimitivePromptNodes(workflow: ComfyWorkflow, request: ComfyWorkfl
   }
 
   return true;
+}
+
+function patchPrimitiveDimensionNodes(workflow: ComfyWorkflow, request: ComfyWorkflowPatchRequest) {
+  for (const node of Object.values(workflow)) {
+    if (node.class_type !== "PrimitiveInt" || typeof node.inputs?.value !== "number") continue;
+
+    const title = `${node._meta?.title ?? ""}`.trim().toLowerCase();
+    if (title === "width") {
+      ensureInputs(node).value = request.width;
+    } else if (title === "height") {
+      ensureInputs(node).value = request.height;
+    }
+  }
 }
 
 function hasLinkedPromptConditioning(workflow: ComfyWorkflow) {
@@ -302,7 +318,7 @@ export function patchCustomWorkflow(
       inputs.height = request.height;
     }
     for (const key of Object.keys(inputs)) {
-      if ((key === "seed" || key.endsWith(".seed")) && typeof inputs[key] === "number") {
+      if ((key === "seed" || key === "noise_seed" || key.endsWith(".seed")) && typeof inputs[key] === "number") {
         inputs[key] = seed;
       }
     }
@@ -311,6 +327,7 @@ export function patchCustomWorkflow(
     }
   }
 
+  patchPrimitiveDimensionNodes(workflow, request);
   patchUploadedInputImages(workflow, request);
 
   if (!patchPrimitivePromptNodes(workflow, request) && !patchExistingPromptNodes(workflow, request)) {
