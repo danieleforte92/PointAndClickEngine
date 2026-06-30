@@ -96,7 +96,10 @@ const bundle: ProjectBundle = {
   items: { [item.id]: item },
   assets: {},
   animationPacks: {},
-  promptPacks: {}
+  promptPacks: {},
+  styleBibles: {},
+  workflowTemplates: {},
+  generationRecipes: {}
 };
 
 describe("generateLMStudioPromptPack", () => {

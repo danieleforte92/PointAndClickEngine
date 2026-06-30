@@ -65,5 +65,8 @@ export const sampleBundle: ProjectBundle = {
   },
   promptPacks: {
     [promptPackJson.id]: promptPackJson
-  }
+  },
+  styleBibles: {},
+  workflowTemplates: {},
+  generationRecipes: {}
 };

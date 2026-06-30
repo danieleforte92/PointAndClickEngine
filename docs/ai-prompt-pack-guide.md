@@ -81,6 +81,16 @@ The editor queues a small text-to-image workflow through `POST /prompt`, polls
 `GET /history/{prompt_id}`, downloads the generated image through `/view`, saves
 it under `assets/imported`, and registers a normal image asset document.
 
+Default Creator Alpha presets are 16:9 and friendly to local 8GB GPUs:
+
+- **Background Draft 16:9**: `1024x576`, for fast prompt iteration.
+- **Background Draft Plus 16:9**: `1152x648`, for slightly larger drafts.
+- **Background Preview 16:9**: `1280x720`, the default production preview path.
+- **Background Hero 16:9**: `1536x864`, optional screenshot/final-cleanup pass.
+
+Avoid making latent 2048x2048 upscale the default local path. Use direct 16:9
+draft or preview dimensions first, then clean up selected regions when needed.
+
 ### Custom ComfyUI API Workflows
 
 The **Workflow API JSON path** field accepts a path relative to the loaded
@@ -143,6 +153,12 @@ runtime composition.
 The editor imports ComfyUI output as a normal asset. If a workflow produces a
 clean flat chroma background without alpha, use **Asset Studio > Chroma Key** to
 save a processed PNG while keeping the source asset unchanged.
+
+Generated ComfyUI assets are marked with `source: "generated"` and store
+provenance when available: provider, model, seed, positive and negative prompt,
+dimensions, prompt pack target, linked reference or mask assets, guide IDs, and
+output warnings. This keeps generated art reviewable and reproducible without
+making the runtime depend on ComfyUI.
 
 Keep ComfyUI and LM Studio bound to localhost for this workflow. Do not expose
 either local server to a public network without authentication and firewalling.

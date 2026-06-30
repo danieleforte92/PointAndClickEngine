@@ -89,6 +89,9 @@ export const ProjectManifestSchema = Type.Object(
     assets: Type.Optional(Type.Array(ManifestDocumentReferenceSchema)),
     promptPacks: Type.Optional(Type.Array(ManifestDocumentReferenceSchema)),
     animationPacks: Type.Optional(Type.Array(ManifestDocumentReferenceSchema)),
+    styleBibles: Type.Optional(Type.Array(ManifestDocumentReferenceSchema)),
+    workflowTemplates: Type.Optional(Type.Array(ManifestDocumentReferenceSchema)),
+    generationRecipes: Type.Optional(Type.Array(ManifestDocumentReferenceSchema)),
     locales: Type.Array(
       Type.Object(
         {
@@ -406,7 +409,48 @@ export const ItemDocumentSchema = Type.Object(
 );
 
 export const AssetKindSchema = Type.Union([Type.Literal("image")]);
-export const AssetSourceSchema = Type.Union([Type.Literal("imported")]);
+export const AssetSourceSchema = Type.Union([
+  Type.Literal("imported"),
+  Type.Literal("generated"),
+  Type.Literal("processed")
+]);
+
+export const AssetGenerationMetadataSchema = Type.Object(
+  {
+    provider: Type.String({ minLength: 1 }),
+    generatedAt: Type.Optional(Type.String({ format: "date-time" })),
+    model: Type.Optional(Type.String({ minLength: 1 })),
+    workflowId: Type.Optional(Id),
+    recipeId: Type.Optional(Id),
+    promptPackId: Type.Optional(Id),
+    targetId: Type.Optional(Id),
+    seed: Type.Optional(Type.Union([Type.String(), Type.Number()])),
+    prompt: Type.Optional(
+      Type.Object(
+        {
+          positive: Type.String({ minLength: 1 }),
+          negative: Type.Optional(Type.String())
+        },
+        { additionalProperties: false }
+      )
+    ),
+    dimensions: Type.Optional(
+      Type.Object(
+        {
+          width: Type.Integer({ minimum: 1 }),
+          height: Type.Integer({ minimum: 1 })
+        },
+        { additionalProperties: false }
+      )
+    ),
+    parentAssetIds: Type.Optional(Type.Array(Id)),
+    referenceAssetIds: Type.Optional(Type.Array(Id)),
+    maskAssetId: Type.Optional(Id),
+    guideIds: Type.Optional(Type.Array(Id)),
+    warnings: Type.Optional(Type.Array(Type.String({ minLength: 1 })))
+  },
+  { additionalProperties: false }
+);
 
 export const AssetDocumentSchema = Type.Object(
   {
@@ -414,7 +458,149 @@ export const AssetDocumentSchema = Type.Object(
     id: Id,
     kind: AssetKindSchema,
     path: ProjectPath,
-    source: AssetSourceSchema
+    source: AssetSourceSchema,
+    generation: Type.Optional(AssetGenerationMetadataSchema)
+  },
+  { additionalProperties: false }
+);
+
+export const WorkflowFamilySchema = Type.Union([
+  Type.Literal("background_t2i_fast"),
+  Type.Literal("background_img2img_layout"),
+  Type.Literal("scene_inpaint_masked"),
+  Type.Literal("prop_isolated_alpha_or_chroma"),
+  Type.Literal("character_reference_sheet"),
+  Type.Literal("sprite_sheet_reference"),
+  Type.Literal("style_reference_generation"),
+  Type.Literal("micro_animation_i2v")
+]);
+
+export const WorkflowInputKindSchema = Type.Union([
+  Type.Literal("prompt"),
+  Type.Literal("negative-prompt"),
+  Type.Literal("seed"),
+  Type.Literal("dimensions"),
+  Type.Literal("checkpoint"),
+  Type.Literal("reference-image"),
+  Type.Literal("mask-image"),
+  Type.Literal("output-prefix")
+]);
+
+export const WorkflowOutputModeSchema = Type.Union([
+  Type.Literal("opaque-image"),
+  Type.Literal("alpha-image"),
+  Type.Literal("chroma-image"),
+  Type.Literal("image-sequence"),
+  Type.Literal("video")
+]);
+
+export const WorkflowTemplateBindingSchema = Type.Object(
+  {
+    input: WorkflowInputKindSchema,
+    nodeId: Type.String({ minLength: 1 }),
+    inputKey: Type.String({ minLength: 1 }),
+    required: Type.Optional(Type.Boolean())
+  },
+  { additionalProperties: false }
+);
+
+export const WorkflowTemplateDocumentSchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    id: Id,
+    name: Type.String({ minLength: 1 }),
+    family: WorkflowFamilySchema,
+    workflowPath: ProjectPath,
+    outputMode: WorkflowOutputModeSchema,
+    hardwareProfile: Type.Optional(Type.String({ minLength: 1 })),
+    supportedInputs: Type.Array(WorkflowInputKindSchema, { minItems: 1 }),
+    bindings: Type.Array(WorkflowTemplateBindingSchema),
+    output: Type.Object(
+      {
+        nodeId: Type.String({ minLength: 1 }),
+        kind: WorkflowOutputModeSchema
+      },
+      { additionalProperties: false }
+    ),
+    notes: Type.Optional(Type.Array(Type.String({ minLength: 1 })))
+  },
+  { additionalProperties: false }
+);
+
+export const StyleBibleDocumentSchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    id: Id,
+    name: Type.String({ minLength: 1 }),
+    medium: Type.String({ minLength: 1 }),
+    palette: Type.Array(Type.String({ minLength: 1 })),
+    camera: Type.Optional(Type.String({ minLength: 1 })),
+    linework: Type.Optional(Type.String({ minLength: 1 })),
+    lighting: Type.Optional(Type.String({ minLength: 1 })),
+    negativePrompt: Type.Optional(Type.String()),
+    forbidden: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+    referenceAssetIds: Type.Optional(Type.Array(Id)),
+    loraTags: Type.Optional(Type.Array(Type.String({ minLength: 1 })))
+  },
+  { additionalProperties: false }
+);
+
+export const AssetGenerationRecipeAssetTypeSchema = Type.Union([
+  Type.Literal("background"),
+  Type.Literal("prop"),
+  Type.Literal("character"),
+  Type.Literal("sprite-sheet"),
+  Type.Literal("animation")
+]);
+
+export const AssetGenerationRecipeDocumentSchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    id: Id,
+    sceneId: Type.Optional(Id),
+    promptPackId: Type.Optional(Id),
+    targetId: Type.Optional(Id),
+    assetType: AssetGenerationRecipeAssetTypeSchema,
+    workflowFamily: WorkflowFamilySchema,
+    workflowId: Id,
+    styleBibleId: Type.Optional(Id),
+    resolution: Type.Object(
+      {
+        width: Type.Integer({ minimum: 1 }),
+        height: Type.Integer({ minimum: 1 })
+      },
+      { additionalProperties: false }
+    ),
+    prompt: Type.Object(
+      {
+        positive: Type.String({ minLength: 1 }),
+        negative: Type.Optional(Type.String())
+      },
+      { additionalProperties: false }
+    ),
+    inputs: Type.Optional(
+      Type.Object(
+        {
+          referenceAssetIds: Type.Optional(Type.Array(Id)),
+          maskAssetId: Type.Optional(Id),
+          guideIds: Type.Optional(Type.Array(Id)),
+          parentAssetIds: Type.Optional(Type.Array(Id))
+        },
+        { additionalProperties: false }
+      )
+    ),
+    generation: Type.Object(
+      {
+        seed: Type.Optional(Type.Union([Type.String(), Type.Number()])),
+        steps: Type.Optional(Type.Integer({ minimum: 1 })),
+        cfg: Type.Optional(Type.Number({ minimum: 0 })),
+        sampler: Type.Optional(Type.String({ minLength: 1 })),
+        scheduler: Type.Optional(Type.String({ minLength: 1 })),
+        denoise: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
+        model: Type.Optional(Type.String({ minLength: 1 }))
+      },
+      { additionalProperties: false }
+    )
   },
   { additionalProperties: false }
 );
@@ -661,6 +847,15 @@ export type ItemDocument = Static<typeof ItemDocumentSchema>;
 export type AssetDocument = Static<typeof AssetDocumentSchema>;
 export type AssetKind = Static<typeof AssetKindSchema>;
 export type AssetSource = Static<typeof AssetSourceSchema>;
+export type AssetGenerationMetadata = Static<typeof AssetGenerationMetadataSchema>;
+export type WorkflowFamily = Static<typeof WorkflowFamilySchema>;
+export type WorkflowInputKind = Static<typeof WorkflowInputKindSchema>;
+export type WorkflowOutputMode = Static<typeof WorkflowOutputModeSchema>;
+export type WorkflowTemplateBinding = Static<typeof WorkflowTemplateBindingSchema>;
+export type WorkflowTemplateDocument = Static<typeof WorkflowTemplateDocumentSchema>;
+export type StyleBibleDocument = Static<typeof StyleBibleDocumentSchema>;
+export type AssetGenerationRecipeAssetType = Static<typeof AssetGenerationRecipeAssetTypeSchema>;
+export type AssetGenerationRecipeDocument = Static<typeof AssetGenerationRecipeDocumentSchema>;
 export type AnimationPackClip = Static<typeof AnimationPackClipSchema>;
 export type AnimationPackDocument = Static<typeof AnimationPackDocumentSchema>;
 export type PromptPackContext = Static<typeof PromptPackContextSchema>;
@@ -679,4 +874,7 @@ export interface ProjectBundle {
   assets: Record<string, AssetDocument>;
   animationPacks: Record<string, AnimationPackDocument>;
   promptPacks: Record<string, PromptPackDocument>;
+  styleBibles: Record<string, StyleBibleDocument>;
+  workflowTemplates: Record<string, WorkflowTemplateDocument>;
+  generationRecipes: Record<string, AssetGenerationRecipeDocument>;
 }

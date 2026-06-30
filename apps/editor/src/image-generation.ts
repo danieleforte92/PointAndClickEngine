@@ -5,10 +5,14 @@ export interface GenerateImageAssetRequest {
   backgroundMode?: "opaque-scene" | "transparent-alpha" | "chroma-blue" | "chroma-green" | "reference-only";
   checkpointName?: string;
   expectedAlpha?: boolean;
+  guideIds?: string[];
   height: number;
+  maskAssetId?: string;
   negativePrompt?: string;
+  promptPackId?: string;
   prompt: string;
   providerId: "comfyui";
+  referenceAssetIds?: string[];
   seed?: number;
   targetId: string;
   timeoutMs?: number;

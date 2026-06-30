@@ -50,24 +50,31 @@ Make the editor feel like a product rather than a JSON inspector.
 
 Done when the sample can be modified and previewed without editing JSON by hand.
 
-## Milestone 3 - AI Asset Studio
+## Milestone 3 - AI Workflow Engine
 
-Turn AI support into a bounded authoring workflow.
+Turn AI support into a bounded local workflow engine, not a prompt-only panel.
 
-- Prompt-pack presets for visual style, mood, setting, palette, gameplay
-  emphasis, targets, and negative prompts.
-- Provider paths: deterministic mock, LM Studio local, optional OpenAI, and
-  ComfyUI local image generation.
-- ComfyUI workflow support for room backgrounds, prop sheets, character sheets,
-  chroma-key generation, and transparent PNG output where the workflow supports
-  alpha.
-- Clear status for queueing, timeout, import success, and workflow limitations.
-- Imported generations become normal project assets under `assets/imported`.
+- Keep prompt packs as reviewable art-direction drafts, then compile approved
+  targets into explicit asset-generation recipes.
+- Add a workflow registry for approved ComfyUI API templates with declared
+  inputs, patch bindings, output mode, hardware profile, and limitations.
+- Store generated-asset provenance: prompt, negative prompt, seed, model,
+  workflow id, target id, dimensions, references, masks, warnings, and parent
+  asset lineage.
+- Support RTX 3070 8GB-friendly draft and preview presets for 16:9 backgrounds
+  and isolated prop or character outputs.
+- Upload reference images and masks to ComfyUI for img2img and inpaint workflows
+  instead of relying only on text-to-image generation.
+- Make recipe preview, queue status, timeout, import success, workflow
+  limitations, and provenance visible in the editor.
+- Keep deterministic mock output as the default CI and open-source path; LM
+  Studio, ComfyUI, and OpenAI remain optional provider integrations.
 - Sprite-sheet and animation-reference targets hand off to Asset Studio so they
   can be sliced into animation packs in Character Gym.
 
-Done when a creator can generate a prompt pack, generate one asset locally,
-import it, assign it, validate, and preview.
+Done when a creator can generate a prompt pack, approve a recipe, generate and
+import a local asset, assign it to a scene entity, inspect provenance, validate,
+and preview without editing JSON by hand.
 
 ## Milestone 4 - Character Gym MVP
 

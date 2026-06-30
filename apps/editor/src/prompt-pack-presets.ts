@@ -245,12 +245,36 @@ export const comfyOutputPresets: ComfyOutputPreset[] = [
     useCase: "Use the prompt-pack target dimensions."
   },
   {
-    id: "room_background_hd",
-    label: "Room Background HD",
+    id: "background_draft_1024x576",
+    label: "Background Draft 16:9",
+    width: 1024,
+    height: 576,
+    timeoutMinutes: 3,
+    useCase: "Fast 16:9 iteration for local GPUs with 8GB VRAM."
+  },
+  {
+    id: "background_draft_1152x648",
+    label: "Background Draft Plus 16:9",
+    width: 1152,
+    height: 648,
+    timeoutMinutes: 4,
+    useCase: "Slightly larger 16:9 draft when the workflow has headroom."
+  },
+  {
+    id: "background_preview_1280x720",
+    label: "Background Preview 16:9",
+    width: 1280,
+    height: 720,
+    timeoutMinutes: 7,
+    useCase: "Default Creator Alpha 16:9 background preview without latent x2 upscale."
+  },
+  {
+    id: "background_hero_1536x864",
+    label: "Background Hero 16:9",
     width: 1536,
     height: 864,
-    timeoutMinutes: 7,
-    useCase: "16:9 point-and-click room backgrounds."
+    timeoutMinutes: 10,
+    useCase: "Optional higher-resolution pass for screenshots or final cleanup, not default iteration."
   },
   {
     id: "fast_draft_square",
@@ -285,7 +309,7 @@ export const defaultPromptPresetSelection = {
   settingPreset: "moonlit_dock",
   palettePreset: "moon_blue_lantern_gold",
   gameplayEmphasisPresets: ["puzzle_readability", "inventory_puzzle_scene", "walkable_2_5d_depth"],
-  comfyOutputPreset: "room_background_hd"
+  comfyOutputPreset: "background_preview_1280x720"
 };
 
 function findPreset(presets: PromptPresetBlock[], id: string) {

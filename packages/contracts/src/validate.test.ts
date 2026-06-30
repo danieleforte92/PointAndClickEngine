@@ -503,6 +503,140 @@ describe("project contracts", () => {
     expect(result).toEqual({ valid: true, errors: [] });
   });
 
+  it("accepts workflow engine manifest references", () => {
+    const result = validateDocument("project", {
+      schemaVersion: 1,
+      id: "sample",
+      title: "Sample",
+      initialSceneId: "dock",
+      defaultLocale: "en",
+      viewport: { width: 1280, height: 720 },
+      scenes: [{ id: "dock", path: "scenes/dock.scene.json" }],
+      flows: [],
+      items: [],
+      assets: [],
+      promptPacks: [],
+      animationPacks: [],
+      styleBibles: [{ id: "sample-style", path: "style-bibles/sample-style.style-bible.json" }],
+      workflowTemplates: [
+        { id: "sdxl-background", path: "workflow-templates/sdxl-background.workflow-template.json" }
+      ],
+      generationRecipes: [
+        { id: "dock-background-recipe", path: "generation-recipes/dock-background.recipe.json" }
+      ],
+      locales: [{ locale: "en", path: "locales/en.json" }]
+    });
+
+    expect(result).toEqual({ valid: true, errors: [] });
+  });
+
+  it("accepts generated asset provenance", () => {
+    const result = validateDocument("asset", {
+      schemaVersion: 1,
+      id: "dock-background-v2",
+      kind: "image",
+      path: "assets/imported/dock-background-v2.png",
+      source: "generated",
+      generation: {
+        provider: "comfyui",
+        generatedAt: "2026-06-29T12:00:00.000Z",
+        model: "sdxl-turbo",
+        workflowId: "sdxl-background",
+        recipeId: "dock-background-recipe",
+        promptPackId: "dock-art",
+        targetId: "dock-background",
+        seed: 39120481,
+        prompt: {
+          positive: "A moonlit dock background.",
+          negative: "logos, readable text"
+        },
+        dimensions: { width: 1280, height: 720 },
+        parentAssetIds: ["dock-layout"],
+        referenceAssetIds: ["dock-style-reference"],
+        maskAssetId: "dock-mask",
+        guideIds: ["door-mask"],
+        warnings: ["Generated as RGB PNG; no alpha channel."]
+      }
+    });
+
+    expect(result).toEqual({ valid: true, errors: [] });
+  });
+
+  it("accepts style bible, workflow template, and generation recipe documents", () => {
+    expect(
+      validateDocument("styleBible", {
+        schemaVersion: 1,
+        id: "sample-style",
+        name: "Sample Style",
+        medium: "hand-painted comic adventure art",
+        palette: ["cool moonlight", "warm tavern lanterns"],
+        camera: "fixed side-view point-and-click camera",
+        linework: "clean readable silhouettes",
+        lighting: "soft moonlight with warm windows",
+        negativePrompt: "photorealistic, logos, readable text",
+        forbidden: ["existing franchise characters"],
+        referenceAssetIds: ["dock-style-reference"],
+        loraTags: ["sample-style-lora"]
+      })
+    ).toEqual({ valid: true, errors: [] });
+
+    expect(
+      validateDocument("workflowTemplate", {
+        schemaVersion: 1,
+        id: "sdxl-background",
+        name: "SDXL Background 16:9",
+        family: "background_t2i_fast",
+        workflowPath: "workflows/sdxl-background-api.json",
+        outputMode: "opaque-image",
+        hardwareProfile: "rtx3070-8gb-preview",
+        supportedInputs: ["prompt", "negative-prompt", "seed", "dimensions", "output-prefix"],
+        bindings: [
+          { input: "prompt", nodeId: "6", inputKey: "text", required: true },
+          { input: "dimensions", nodeId: "5", inputKey: "width", required: true }
+        ],
+        output: {
+          nodeId: "9",
+          kind: "opaque-image"
+        },
+        notes: ["No latent x2 upscale in the default preview path."]
+      })
+    ).toEqual({ valid: true, errors: [] });
+
+    expect(
+      validateDocument("generationRecipe", {
+        schemaVersion: 1,
+        id: "dock-background-recipe",
+        sceneId: "dock",
+        promptPackId: "dock-art",
+        targetId: "dock-background",
+        assetType: "background",
+        workflowFamily: "background_t2i_fast",
+        workflowId: "sdxl-background",
+        styleBibleId: "sample-style",
+        resolution: { width: 1280, height: 720 },
+        prompt: {
+          positive: "A moonlit dock background.",
+          negative: "logos, readable text"
+        },
+        inputs: {
+          referenceAssetIds: ["dock-style-reference"],
+          maskAssetId: "dock-mask",
+          guideIds: ["door-mask"],
+          parentAssetIds: ["dock-layout"]
+        },
+        generation: {
+          seed: 39120481,
+          steps: 4,
+          cfg: 2,
+          sampler: "euler",
+          scheduler: "sgm_uniform",
+          denoise: 1,
+          model: "sdxl-turbo"
+        }
+      })
+    ).toEqual({ valid: true, errors: [] });
+  });
+
   it("rejects prompt pack suggested actors with invalid ids", () => {
     const result = validateDocument("promptPack", {
       schemaVersion: 1,

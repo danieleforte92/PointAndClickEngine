@@ -17,6 +17,17 @@ Expected result:
 - `starter-game` validates as a minimal project;
 - `sample-game` validates as the public demo.
 
+Notes:
+
+- `pnpm check` packages the Electron editor. On a restricted sandbox it may fail
+  during Electron Forge packaging when runtime artifacts must be fetched over
+  HTTPS. Re-run in a shell with network access before treating the release gate
+  as failed.
+- Root-level experimental workflow JSON files, `.zip` archives, logs,
+  `node_modules`, `.vite`, `dist`, and packaged `out` directories must stay
+  untracked. Project-local workflow templates are allowed only when they are
+  intentional sample or documentation fixtures.
+
 ## Manual Smoke Test
 
 1. Start the editor:
@@ -43,6 +54,14 @@ Expected result:
 15. In **Build**, run validation.
 16. Use **Play from here** and **Browser** preview.
 
+For provider smoke tests:
+
+- Keep LM Studio and ComfyUI bound to localhost.
+- Do not commit model weights, generated experiments, provider secrets, or
+  machine-local absolute paths.
+- Confirm imported AI images are normal project assets and that any available
+  provider provenance remains visible from the editor.
+
 ## Package
 
 ```powershell
@@ -66,6 +85,9 @@ Include:
 - quick start commands;
 - sample game loop;
 - local AI provider notes;
+- AI Workflow Engine status: mock prompt packs are stable, ComfyUI text-to-image
+  import is available, and recipe/registry/img2img/inpaint work is roadmap scope
+  unless completed before tagging;
 - known limitations;
 - screenshot or GIF from `docs/assets`;
 - links to README, roadmap, authoring tutorial, AI guide, and Character Gym guide.

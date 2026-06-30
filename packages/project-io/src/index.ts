@@ -2,8 +2,11 @@ import { copyFile, mkdir, readdir, readFile, stat, unlink, writeFile } from "nod
 import path from "node:path";
 import {
   assertDocument,
+  type AssetGenerationMetadata,
+  type AssetGenerationRecipeDocument,
   type AssetDocument,
   type AnimationPackDocument,
+  type AssetSource,
   type CursorValue,
   type FlowDocument,
   type FlowNode,
@@ -23,7 +26,9 @@ import {
   type ScenePlayerConfig,
   type ScenePickup,
   type SceneDocument,
-  type Vector2
+  type StyleBibleDocument,
+  type Vector2,
+  type WorkflowTemplateDocument
 } from "@pointclick/contracts";
 
 export interface LoadedProject {
@@ -86,9 +91,10 @@ export interface ItemPatch {
 export interface ImportedAssetPatch {
   documentPath: string;
   filePath: string;
+  generation?: AssetGenerationMetadata;
   id: string;
   kind: "image";
-  source: "imported";
+  source: AssetSource;
 }
 
 export interface AssetRelinkPatch {
@@ -655,6 +661,14 @@ function isHexColor(value: string): boolean {
   return /^#[0-9a-fA-F]{6}$/.test(value);
 }
 
+function sceneGenerationGuideIds(bundle: ProjectBundle, sceneId: string | undefined): Set<string> {
+  if (!sceneId) return new Set();
+  const scene = bundle.scenes[sceneId];
+  return scene?.type === "layered-2d"
+    ? new Set((scene.generationGuides ?? []).map((guide) => guide.id))
+    : new Set();
+}
+
 export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[] {
   const diagnostics: ProjectDiagnostic[] = [];
   const defaultLocale = bundle.locales[bundle.manifest.defaultLocale];
@@ -736,6 +750,109 @@ export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[
   const assetsByPath = new Map<string, AssetDocument>();
   for (const asset of Object.values(bundle.assets)) {
     assetsByPath.set(asset.path, asset);
+
+    if (asset.generation?.workflowId && !bundle.workflowTemplates[asset.generation.workflowId]) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "asset.generation-workflow-missing",
+          `Asset "${asset.id}" references missing workflow "${asset.generation.workflowId}".`,
+          { documentId: asset.id, path: `assets/${asset.id}/generation/workflowId` }
+        )
+      );
+    }
+
+    if (asset.generation?.recipeId && !bundle.generationRecipes[asset.generation.recipeId]) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "asset.generation-recipe-missing",
+          `Asset "${asset.id}" references missing generation recipe "${asset.generation.recipeId}".`,
+          { documentId: asset.id, path: `assets/${asset.id}/generation/recipeId` }
+        )
+      );
+    }
+
+    if (asset.generation?.promptPackId && !bundle.promptPacks[asset.generation.promptPackId]) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "asset.generation-prompt-pack-missing",
+          `Asset "${asset.id}" references missing prompt pack "${asset.generation.promptPackId}".`,
+          { documentId: asset.id, path: `assets/${asset.id}/generation/promptPackId` }
+        )
+      );
+    }
+
+    const promptPack = asset.generation?.promptPackId
+      ? bundle.promptPacks[asset.generation.promptPackId]
+      : undefined;
+    if (
+      promptPack &&
+      asset.generation?.targetId &&
+      !promptPack.outputs.generationTargets.some((target) => target.id === asset.generation?.targetId)
+    ) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "asset.generation-target-missing",
+          `Asset "${asset.id}" references missing prompt target "${asset.generation.targetId}".`,
+          { documentId: asset.id, path: `assets/${asset.id}/generation/targetId` }
+        )
+      );
+    }
+
+    for (const parentAssetId of asset.generation?.parentAssetIds ?? []) {
+      if (!bundle.assets[parentAssetId]) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "asset.generation-parent-asset-missing",
+            `Asset "${asset.id}" references missing parent asset "${parentAssetId}".`,
+            { documentId: asset.id, path: `assets/${asset.id}/generation/parentAssetIds/${parentAssetId}` }
+          )
+        );
+      }
+    }
+
+    for (const referenceAssetId of asset.generation?.referenceAssetIds ?? []) {
+      if (!bundle.assets[referenceAssetId]) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "asset.generation-reference-asset-missing",
+            `Asset "${asset.id}" references missing reference asset "${referenceAssetId}".`,
+            { documentId: asset.id, path: `assets/${asset.id}/generation/referenceAssetIds/${referenceAssetId}` }
+          )
+        );
+      }
+    }
+
+    if (asset.generation?.maskAssetId && !bundle.assets[asset.generation.maskAssetId]) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "asset.generation-mask-asset-missing",
+          `Asset "${asset.id}" references missing mask asset "${asset.generation.maskAssetId}".`,
+          { documentId: asset.id, path: `assets/${asset.id}/generation/maskAssetId` }
+        )
+      );
+    }
+
+    const recipe = asset.generation?.recipeId ? bundle.generationRecipes[asset.generation.recipeId] : undefined;
+    const generationGuideIds = sceneGenerationGuideIds(bundle, recipe?.sceneId ?? promptPack?.sceneId);
+    for (const guideId of asset.generation?.guideIds ?? []) {
+      if (!generationGuideIds.has(guideId)) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "asset.generation-guide-missing",
+            `Asset "${asset.id}" references missing generation guide "${guideId}".`,
+            { documentId: asset.id, path: `assets/${asset.id}/generation/guideIds/${guideId}` }
+          )
+        );
+      }
+    }
   }
 
   for (const scene of Object.values(bundle.scenes)) {
@@ -1017,6 +1134,160 @@ export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[
     }
   }
 
+  for (const styleBible of Object.values(bundle.styleBibles)) {
+    for (const referenceAssetId of styleBible.referenceAssetIds ?? []) {
+      if (!bundle.assets[referenceAssetId]) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "style-bible.reference-asset-missing",
+            `Style bible "${styleBible.id}" references missing asset "${referenceAssetId}".`,
+            { documentId: styleBible.id, path: `style-bibles/${styleBible.id}/referenceAssetIds/${referenceAssetId}` }
+          )
+        );
+      }
+    }
+  }
+
+  for (const workflow of Object.values(bundle.workflowTemplates)) {
+    const supportedInputs = new Set(workflow.supportedInputs);
+    for (const binding of workflow.bindings) {
+      if (!supportedInputs.has(binding.input)) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "workflow-template.binding-input-unsupported",
+            `Workflow template "${workflow.id}" binding "${binding.input}" is not declared in supportedInputs.`,
+            { documentId: workflow.id, path: `workflow-templates/${workflow.id}/bindings/${binding.input}` }
+          )
+        );
+      }
+    }
+  }
+
+  for (const recipe of Object.values(bundle.generationRecipes)) {
+    const workflow = bundle.workflowTemplates[recipe.workflowId];
+    if (!workflow) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "generation-recipe.workflow-missing",
+          `Generation recipe "${recipe.id}" references missing workflow "${recipe.workflowId}".`,
+          { documentId: recipe.id, path: `generation-recipes/${recipe.id}/workflowId` }
+        )
+      );
+    } else if (workflow.family !== recipe.workflowFamily) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "generation-recipe.workflow-family-mismatch",
+          `Generation recipe "${recipe.id}" expects workflow family "${recipe.workflowFamily}", but workflow "${workflow.id}" uses "${workflow.family}".`,
+          { documentId: recipe.id, path: `generation-recipes/${recipe.id}/workflowFamily` }
+        )
+      );
+    }
+
+    if (recipe.sceneId && !bundle.scenes[recipe.sceneId]) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "generation-recipe.scene-missing",
+          `Generation recipe "${recipe.id}" references missing scene "${recipe.sceneId}".`,
+          { documentId: recipe.id, path: `generation-recipes/${recipe.id}/sceneId` }
+        )
+      );
+    }
+
+    const promptPack = recipe.promptPackId ? bundle.promptPacks[recipe.promptPackId] : undefined;
+    if (recipe.promptPackId && !promptPack) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "generation-recipe.prompt-pack-missing",
+          `Generation recipe "${recipe.id}" references missing prompt pack "${recipe.promptPackId}".`,
+          { documentId: recipe.id, path: `generation-recipes/${recipe.id}/promptPackId` }
+        )
+      );
+    }
+
+    if (
+      promptPack &&
+      recipe.targetId &&
+      !promptPack.outputs.generationTargets.some((target) => target.id === recipe.targetId)
+    ) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "generation-recipe.target-missing",
+          `Generation recipe "${recipe.id}" references missing prompt target "${recipe.targetId}".`,
+          { documentId: recipe.id, path: `generation-recipes/${recipe.id}/targetId` }
+        )
+      );
+    }
+
+    if (recipe.styleBibleId && !bundle.styleBibles[recipe.styleBibleId]) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "generation-recipe.style-bible-missing",
+          `Generation recipe "${recipe.id}" references missing style bible "${recipe.styleBibleId}".`,
+          { documentId: recipe.id, path: `generation-recipes/${recipe.id}/styleBibleId` }
+        )
+      );
+    }
+
+    for (const referenceAssetId of recipe.inputs?.referenceAssetIds ?? []) {
+      if (!bundle.assets[referenceAssetId]) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "generation-recipe.reference-asset-missing",
+            `Generation recipe "${recipe.id}" references missing asset "${referenceAssetId}".`,
+            { documentId: recipe.id, path: `generation-recipes/${recipe.id}/inputs/referenceAssetIds/${referenceAssetId}` }
+          )
+        );
+      }
+    }
+
+    if (recipe.inputs?.maskAssetId && !bundle.assets[recipe.inputs.maskAssetId]) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "generation-recipe.mask-asset-missing",
+          `Generation recipe "${recipe.id}" references missing mask asset "${recipe.inputs.maskAssetId}".`,
+          { documentId: recipe.id, path: `generation-recipes/${recipe.id}/inputs/maskAssetId` }
+        )
+      );
+    }
+
+    for (const parentAssetId of recipe.inputs?.parentAssetIds ?? []) {
+      if (!bundle.assets[parentAssetId]) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "generation-recipe.parent-asset-missing",
+            `Generation recipe "${recipe.id}" references missing parent asset "${parentAssetId}".`,
+            { documentId: recipe.id, path: `generation-recipes/${recipe.id}/inputs/parentAssetIds/${parentAssetId}` }
+          )
+        );
+      }
+    }
+
+    const guideIds = sceneGenerationGuideIds(bundle, recipe.sceneId ?? promptPack?.sceneId);
+    for (const guideId of recipe.inputs?.guideIds ?? []) {
+      if (!guideIds.has(guideId)) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "generation-recipe.generation-guide-missing",
+            `Generation recipe "${recipe.id}" references missing generation guide "${guideId}".`,
+            { documentId: recipe.id, path: `generation-recipes/${recipe.id}/inputs/guideIds/${guideId}` }
+          )
+        );
+      }
+    }
+  }
+
   for (const animationPack of Object.values(bundle.animationPacks)) {
     if (!bundle.assets[animationPack.assetId]) {
       diagnostics.push(
@@ -1140,6 +1411,40 @@ export async function loadProjectFromDirectory(projectDirectory: string): Promis
     promptPacks[value.id] = value;
   }
 
+  const styleBibles: Record<string, StyleBibleDocument> = {};
+  for (const reference of manifestValue.styleBibles ?? []) {
+    const value = await readJson(safeProjectPath(directory, reference.path, `Style bible reference "${reference.id}"`));
+    assertDocument<StyleBibleDocument>("styleBible", value);
+    if (value.id !== reference.id) {
+      throw new Error(`Style bible reference "${reference.id}" points to document "${value.id}"`);
+    }
+    styleBibles[value.id] = value;
+  }
+
+  const workflowTemplates: Record<string, WorkflowTemplateDocument> = {};
+  for (const reference of manifestValue.workflowTemplates ?? []) {
+    const value = await readJson(
+      safeProjectPath(directory, reference.path, `Workflow template reference "${reference.id}"`)
+    );
+    assertDocument<WorkflowTemplateDocument>("workflowTemplate", value);
+    if (value.id !== reference.id) {
+      throw new Error(`Workflow template reference "${reference.id}" points to document "${value.id}"`);
+    }
+    workflowTemplates[value.id] = value;
+  }
+
+  const generationRecipes: Record<string, AssetGenerationRecipeDocument> = {};
+  for (const reference of manifestValue.generationRecipes ?? []) {
+    const value = await readJson(
+      safeProjectPath(directory, reference.path, `Generation recipe reference "${reference.id}"`)
+    );
+    assertDocument<AssetGenerationRecipeDocument>("generationRecipe", value);
+    if (value.id !== reference.id) {
+      throw new Error(`Generation recipe reference "${reference.id}" points to document "${value.id}"`);
+    }
+    generationRecipes[value.id] = value;
+  }
+
   return {
     directory,
     bundle: {
@@ -1150,7 +1455,10 @@ export async function loadProjectFromDirectory(projectDirectory: string): Promis
       items,
       assets,
       animationPacks,
-      promptPacks
+      promptPacks,
+      styleBibles,
+      workflowTemplates,
+      generationRecipes
     }
   };
 }
@@ -1185,6 +1493,9 @@ export async function createBlankProject(
     assets: [],
     promptPacks: [],
     animationPacks: [],
+    styleBibles: [],
+    workflowTemplates: [],
+    generationRecipes: [],
     locales: [
       {
         locale: "en",
@@ -1464,7 +1775,14 @@ function findAssetReferences(
     | "sceneActor"
     | "scenePickup"
     | "promptTargetReference"
-    | "promptTargetMask";
+    | "promptTargetMask"
+    | "styleBibleReference"
+    | "recipeReference"
+    | "recipeMask"
+    | "recipeParent"
+    | "assetGenerationReference"
+    | "assetGenerationMask"
+    | "assetGenerationParent";
 }> {
   const references: Array<{
     documentId: string;
@@ -1476,7 +1794,14 @@ function findAssetReferences(
       | "sceneActor"
       | "scenePickup"
       | "promptTargetReference"
-      | "promptTargetMask";
+      | "promptTargetMask"
+      | "styleBibleReference"
+      | "recipeReference"
+      | "recipeMask"
+      | "recipeParent"
+      | "assetGenerationReference"
+      | "assetGenerationMask"
+      | "assetGenerationParent";
   }> = [];
 
   for (const scene of Object.values(bundle.scenes)) {
@@ -1538,6 +1863,75 @@ function findAssetReferences(
           documentId: `${promptPack.id}/${target.id}`,
           path: `prompt-packs/${promptPack.id}/generationTargets/${target.id}/maskAssetId`,
           use: "promptTargetMask"
+        });
+      }
+    }
+  }
+
+  for (const styleBible of Object.values(bundle.styleBibles)) {
+    for (const referenceAssetId of styleBible.referenceAssetIds ?? []) {
+      if (referenceAssetId === asset.id) {
+        references.push({
+          documentId: styleBible.id,
+          path: `style-bibles/${styleBible.id}/referenceAssetIds/${referenceAssetId}`,
+          use: "styleBibleReference"
+        });
+      }
+    }
+  }
+
+  for (const recipe of Object.values(bundle.generationRecipes)) {
+    for (const referenceAssetId of recipe.inputs?.referenceAssetIds ?? []) {
+      if (referenceAssetId === asset.id) {
+        references.push({
+          documentId: `${recipe.id}/${referenceAssetId}`,
+          path: `generation-recipes/${recipe.id}/inputs/referenceAssetIds/${referenceAssetId}`,
+          use: "recipeReference"
+        });
+      }
+    }
+    if (recipe.inputs?.maskAssetId === asset.id) {
+      references.push({
+        documentId: recipe.id,
+        path: `generation-recipes/${recipe.id}/inputs/maskAssetId`,
+        use: "recipeMask"
+      });
+    }
+    for (const parentAssetId of recipe.inputs?.parentAssetIds ?? []) {
+      if (parentAssetId === asset.id) {
+        references.push({
+          documentId: `${recipe.id}/${parentAssetId}`,
+          path: `generation-recipes/${recipe.id}/inputs/parentAssetIds/${parentAssetId}`,
+          use: "recipeParent"
+        });
+      }
+    }
+  }
+
+  for (const generatedAsset of Object.values(bundle.assets)) {
+    if (generatedAsset.id === asset.id) continue;
+    for (const referenceAssetId of generatedAsset.generation?.referenceAssetIds ?? []) {
+      if (referenceAssetId === asset.id) {
+        references.push({
+          documentId: generatedAsset.id,
+          path: `assets/${generatedAsset.id}/generation/referenceAssetIds/${referenceAssetId}`,
+          use: "assetGenerationReference"
+        });
+      }
+    }
+    if (generatedAsset.generation?.maskAssetId === asset.id) {
+      references.push({
+        documentId: generatedAsset.id,
+        path: `assets/${generatedAsset.id}/generation/maskAssetId`,
+        use: "assetGenerationMask"
+      });
+    }
+    for (const parentAssetId of generatedAsset.generation?.parentAssetIds ?? []) {
+      if (parentAssetId === asset.id) {
+        references.push({
+          documentId: generatedAsset.id,
+          path: `assets/${generatedAsset.id}/generation/parentAssetIds/${parentAssetId}`,
+          use: "assetGenerationParent"
         });
       }
     }
@@ -1876,6 +2270,30 @@ export async function validateProjectFiles(project: LoadedProject): Promise<Proj
             "asset.file-missing",
             `Asset "${asset.id}" file "${asset.path}" is missing.`,
             { documentId: asset.id, path: `assets/${asset.id}/path` }
+          )
+        );
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  for (const workflow of Object.values(project.bundle.workflowTemplates)) {
+    const workflowFilePath = safeProjectPath(
+      project.directory,
+      workflow.workflowPath,
+      `Workflow template file "${workflow.id}"`
+    );
+    try {
+      await stat(workflowFilePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "workflow-template.file-missing",
+            `Workflow template "${workflow.id}" file "${workflow.workflowPath}" is missing.`,
+            { documentId: workflow.id, path: `workflow-templates/${workflow.id}/workflowPath` }
           )
         );
         continue;
@@ -2261,7 +2679,8 @@ export async function applyProjectCommand(
         id: asset.id,
         kind: asset.kind,
         path: asset.filePath,
-        source: asset.source
+        source: asset.source,
+        ...(asset.generation ? { generation: asset.generation } : {})
       };
       assertDocument<AssetDocument>("asset", assetDocument);
 

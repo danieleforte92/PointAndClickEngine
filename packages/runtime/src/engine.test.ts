@@ -77,6 +77,9 @@ function testBundle(): ProjectBundle {
     },
     animationPacks: {},
     promptPacks: {},
+    styleBibles: {},
+    workflowTemplates: {},
+    generationRecipes: {},
     scenes: {
       room: {
         actors: [

@@ -318,6 +318,9 @@ export function buildDraftProjectBundle(
     items: itemMap,
     assets: assetMap,
     animationPacks: animationPackMap,
-    promptPacks: promptPackMap
+    promptPacks: promptPackMap,
+    styleBibles: {},
+    workflowTemplates: {},
+    generationRecipes: {}
   };
 }

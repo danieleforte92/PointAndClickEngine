@@ -10,6 +10,9 @@ flows/<id>.flow.json
 assets/<id>.asset.json
 animation-packs/<id>.animation-pack.json
 prompt-packs/<id>.prompt-pack.json
+style-bibles/<id>.style-bible.json
+workflow-templates/<id>.workflow-template.json
+generation-recipes/<id>.recipe.json
 locales/<locale>.json
 ```
 
@@ -118,6 +121,110 @@ Asset Studio:
 `referenceAssetId` and `maskAssetId` must point to registered image assets.
 Creator Alpha stores these guides for review and future image-to-image
 workflows; the current ComfyUI text-to-image path does not upload guide images.
+
+## AI Workflow Engine Documents
+
+Prompt packs describe art direction. Workflow engine documents describe how an
+approved target should be generated locally and how the output can be audited.
+
+`style-bibles/<id>.style-bible.json` records reusable project style:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "isle-style",
+  "name": "Isle Style",
+  "medium": "hand-painted comic adventure art",
+  "palette": ["cool moonlight", "warm lantern light"],
+  "negativePrompt": "photorealistic, logos, readable text",
+  "referenceAssetIds": ["dock-style-reference"]
+}
+```
+
+`workflow-templates/<id>.workflow-template.json` wraps a checked ComfyUI API
+workflow with explicit patch bindings:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "sdxl-background",
+  "name": "SDXL Background 16:9",
+  "family": "background_t2i_fast",
+  "workflowPath": "workflows/sdxl-background-api.json",
+  "outputMode": "opaque-image",
+  "hardwareProfile": "rtx3070-8gb-preview",
+  "supportedInputs": ["prompt", "negative-prompt", "seed", "dimensions", "output-prefix"],
+  "bindings": [
+    { "input": "prompt", "nodeId": "6", "inputKey": "text", "required": true }
+  ],
+  "output": { "nodeId": "9", "kind": "opaque-image" }
+}
+```
+
+`generation-recipes/<id>.recipe.json` is the validated request that connects a
+scene or prompt target to a workflow:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "moonlit-dock-background-recipe",
+  "sceneId": "moonlit-dock",
+  "promptPackId": "moonlit-dock-art",
+  "targetId": "moonlit-dock-background",
+  "assetType": "background",
+  "workflowFamily": "background_t2i_fast",
+  "workflowId": "sdxl-background",
+  "styleBibleId": "isle-style",
+  "resolution": { "width": 1280, "height": 720 },
+  "prompt": {
+    "positive": "Paint a clean moonlit dock background.",
+    "negative": "text, watermark"
+  },
+  "inputs": {
+    "referenceAssetIds": ["dock-style-reference"],
+    "parentAssetIds": ["dock-layout"]
+  },
+  "generation": {
+    "seed": 39120481,
+    "steps": 4,
+    "cfg": 2,
+    "sampler": "euler",
+    "scheduler": "sgm_uniform",
+    "denoise": 1
+  }
+}
+```
+
+Generated and processed assets can store provenance directly on the asset
+document:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "moonlit-dock-background-v2",
+  "kind": "image",
+  "path": "assets/generated/moonlit-dock-background-v2.png",
+  "source": "generated",
+  "generation": {
+    "provider": "comfyui",
+    "workflowId": "sdxl-background",
+    "recipeId": "moonlit-dock-background-recipe",
+    "promptPackId": "moonlit-dock-art",
+    "targetId": "moonlit-dock-background",
+    "seed": 39120481,
+    "dimensions": { "width": 1280, "height": 720 }
+  }
+}
+```
+
+The CLI validates these references when documents are present:
+
+- style bible reference assets;
+- workflow template binding names and workflow file paths;
+- recipe scene, prompt pack, target, style bible, workflow, reference asset,
+  mask asset, parent asset, and generation guide IDs;
+- generated asset workflow, recipe, prompt pack, target, parent, reference,
+  mask, and guide provenance.
 
 ## Flow Transitions
 

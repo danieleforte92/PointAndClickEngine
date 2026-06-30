@@ -4530,10 +4530,18 @@ export function EditorApp() {
       const imageRequest = {
         expectedAlpha:
           selectedEffectiveGenerationTarget.expectedAlpha ?? selectedEffectiveGenerationTarget.transparent ?? false,
+        guideIds: selectedEffectiveGenerationTarget.guideIds ?? [],
         height: selectedGenerationDimensions.height,
+        ...(selectedEffectiveGenerationTarget.maskAssetId
+          ? { maskAssetId: selectedEffectiveGenerationTarget.maskAssetId }
+          : {}),
         negativePrompt: selectedGenerationNegativePrompt,
         prompt: selectedGenerationPrompt,
+        ...(selectedPromptPack?.id === activeImagePromptPack.id ? { promptPackId: selectedPromptPack.id } : {}),
         providerId: "comfyui" as const,
+        ...(selectedEffectiveGenerationTarget.referenceAssetId
+          ? { referenceAssetIds: [selectedEffectiveGenerationTarget.referenceAssetId] }
+          : {}),
         targetId: selectedEffectiveGenerationTarget.id,
         width: selectedGenerationDimensions.width,
         ...(selectedEffectiveGenerationTarget.backgroundMode

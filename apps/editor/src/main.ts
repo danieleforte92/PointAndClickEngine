@@ -725,6 +725,9 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
 
   const existing = await loadProjectFromDirectory(projectDirectory);
   const existingAssetIds = new Set(Object.keys(existing.bundle.assets));
+  const savedPromptPack = request.promptPackId ? existing.bundle.promptPacks[request.promptPackId] : undefined;
+  const savedTarget =
+    savedPromptPack && savedPromptPack.outputs.generationTargets.some((target) => target.id === request.targetId);
   const baseAssetId = slugifyAssetId(path.basename(targetPath, path.extname(targetPath)));
   let assetId = baseAssetId;
   let counter = 1;
@@ -742,7 +745,26 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
         filePath: relativeFilePath,
         id: assetId,
         kind: "image",
-        source: "imported"
+        source: "generated",
+        generation: {
+          provider: "comfyui",
+          model: result.model,
+          seed: result.seed,
+          prompt: {
+            positive: request.prompt,
+            ...(request.negativePrompt ? { negative: request.negativePrompt } : {})
+          },
+          dimensions: {
+            width: result.width,
+            height: result.height
+          },
+          ...(savedPromptPack ? { promptPackId: savedPromptPack.id } : {}),
+          ...(savedPromptPack && savedTarget ? { targetId: request.targetId } : {}),
+          ...(request.referenceAssetIds?.length ? { referenceAssetIds: request.referenceAssetIds } : {}),
+          ...(request.maskAssetId ? { maskAssetId: request.maskAssetId } : {}),
+          ...(request.guideIds?.length ? { guideIds: request.guideIds } : {}),
+          ...(outputWarning ? { warnings: [outputWarning] } : {})
+        }
       }
     ]
   });

@@ -1298,6 +1298,204 @@ describe("loadProjectFromDirectory", () => {
     expect(diagnostics.some((item) => item.code === "prompt-pack.generation-guide-missing")).toBe(true);
   });
 
+  it("accepts workflow engine documents with valid cross references", async () => {
+    const loaded = await loadProjectFromDirectory(
+      path.resolve(import.meta.dirname, "../../../apps/sample-game/project")
+    );
+
+    const diagnostics = validateProjectBundle({
+      ...loaded.bundle,
+      assets: {
+        ...loaded.bundle.assets,
+        "dock-style-reference": {
+          schemaVersion: 1,
+          id: "dock-style-reference",
+          kind: "image",
+          path: "assets/generated/dock-style-reference.png",
+          source: "imported"
+        },
+        "dock-layout": {
+          schemaVersion: 1,
+          id: "dock-layout",
+          kind: "image",
+          path: "assets/generated/dock-layout.png",
+          source: "imported"
+        },
+        "moonlit-dock-background-v2": {
+          schemaVersion: 1,
+          id: "moonlit-dock-background-v2",
+          kind: "image",
+          path: "assets/generated/moonlit-dock-background-v2.png",
+          source: "generated",
+          generation: {
+            provider: "comfyui",
+            workflowId: "sdxl-background",
+            recipeId: "moonlit-dock-background-recipe",
+            promptPackId: "moonlit-dock-art",
+            targetId: "moonlit-dock-background",
+            referenceAssetIds: ["dock-style-reference"],
+            parentAssetIds: ["dock-layout"],
+            prompt: {
+              positive: "Paint a clean moonlit dock background."
+            },
+            dimensions: { width: 1280, height: 720 }
+          }
+        }
+      },
+      styleBibles: {
+        "isle-style": {
+          schemaVersion: 1,
+          id: "isle-style",
+          name: "Isle Style",
+          medium: "hand-painted comic adventure art",
+          palette: ["cool moonlight", "warm lantern light"],
+          referenceAssetIds: ["dock-style-reference"]
+        }
+      },
+      workflowTemplates: {
+        "sdxl-background": {
+          schemaVersion: 1,
+          id: "sdxl-background",
+          name: "SDXL Background 16:9",
+          family: "background_t2i_fast",
+          workflowPath: "workflows/sdxl-background-api.json",
+          outputMode: "opaque-image",
+          supportedInputs: ["prompt", "negative-prompt", "seed", "dimensions", "output-prefix"],
+          bindings: [{ input: "prompt", nodeId: "6", inputKey: "text", required: true }],
+          output: { nodeId: "9", kind: "opaque-image" }
+        }
+      },
+      generationRecipes: {
+        "moonlit-dock-background-recipe": {
+          schemaVersion: 1,
+          id: "moonlit-dock-background-recipe",
+          sceneId: "moonlit-dock",
+          promptPackId: "moonlit-dock-art",
+          targetId: "moonlit-dock-background",
+          assetType: "background",
+          workflowFamily: "background_t2i_fast",
+          workflowId: "sdxl-background",
+          styleBibleId: "isle-style",
+          resolution: { width: 1280, height: 720 },
+          prompt: {
+            positive: "Paint a clean moonlit dock background.",
+            negative: "text, watermark"
+          },
+          inputs: {
+            referenceAssetIds: ["dock-style-reference"],
+            parentAssetIds: ["dock-layout"]
+          },
+          generation: {
+            seed: 39120481,
+            steps: 4,
+            cfg: 2,
+            sampler: "euler",
+            scheduler: "sgm_uniform",
+            denoise: 1
+          }
+        }
+      }
+    });
+
+    expect(diagnostics).toEqual([]);
+  });
+
+  it("reports semantic diagnostics for broken workflow engine references", async () => {
+    const loaded = await loadProjectFromDirectory(
+      path.resolve(import.meta.dirname, "../../../apps/sample-game/project")
+    );
+
+    const diagnostics = validateProjectBundle({
+      ...loaded.bundle,
+      assets: {
+        ...loaded.bundle.assets,
+        "broken-generated": {
+          schemaVersion: 1,
+          id: "broken-generated",
+          kind: "image",
+          path: "assets/generated/broken.png",
+          source: "generated",
+          generation: {
+            provider: "comfyui",
+            workflowId: "missing-workflow",
+            recipeId: "missing-recipe",
+            promptPackId: "moonlit-dock-art",
+            targetId: "missing-target",
+            referenceAssetIds: ["missing-reference"],
+            maskAssetId: "missing-mask",
+            parentAssetIds: ["missing-parent"],
+            guideIds: ["missing-guide"]
+          }
+        }
+      },
+      styleBibles: {
+        "broken-style": {
+          schemaVersion: 1,
+          id: "broken-style",
+          name: "Broken Style",
+          medium: "painted",
+          palette: ["blue"],
+          referenceAssetIds: ["missing-style-reference"]
+        }
+      },
+      workflowTemplates: {
+        "broken-workflow": {
+          schemaVersion: 1,
+          id: "broken-workflow",
+          name: "Broken Workflow",
+          family: "background_t2i_fast",
+          workflowPath: "workflows/missing.json",
+          outputMode: "opaque-image",
+          supportedInputs: ["prompt"],
+          bindings: [{ input: "seed", nodeId: "10", inputKey: "seed" }],
+          output: { nodeId: "9", kind: "opaque-image" }
+        }
+      },
+      generationRecipes: {
+        "broken-recipe": {
+          schemaVersion: 1,
+          id: "broken-recipe",
+          sceneId: "missing-scene",
+          promptPackId: "missing-pack",
+          targetId: "missing-target",
+          assetType: "background",
+          workflowFamily: "scene_inpaint_masked",
+          workflowId: "broken-workflow",
+          styleBibleId: "missing-style",
+          resolution: { width: 1280, height: 720 },
+          prompt: {
+            positive: "Paint a clean moonlit dock background."
+          },
+          inputs: {
+            referenceAssetIds: ["missing-reference"],
+            maskAssetId: "missing-mask",
+            parentAssetIds: ["missing-parent"],
+            guideIds: ["missing-guide"]
+          },
+          generation: {}
+        }
+      }
+    });
+
+    expect(diagnostics.some((item) => item.code === "asset.generation-workflow-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "asset.generation-recipe-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "asset.generation-target-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "asset.generation-reference-asset-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "asset.generation-mask-asset-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "asset.generation-parent-asset-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "asset.generation-guide-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "style-bible.reference-asset-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "workflow-template.binding-input-unsupported")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "generation-recipe.workflow-family-mismatch")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "generation-recipe.scene-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "generation-recipe.prompt-pack-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "generation-recipe.style-bible-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "generation-recipe.reference-asset-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "generation-recipe.mask-asset-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "generation-recipe.parent-asset-missing")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "generation-recipe.generation-guide-missing")).toBe(true);
+  });
+
   it("upserts a prompt pack document and manifest entry", async () => {
     const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
     const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
@@ -1410,6 +1608,61 @@ describe("loadProjectFromDirectory", () => {
     expect(manifest.assets).toContainEqual({
       id: "dock-sky",
       path: "assets/dock-sky.asset.json"
+    });
+  });
+
+  it("registers generated assets with provenance metadata", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+    await mkdir(path.join(projectRoot, "assets", "imported"), { recursive: true });
+    await writeFile(path.join(projectRoot, "assets", "imported", "dock-generated.png"), "fake image", "utf8");
+
+    const updated = await applyProjectCommand(projectRoot, {
+      type: "asset/import",
+      assets: [
+        {
+          documentPath: "assets/dock-generated.asset.json",
+          filePath: "assets/imported/dock-generated.png",
+          id: "dock-generated",
+          kind: "image",
+          source: "generated",
+          generation: {
+            provider: "comfyui",
+            model: "sdxl-turbo",
+            promptPackId: "moonlit-dock-art",
+            targetId: "moonlit-dock-background",
+            seed: 42,
+            prompt: {
+              positive: "A moonlit dock background.",
+              negative: "text, watermark"
+            },
+            dimensions: { width: 1280, height: 720 }
+          }
+        }
+      ]
+    });
+
+    expect(updated.bundle.assets["dock-generated"]).toMatchObject({
+      kind: "image",
+      path: "assets/imported/dock-generated.png",
+      source: "generated",
+      generation: {
+        provider: "comfyui",
+        model: "sdxl-turbo",
+        targetId: "moonlit-dock-background"
+      }
+    });
+
+    const assetFile = JSON.parse(
+      await readFile(path.join(projectRoot, "assets", "dock-generated.asset.json"), "utf8")
+    ) as { generation?: { dimensions?: { width: number; height: number }; seed?: number }; source: string };
+    expect(assetFile.source).toBe("generated");
+    expect(assetFile.generation).toMatchObject({
+      dimensions: { width: 1280, height: 720 },
+      seed: 42
     });
   });
 

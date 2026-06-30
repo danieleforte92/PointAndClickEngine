@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { InMemoryComfyUIJobStore } from "./comfyui-job-store";
 import { generateComfyUIImage } from "./comfyui-image-provider";
 
 describe("generateComfyUIImage", () => {
@@ -402,5 +403,168 @@ describe("generateComfyUIImage", () => {
         }
       )
     ).rejects.toThrow("ComfyUI generation timed out after 1 minute(s).");
+  });
+
+  it("prefers an explicit output node when parsing multi-output history", async () => {
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/prompt")) {
+        expect(init?.body ? JSON.parse(String(init.body)) : undefined).toBeDefined();
+        return {
+          ok: true,
+          json: async () => ({ prompt_id: "prompt-multi-output" })
+        } as Response;
+      }
+
+      if (url.endsWith("/history/prompt-multi-output")) {
+        return {
+          ok: true,
+          json: async () => ({
+            "prompt-multi-output": {
+              outputs: {
+                "8": {
+                  images: [{ filename: "preview_00001_.png", subfolder: "", type: "output" }]
+                },
+                "12": {
+                  images: [{ filename: "final_00001_.png", subfolder: "final", type: "output" }]
+                }
+              }
+            }
+          })
+        } as Response;
+      }
+
+      if (url.includes("/view?")) {
+        expect(url).toContain("filename=final_00001_.png");
+        expect(url).toContain("subfolder=final");
+        return {
+          headers: new Headers({ "content-type": "image/png" }),
+          ok: true,
+          arrayBuffer: async () => new Uint8Array([9, 9, 9]).buffer
+        } as Response;
+      }
+
+      throw new Error(`Unexpected URL ${url}`);
+    }) as typeof fetch;
+
+    const result = await generateComfyUIImage(
+      {
+        height: 512,
+        prompt: "A multi output workflow.",
+        seed: 77,
+        targetId: "multi-output",
+        width: 512
+      },
+      {
+        checkpointName: "test-model.safetensors",
+        outputNodeId: "12",
+        pollIntervalMs: 1,
+        timeoutMs: 1_000
+      },
+      {
+        fetchImpl,
+        sleep: async () => {}
+      }
+    );
+
+    expect(result.filename).toBe("final_00001_.png");
+  });
+
+  it("records job state through completion and timeout", async () => {
+    const completedStore = new InMemoryComfyUIJobStore();
+    const completedFetch = (async (url: string) => {
+      if (url.endsWith("/prompt")) {
+        return { ok: true, json: async () => ({ prompt_id: "prompt-complete" }) } as Response;
+      }
+      if (url.endsWith("/history/prompt-complete")) {
+        return {
+          ok: true,
+          json: async () => ({
+            "prompt-complete": {
+              outputs: {
+                "9": {
+                  images: [{ filename: "complete_00001_.png", subfolder: "", type: "output" }]
+                }
+              }
+            }
+          })
+        } as Response;
+      }
+      if (url.includes("/view?")) {
+        return {
+          headers: new Headers({ "content-type": "image/png" }),
+          ok: true,
+          arrayBuffer: async () => new Uint8Array([1]).buffer
+        } as Response;
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    }) as typeof fetch;
+
+    await generateComfyUIImage(
+      {
+        height: 256,
+        prompt: "A completed job.",
+        targetId: "complete-target",
+        width: 256
+      },
+      {
+        checkpointName: "test-model.safetensors",
+        pollIntervalMs: 1,
+        timeoutMs: 1_000
+      },
+      {
+        fetchImpl: completedFetch,
+        jobStore: completedStore,
+        now: () => 100,
+        sleep: async () => {}
+      }
+    );
+
+    expect(completedStore.get("prompt-complete")).toMatchObject({
+      filename: "complete_00001_.png",
+      status: "completed",
+      targetId: "complete-target"
+    });
+
+    let now = 0;
+    const timedOutStore = new InMemoryComfyUIJobStore();
+    const timedOutFetch = (async (url: string) => {
+      if (url.endsWith("/prompt")) {
+        return { ok: true, json: async () => ({ prompt_id: "prompt-timeout-state" }) } as Response;
+      }
+      if (url.endsWith("/history/prompt-timeout-state")) {
+        return { ok: true, json: async () => ({ "prompt-timeout-state": { outputs: {} } }) } as Response;
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    }) as typeof fetch;
+
+    await expect(
+      generateComfyUIImage(
+        {
+          height: 256,
+          prompt: "A timeout job.",
+          targetId: "timeout-target",
+          width: 256
+        },
+        {
+          checkpointName: "test-model.safetensors",
+          pollIntervalMs: 1,
+          timeoutMs: 60_000
+        },
+        {
+          fetchImpl: timedOutFetch,
+          jobStore: timedOutStore,
+          now: () => {
+            now += 60_001;
+            return now;
+          },
+          sleep: async () => {}
+        }
+      )
+    ).rejects.toThrow("ComfyUI generation timed out after 1 minute(s).");
+
+    expect(timedOutStore.get("prompt-timeout-state")).toMatchObject({
+      status: "timedOut",
+      targetId: "timeout-target"
+    });
   });
 });

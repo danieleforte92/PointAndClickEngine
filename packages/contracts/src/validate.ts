@@ -2,6 +2,7 @@ import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
 import addFormats from "ajv-formats";
 import type { TSchema } from "@sinclair/typebox";
 import {
+  AssetGenerationRecipeDocumentSchema,
   AssetDocumentSchema,
   AnimationPackDocumentSchema,
   FlowDocumentSchema,
@@ -10,7 +11,9 @@ import {
   LocaleDocumentSchema,
   PromptPackDocumentSchema,
   ProjectManifestSchema,
-  SceneDocumentSchema
+  SceneDocumentSchema,
+  StyleBibleDocumentSchema,
+  WorkflowTemplateDocumentSchema
 } from "./schemas";
 
 const ajv = new Ajv({ allErrors: true, strict: true });
@@ -25,7 +28,10 @@ const validators = {
   item: ajv.compile(ItemDocumentSchema),
   asset: ajv.compile(AssetDocumentSchema),
   animationPack: ajv.compile(AnimationPackDocumentSchema),
-  promptPack: ajv.compile(PromptPackDocumentSchema)
+  promptPack: ajv.compile(PromptPackDocumentSchema),
+  styleBible: ajv.compile(StyleBibleDocumentSchema),
+  workflowTemplate: ajv.compile(WorkflowTemplateDocumentSchema),
+  generationRecipe: ajv.compile(AssetGenerationRecipeDocumentSchema)
 } satisfies Record<string, ValidateFunction>;
 
 export type DocumentKind = keyof typeof validators;
