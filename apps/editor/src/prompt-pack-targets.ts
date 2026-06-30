@@ -1,4 +1,4 @@
-import type { PromptPackDocument, PromptPackGenerationTarget } from "@pointclick/contracts";
+import type { PromptPackDocument, PromptPackGenerationTarget, StyleBibleDocument } from "@pointclick/contracts";
 
 type PromptEntry = { id: string; prompt: string };
 
@@ -95,20 +95,43 @@ export function resolvePromptForGenerationTarget(
   };
 }
 
-export function composeTargetPositivePrompt(basePrompt: string, target: PromptPackGenerationTarget): string {
+function styleBiblePositivePrompt(styleBible: StyleBibleDocument | null | undefined): string {
+  if (!styleBible) return "";
+
+  const parts = [
+    `medium: ${styleBible.medium}`,
+    styleBible.palette.length ? `palette: ${styleBible.palette.join(", ")}` : "",
+    styleBible.camera ? `camera: ${styleBible.camera}` : "",
+    styleBible.linework ? `linework: ${styleBible.linework}` : "",
+    styleBible.lighting ? `lighting: ${styleBible.lighting}` : "",
+    styleBible.referenceAssetIds?.length ? `style references: ${styleBible.referenceAssetIds.join(", ")}` : "",
+    styleBible.loraTags?.length ? `LoRA tags: ${styleBible.loraTags.join(", ")}` : ""
+  ].filter(Boolean);
+
+  return parts.length ? `Style bible "${styleBible.name}": ${parts.join("; ")}.` : "";
+}
+
+export function composeTargetPositivePrompt(
+  basePrompt: string,
+  target: PromptPackGenerationTarget,
+  styleBible?: StyleBibleDocument | null
+): string {
   const customization = target.customPositivePrompt?.trim();
-  return [basePrompt.trim(), customization ? `Target customization: ${customization}` : ""]
+  return [basePrompt.trim(), styleBiblePositivePrompt(styleBible), customization ? `Target customization: ${customization}` : ""]
     .filter(Boolean)
     .join("\n\n");
 }
 
 export function composeTargetNegativePrompt(
   promptPack: PromptPackDocument,
-  target: PromptPackGenerationTarget
+  target: PromptPackGenerationTarget,
+  styleBible?: StyleBibleDocument | null
 ): string {
   const parts = [
     target.safetyNegativePrompt,
     target.customNegativePrompt,
+    styleBible?.negativePrompt,
+    styleBible?.forbidden?.join(", "),
     promptPack.outputs.negativePrompt
   ];
   const seen = new Set<string>();

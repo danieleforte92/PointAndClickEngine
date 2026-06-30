@@ -52,6 +52,12 @@
       "path": "prompt-packs/moonlit-dock-art.prompt-pack.json"
     }
   ],
+  "styleBibles": [
+    {
+      "id": "isle-style",
+      "path": "style-bibles/isle-style.style-bible.json"
+    }
+  ],
   "animationPacks": [
     {
       "id": "mara",

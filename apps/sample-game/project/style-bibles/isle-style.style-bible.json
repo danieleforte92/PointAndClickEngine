@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "isle-style",
+  "name": "Isle Style",
+  "medium": "hand-painted comic adventure art",
+  "palette": [
+    "cool moonlight blues",
+    "warm tavern lantern amber",
+    "desaturated harbor wood",
+    "readable prop accents"
+  ],
+  "camera": "fixed side-view point-and-click composition with clear lower walkable space",
+  "linework": "clean readable silhouettes with restrained painterly edges",
+  "lighting": "soft blue moonlight balanced by warm window and lantern pools",
+  "negativePrompt": "photorealistic, modern UI, readable text, logos, watermark, over-detailed clutter",
+  "forbidden": [
+    "existing franchise characters",
+    "baked interface labels",
+    "inventory icons embedded in the background"
+  ]
+}

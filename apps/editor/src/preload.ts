@@ -12,7 +12,10 @@ import type {
   SceneActor,
   ScenePickup,
   ProjectManifest,
-  SceneDocument
+  SceneDocument,
+  StyleBibleDocument,
+  WorkflowTemplateDocument,
+  AssetGenerationRecipeDocument
 } from "@pointclick/contracts";
 import type { EditorRecoverySnapshot } from "./editor-session";
 import type { GeneratedImageAssetJob, GenerateImageAssetRequest } from "./image-generation";
@@ -64,6 +67,12 @@ export interface EditorProjectSnapshot {
   selectedLocale: LocaleDocument | null;
   selectedPickup: ScenePickup | null;
   selectedScene: Layered2DScene | null;
+  styleBibleCount: number;
+  styleBibles: StyleBibleDocument[];
+  workflowTemplateCount: number;
+  workflowTemplates: WorkflowTemplateDocument[];
+  generationRecipeCount: number;
+  generationRecipes: AssetGenerationRecipeDocument[];
 }
 
 export interface ImportedAssetResult {

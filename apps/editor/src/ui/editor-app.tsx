@@ -1538,6 +1538,7 @@ export function EditorApp() {
     null;
   const promptPackCandidate = promptPackJob?.candidates[0] ?? null;
   const activeImagePromptPack = promptPackCandidate?.promptPack ?? selectedPromptPack;
+  const activeStyleBible = project?.styleBibles[0] ?? null;
   const selectedPromptProvider =
     promptProviderDescriptors.find((provider) => provider.id === promptProviderId) ?? promptProviderDescriptors[0]!;
 
@@ -1773,11 +1774,11 @@ export function EditorApp() {
       : null;
   const selectedGenerationBasePrompt = selectedGenerationPromptResolution?.prompt ?? "";
   const selectedGenerationPrompt = selectedEffectiveGenerationTarget
-    ? composeTargetPositivePrompt(selectedGenerationBasePrompt, selectedEffectiveGenerationTarget)
+    ? composeTargetPositivePrompt(selectedGenerationBasePrompt, selectedEffectiveGenerationTarget, activeStyleBible)
     : "";
   const selectedGenerationNegativePrompt =
     activeImagePromptPack && selectedEffectiveGenerationTarget
-      ? composeTargetNegativePrompt(activeImagePromptPack, selectedEffectiveGenerationTarget)
+      ? composeTargetNegativePrompt(activeImagePromptPack, selectedEffectiveGenerationTarget, activeStyleBible)
       : "";
   const targetGenerationDimensions = selectedEffectiveGenerationTarget
     ? dimensionsForGenerationTarget(selectedEffectiveGenerationTarget)
@@ -7793,6 +7794,7 @@ export function EditorApp() {
                         {selectedImageTargetWorkflow.label}
                       </span>
                       <span className="prompt-chip">{selectedImageWorkflowFamily}</span>
+                      {activeStyleBible ? <span className="prompt-chip">style {activeStyleBible.id}</span> : null}
                       <span className="prompt-chip">
                         {selectedGenerationDimensions.width} x {selectedGenerationDimensions.height}
                       </span>

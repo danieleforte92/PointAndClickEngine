@@ -48,6 +48,12 @@ existing franchise characters.
 Preset blocks and custom answers are folded into the saved art brief so local
 and cloud providers receive the same structured context.
 
+If the loaded project declares Style Bible documents, the editor uses the first
+one as the default Creator Alpha style source for ComfyUI target prompts. Its
+medium, palette, camera, linework, lighting, negative prompt, and forbidden
+terms are merged into the final positive and negative prompt previews before
+queueing an image job.
+
 ## Local Prompt Drafting With LM Studio
 
 1. Start LM Studio and enable the local server.

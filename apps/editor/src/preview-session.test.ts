@@ -4,7 +4,8 @@ import type {
   ItemDocument,
   LocaleDocument,
   ProjectManifest,
-  SceneDocument
+  SceneDocument,
+  StyleBibleDocument
 } from "@pointclick/contracts";
 import { buildDraftProjectBundle } from "./preview-session";
 import { initializeEditorSession } from "./editor-session";
@@ -112,6 +113,15 @@ const item: ItemDocument = {
   labelKey: "item.rusty-hook"
 };
 
+const styleBible: StyleBibleDocument = {
+  schemaVersion: 1,
+  id: "isle-style",
+  name: "Isle Style",
+  medium: "hand-painted comic adventure art",
+  palette: ["cool moonlight", "warm lantern light"],
+  negativePrompt: "photorealistic, logos"
+};
+
 const snapshot: EditorProjectSnapshot = {
   activeActorId: "radio",
   activeAssetId: null,
@@ -146,7 +156,13 @@ const snapshot: EditorProjectSnapshot = {
   selectedItem: item,
   selectedLocale: locale,
   selectedPickup: scene.pickups[0]!,
-  selectedScene: scene
+  selectedScene: scene,
+  styleBibleCount: 1,
+  styleBibles: [styleBible],
+  workflowTemplateCount: 0,
+  workflowTemplates: [],
+  generationRecipeCount: 0,
+  generationRecipes: []
 };
 
 describe("buildDraftProjectBundle", () => {
@@ -322,5 +338,6 @@ describe("buildDraftProjectBundle", () => {
     expect(bundle.locales.en?.strings["dialogue.look-door"]).toBe("The revised door.");
     expect(bundle.locales.en?.strings["dialogue.extra"]).toBe("Extra line");
     expect(bundle.flows["look-door"]?.name).toBe("Look at door again");
+    expect(bundle.styleBibles["isle-style"]).toEqual(styleBible);
   });
 });

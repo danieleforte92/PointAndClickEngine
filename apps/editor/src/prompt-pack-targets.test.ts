@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { PromptPackDocument, PromptPackGenerationTarget } from "@pointclick/contracts";
+import type { PromptPackDocument, PromptPackGenerationTarget, StyleBibleDocument } from "@pointclick/contracts";
 import {
   composeTargetNegativePrompt,
   composeTargetPositivePrompt,
@@ -56,6 +56,19 @@ function target(patch: Partial<PromptPackGenerationTarget>): PromptPackGeneratio
     ...patch
   };
 }
+
+const styleBible: StyleBibleDocument = {
+  schemaVersion: 1,
+  id: "isle-style",
+  name: "Isle Style",
+  medium: "hand-painted comic adventure art",
+  palette: ["cool moonlight", "warm lantern light"],
+  camera: "fixed side-view camera",
+  linework: "clean silhouettes",
+  lighting: "soft moonlight",
+  negativePrompt: "photorealistic, logos",
+  forbidden: ["baked UI text", "logos"]
+};
 
 describe("resolvePromptForGenerationTarget", () => {
   it("uses the prop prompt for rusty-hook-prop instead of the background prompt", () => {
@@ -117,6 +130,12 @@ describe("resolvePromptForGenerationTarget", () => {
     ).toBe("BASE\n\nTarget customization: Use a brass hook.");
   });
 
+  it("adds style bible details to positive prompts", () => {
+    expect(composeTargetPositivePrompt("BASE", target({}), styleBible)).toContain(
+      'Style bible "Isle Style": medium: hand-painted comic adventure art; palette: cool moonlight, warm lantern light'
+    );
+  });
+
   it("merges target and pack negative prompts without duplicates", () => {
     expect(
       composeTargetNegativePrompt(
@@ -133,5 +152,21 @@ describe("resolvePromptForGenerationTarget", () => {
         })
       )
     ).toBe("room background, floor, extra fingers, blur");
+  });
+
+  it("merges style bible negative prompts and forbidden terms without duplicates", () => {
+    expect(
+      composeTargetNegativePrompt(
+        {
+          ...promptPack,
+          outputs: {
+            ...promptPack.outputs,
+            negativePrompt: "blur, logos"
+          }
+        },
+        target({ safetyNegativePrompt: "room background" }),
+        styleBible
+      )
+    ).toBe("room background, photorealistic, logos, baked UI text, blur");
   });
 });

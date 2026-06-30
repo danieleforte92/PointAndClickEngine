@@ -11,7 +11,10 @@ import type {
   SceneActor,
   SceneDocument,
   SceneLayer,
-  ScenePickup
+  ScenePickup,
+  StyleBibleDocument,
+  WorkflowTemplateDocument,
+  AssetGenerationRecipeDocument
 } from "@pointclick/contracts";
 import {
   buildFlowNodes,
@@ -50,6 +53,22 @@ function toAnimationPackMap(animationPacks: AnimationPackDocument[]): Record<str
 
 function toPromptPackMap(promptPacks: PromptPackDocument[]): Record<string, PromptPackDocument> {
   return Object.fromEntries(promptPacks.map((promptPack) => [promptPack.id, promptPack]));
+}
+
+function toStyleBibleMap(styleBibles: StyleBibleDocument[]): Record<string, StyleBibleDocument> {
+  return Object.fromEntries(styleBibles.map((styleBible) => [styleBible.id, styleBible]));
+}
+
+function toWorkflowTemplateMap(
+  workflowTemplates: WorkflowTemplateDocument[]
+): Record<string, WorkflowTemplateDocument> {
+  return Object.fromEntries(workflowTemplates.map((workflowTemplate) => [workflowTemplate.id, workflowTemplate]));
+}
+
+function toGenerationRecipeMap(
+  generationRecipes: AssetGenerationRecipeDocument[]
+): Record<string, AssetGenerationRecipeDocument> {
+  return Object.fromEntries(generationRecipes.map((generationRecipe) => [generationRecipe.id, generationRecipe]));
 }
 
 function buildDraftSceneLayers(
@@ -309,6 +328,9 @@ export function buildDraftProjectBundle(
   const assetMap = toAssetMap(snapshot.assets);
   const animationPackMap = toAnimationPackMap(snapshot.animationPacks);
   const promptPackMap = toPromptPackMap(snapshot.promptPacks);
+  const styleBibleMap = toStyleBibleMap(snapshot.styleBibles);
+  const workflowTemplateMap = toWorkflowTemplateMap(snapshot.workflowTemplates);
+  const generationRecipeMap = toGenerationRecipeMap(snapshot.generationRecipes);
 
   return {
     manifest: snapshot.manifest,
@@ -319,8 +341,8 @@ export function buildDraftProjectBundle(
     assets: assetMap,
     animationPacks: animationPackMap,
     promptPacks: promptPackMap,
-    styleBibles: {},
-    workflowTemplates: {},
-    generationRecipes: {}
+    styleBibles: styleBibleMap,
+    workflowTemplates: workflowTemplateMap,
+    generationRecipes: generationRecipeMap
   };
 }

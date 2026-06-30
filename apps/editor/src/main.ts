@@ -14,7 +14,10 @@ import type {
   PromptPackDocument,
   SceneActor,
   ScenePickup,
-  ProjectBundle
+  ProjectBundle,
+  StyleBibleDocument,
+  WorkflowTemplateDocument,
+  AssetGenerationRecipeDocument
 } from "@pointclick/contracts";
 import type { EditorRecoverySnapshot } from "./editor-session";
 import { generateComfyUIImage } from "./comfyui-image-provider";
@@ -510,6 +513,9 @@ async function summarizeProject(projectDirectory: string, bundle: ProjectBundle)
   const activeAnimationPack: AnimationPackDocument | null = Object.values(bundle.animationPacks)[0] ?? null;
   const promptPacks: PromptPackDocument[] = Object.values(bundle.promptPacks);
   const animationPacks: AnimationPackDocument[] = Object.values(bundle.animationPacks);
+  const styleBibles: StyleBibleDocument[] = Object.values(bundle.styleBibles);
+  const workflowTemplates: WorkflowTemplateDocument[] = Object.values(bundle.workflowTemplates);
+  const generationRecipes: AssetGenerationRecipeDocument[] = Object.values(bundle.generationRecipes);
 
   return {
     activeActorId: activeActor?.id ?? null,
@@ -545,7 +551,13 @@ async function summarizeProject(projectDirectory: string, bundle: ProjectBundle)
     selectedItem: activeItem,
     selectedLocale: activeLocale,
     selectedPickup: activePickup,
-    selectedScene: activeScene
+    selectedScene: activeScene,
+    styleBibleCount: styleBibles.length,
+    styleBibles,
+    workflowTemplateCount: workflowTemplates.length,
+    workflowTemplates,
+    generationRecipeCount: generationRecipes.length,
+    generationRecipes
   };
 }
 
