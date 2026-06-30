@@ -111,13 +111,35 @@ function styleBiblePositivePrompt(styleBible: StyleBibleDocument | null | undefi
   return parts.length ? `Style bible "${styleBible.name}": ${parts.join("; ")}.` : "";
 }
 
+function chromaColorForTarget(target: PromptPackGenerationTarget): string {
+  return target.chromaColor ?? (target.backgroundMode === "chroma-green" ? "#00FF00" : "#00A2FF");
+}
+
+function targetOutputContractPrompt(target: PromptPackGenerationTarget): string {
+  if (target.backgroundMode === "chroma-blue" || target.backgroundMode === "chroma-green") {
+    const color = chromaColorForTarget(target);
+    return `Output contract: isolate only the requested subject on a perfectly flat ${color} chroma key background. The entire background must be one solid, untextured color from edge to edge, with no scenery, no gradients, no floor, no cast shadow, no contact shadow, no props behind the subject, and clean empty margins for chroma key removal.`;
+  }
+
+  if (target.backgroundMode === "transparent-alpha" || target.expectedAlpha || target.transparent) {
+    return "Output contract: isolate only the requested subject for transparent PNG alpha. Do not include scenery, floor plane, cast shadow, contact shadow, border, frame, or background props.";
+  }
+
+  return "";
+}
+
 export function composeTargetPositivePrompt(
   basePrompt: string,
   target: PromptPackGenerationTarget,
   styleBible?: StyleBibleDocument | null
 ): string {
   const customization = target.customPositivePrompt?.trim();
-  return [basePrompt.trim(), styleBiblePositivePrompt(styleBible), customization ? `Target customization: ${customization}` : ""]
+  return [
+    basePrompt.trim(),
+    styleBiblePositivePrompt(styleBible),
+    customization ? `Target customization: ${customization}` : "",
+    targetOutputContractPrompt(target)
+  ]
     .filter(Boolean)
     .join("\n\n");
 }
@@ -127,9 +149,14 @@ export function composeTargetNegativePrompt(
   target: PromptPackGenerationTarget,
   styleBible?: StyleBibleDocument | null
 ): string {
+  const chromaNegativePrompt =
+    target.backgroundMode === "chroma-blue" || target.backgroundMode === "chroma-green"
+      ? "detailed background, environment, scenery, gradient background, textured background, patterned backdrop, floor, ground plane, contact shadow, cast shadow, vignette, props behind subject"
+      : undefined;
   const parts = [
     target.safetyNegativePrompt,
     target.customNegativePrompt,
+    chromaNegativePrompt,
     styleBible?.negativePrompt,
     styleBible?.forbidden?.join(", "),
     promptPack.outputs.negativePrompt

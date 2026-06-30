@@ -136,6 +136,30 @@ describe("resolvePromptForGenerationTarget", () => {
     );
   });
 
+  it("adds a solid chroma output contract to chroma targets", () => {
+    expect(
+      composeTargetPositivePrompt(
+        "BASE",
+        target({
+          backgroundMode: "chroma-blue",
+          chromaColor: "#00A2FF"
+        })
+      )
+    ).toContain("perfectly flat #00A2FF chroma key background");
+  });
+
+  it("adds an alpha output contract to transparent targets", () => {
+    expect(
+      composeTargetPositivePrompt(
+        "BASE",
+        target({
+          backgroundMode: "transparent-alpha",
+          expectedAlpha: true
+        })
+      )
+    ).toContain("transparent PNG alpha");
+  });
+
   it("merges target and pack negative prompts without duplicates", () => {
     expect(
       composeTargetNegativePrompt(
@@ -152,6 +176,26 @@ describe("resolvePromptForGenerationTarget", () => {
         })
       )
     ).toBe("room background, floor, extra fingers, blur");
+  });
+
+  it("adds chroma background failures to negative prompts without duplicates", () => {
+    expect(
+      composeTargetNegativePrompt(
+        {
+          ...promptPack,
+          outputs: {
+            ...promptPack.outputs,
+            negativePrompt: "blur, gradient background"
+          }
+        },
+        target({
+          backgroundMode: "chroma-green",
+          safetyNegativePrompt: "room background, floor"
+        })
+      )
+    ).toBe(
+      "room background, floor, detailed background, environment, scenery, gradient background, textured background, patterned backdrop, ground plane, contact shadow, cast shadow, vignette, props behind subject, blur"
+    );
   });
 
   it("merges style bible negative prompts and forbidden terms without duplicates", () => {
