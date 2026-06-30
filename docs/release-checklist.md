@@ -2,6 +2,9 @@
 
 Use this checklist before tagging a public GitHub release.
 
+For the GitHub tracking issue body, use
+`docs/creator-alpha-release-issue.md`.
+
 ## Clean Checkout
 
 ```powershell

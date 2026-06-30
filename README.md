@@ -166,4 +166,5 @@ packages/cli           Project validation commands
 - [Character Gym Guide](docs/character-gym-guide.md)
 - [Sample Demo Checklist](docs/sample-demo-checklist.md)
 - [Release Checklist](docs/release-checklist.md)
+- [Creator Alpha Release Issue Draft](docs/creator-alpha-release-issue.md)
 - [Troubleshooting](docs/troubleshooting.md)
