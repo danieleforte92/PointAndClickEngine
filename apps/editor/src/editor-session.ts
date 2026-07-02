@@ -241,6 +241,30 @@ export interface DirtyState {
   sceneIds: Set<string>;
 }
 
+export type NarrativeEntityKind = "actor" | "hotspot" | "pickup";
+
+export interface NarrativeFlowReference {
+  action: string;
+  entityId: string;
+  entityKind: NarrativeEntityKind;
+  flowExists: boolean;
+  flowId: string;
+  sceneId: string;
+  sceneName: string;
+}
+
+export interface NarrativeSceneGroup {
+  references: NarrativeFlowReference[];
+  sceneId: string;
+  sceneName: string;
+}
+
+export interface NarrativeRelationIndex {
+  missingReferences: NarrativeFlowReference[];
+  sceneGroups: NarrativeSceneGroup[];
+  unlinkedFlows: FlowDocument[];
+}
+
 export interface ScenePointDraftValue {
   x: number;
   y: number;
@@ -256,6 +280,93 @@ export const hexColorPattern = /^#[0-9a-fA-F]{6}$/;
 
 export function sceneItems(scenes: SceneDocument[]) {
   return scenes.filter((scene): scene is Layered2DScene => scene.type === "layered-2d");
+}
+
+function pushNarrativeReference(
+  references: NarrativeFlowReference[],
+  flowIds: Set<string>,
+  scene: Layered2DScene,
+  entityKind: NarrativeEntityKind,
+  entityId: string,
+  action: string,
+  flowId?: string
+) {
+  const normalizedFlowId = flowId?.trim();
+  if (!normalizedFlowId) return;
+
+  references.push({
+    action,
+    entityId,
+    entityKind,
+    flowExists: flowIds.has(normalizedFlowId),
+    flowId: normalizedFlowId,
+    sceneId: scene.id,
+    sceneName: scene.name
+  });
+}
+
+export function buildNarrativeRelationIndex(
+  scenes: SceneDocument[],
+  flows: FlowDocument[]
+): NarrativeRelationIndex {
+  const flowIds = new Set(flows.map((flow) => flow.id));
+  const linkedFlowIds = new Set<string>();
+  const sceneGroups: NarrativeSceneGroup[] = [];
+
+  for (const scene of sceneItems(scenes)) {
+    const references: NarrativeFlowReference[] = [];
+
+    for (const hotspot of scene.hotspots) {
+      pushNarrativeReference(references, flowIds, scene, "hotspot", hotspot.id, "look", hotspot.actions.lookFlowId);
+      pushNarrativeReference(references, flowIds, scene, "hotspot", hotspot.id, "talk", hotspot.actions.talkFlowId);
+      pushNarrativeReference(references, flowIds, scene, "hotspot", hotspot.id, "use", hotspot.actions.useFlowId);
+      hotspot.actions.useItemFlows.forEach((entry) =>
+        pushNarrativeReference(
+          references,
+          flowIds,
+          scene,
+          "hotspot",
+          hotspot.id,
+          `use ${entry.itemId}`,
+          entry.flowId
+        )
+      );
+    }
+
+    for (const actor of scene.actors) {
+      pushNarrativeReference(references, flowIds, scene, "actor", actor.id, "look", actor.actions.lookFlowId);
+      pushNarrativeReference(references, flowIds, scene, "actor", actor.id, "talk", actor.actions.talkFlowId);
+      pushNarrativeReference(references, flowIds, scene, "actor", actor.id, "use", actor.actions.useFlowId);
+      actor.actions.useItemFlows.forEach((entry) =>
+        pushNarrativeReference(
+          references,
+          flowIds,
+          scene,
+          "actor",
+          actor.id,
+          `use ${entry.itemId}`,
+          entry.flowId
+        )
+      );
+    }
+
+    for (const pickup of scene.pickups) {
+      pushNarrativeReference(references, flowIds, scene, "pickup", pickup.id, "pickup", pickup.pickupFlowId);
+    }
+
+    references.filter((reference) => reference.flowExists).forEach((reference) => linkedFlowIds.add(reference.flowId));
+    sceneGroups.push({
+      references,
+      sceneId: scene.id,
+      sceneName: scene.name
+    });
+  }
+
+  return {
+    missingReferences: sceneGroups.flatMap((group) => group.references.filter((reference) => !reference.flowExists)),
+    sceneGroups,
+    unlinkedFlows: flows.filter((flow) => !linkedFlowIds.has(flow.id))
+  };
 }
 
 export function createHotspotDraft(hotspot: Hotspot | null): HotspotDraft {

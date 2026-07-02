@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { FlowDocument, ItemDocument, LocaleDocument, SceneDocument } from "@pointclick/contracts";
 import {
   buildRecoverySnapshot,
+  buildNarrativeRelationIndex,
   clampSceneRect,
   clampScenePoint,
   commitHistory,
@@ -143,6 +144,66 @@ describe("editor-session navigation targets", () => {
       })
     ).toBe("scene");
     expect(workspaceForNavigationTarget({ workspace: "build", diagnosticId: "asset.file-missing" })).toBe("build");
+  });
+});
+
+describe("editor-session narrative relation index", () => {
+  it("groups flow references by scene entity and reports unlinked flows", () => {
+    const extraFlow: FlowDocument = {
+      ...flowDocument,
+      id: "unlinked-flow",
+      name: "Unlinked Flow"
+    };
+    const index = buildNarrativeRelationIndex([sceneDocument], [flowDocument, extraFlow]);
+
+    expect(index.sceneGroups).toHaveLength(1);
+    expect(index.sceneGroups[0]?.sceneId).toBe("moonlit-dock");
+    expect(index.sceneGroups[0]?.references).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "look",
+          entityId: "tavern-entrance",
+          entityKind: "hotspot",
+          flowExists: true,
+          flowId: "inspect-tavern-door"
+        }),
+        expect.objectContaining({
+          action: "look",
+          entityId: "radio",
+          entityKind: "actor",
+          flowExists: true,
+          flowId: "inspect-tavern-door"
+        })
+      ])
+    );
+    expect(index.unlinkedFlows.map((flow) => flow.id)).toEqual(["unlinked-flow"]);
+    expect(index.missingReferences).toEqual([]);
+  });
+
+  it("keeps broken entity flow links visible for diagnostics", () => {
+    const sceneWithMissingFlow: SceneDocument = {
+      ...sceneDocument,
+      hotspots: [
+        {
+          ...sceneDocument.hotspots[0]!,
+          actions: {
+            ...sceneDocument.hotspots[0]!.actions,
+            talkFlowId: "missing-flow"
+          }
+        }
+      ]
+    };
+    const index = buildNarrativeRelationIndex([sceneWithMissingFlow], [flowDocument]);
+
+    expect(index.missingReferences).toEqual([
+      expect.objectContaining({
+        action: "talk",
+        entityId: "tavern-entrance",
+        entityKind: "hotspot",
+        flowExists: false,
+        flowId: "missing-flow"
+      })
+    ]);
   });
 });
 

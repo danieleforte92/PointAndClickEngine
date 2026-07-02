@@ -92,6 +92,7 @@ import {
 import {
   buildActorFromDraft,
   buildHotspotFromDraft,
+  buildNarrativeRelationIndex,
   buildFlowNodes,
   buildRecoverySnapshot,
   clampScenePoint,
@@ -1688,6 +1689,10 @@ export function EditorApp() {
 
   const session = history.present;
   const scenes = project ? sceneItems(project.scenes) : [];
+  const narrativeRelationIndex = useMemo(
+    () => buildNarrativeRelationIndex(project?.scenes ?? [], project?.flows ?? []),
+    [project?.flows, project?.scenes]
+  );
   const selectedScene =
     sceneFromSnapshot(project, session.activeSceneId) ?? project?.selectedScene ?? scenes[0] ?? null;
   const selectedHotspot =
@@ -7122,21 +7127,80 @@ export function EditorApp() {
       return (
         <>
           <div className="tree-section-label">Narrative</div>
-          <div className="tree-group open">Flows ({project.flowCount})</div>
+          <div className="tree-group open">Scene-linked flows</div>
           <button className="tree-item tree-child" type="button" onClick={createFlow}>
             <span className="scene-dot muted" /> + New flow
           </button>
-          {project.flows.map((flow) => (
-            <button
-              className={`tree-item ${session.activeFlowId === flow.id ? "selected" : ""}`}
-              key={flow.id}
-              type="button"
-              onClick={() => selectFlow(flow)}
-            >
-              <span className="scene-dot muted" /> {flow.id}
-              {dirtyState.flowIds.has(flow.id) ? <span className="dirty-mark">*</span> : null}
-            </button>
+          {narrativeRelationIndex.sceneGroups.map((group) => (
+            <div className="narrative-tree-group" key={`narrative-scene-${group.sceneId}`}>
+              <button
+                className={`tree-item scene-tree-root ${session.activeSceneId === group.sceneId && !session.activeFlowId ? "selected" : ""}`}
+                type="button"
+                onClick={() => selectScene(group.sceneId)}
+              >
+                <span className="scene-dot" /> {group.sceneName}
+              </button>
+              <div className="scene-tree-children">
+                {group.references.length ? (
+                  group.references.map((reference, index) => {
+                    const flow = flowFromSnapshot(project, reference.flowId);
+                    return (
+                      <button
+                        className={`tree-item tree-child ${session.activeFlowId === reference.flowId ? "selected" : ""}`}
+                        disabled={!flow}
+                        key={`narrative-reference-${group.sceneId}-${reference.entityKind}-${reference.entityId}-${reference.action}-${index}`}
+                        title={
+                          flow
+                            ? `${reference.entityKind} ${reference.entityId} ${reference.action}`
+                            : `Missing flow ${reference.flowId}`
+                        }
+                        type="button"
+                        onClick={() => {
+                          if (flow) selectFlow(flow);
+                        }}
+                      >
+                        <span className="scene-dot muted" />
+                        {reference.entityKind} {reference.entityId} / {reference.action}: {reference.flowId}
+                        {reference.flowExists ? null : <span className="dirty-mark">!</span>}
+                        {dirtyState.flowIds.has(reference.flowId) ? <span className="dirty-mark">*</span> : null}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="tree-item tree-meta">No linked flows in this scene.</div>
+                )}
+              </div>
+            </div>
           ))}
+          <div className="tree-group open">Global / unlinked flows ({narrativeRelationIndex.unlinkedFlows.length})</div>
+          {narrativeRelationIndex.unlinkedFlows.length ? (
+            narrativeRelationIndex.unlinkedFlows.map((flow) => (
+              <button
+                className={`tree-item ${session.activeFlowId === flow.id ? "selected" : ""}`}
+                key={flow.id}
+                type="button"
+                onClick={() => selectFlow(flow)}
+              >
+                <span className="scene-dot muted" /> {flow.id}
+                {dirtyState.flowIds.has(flow.id) ? <span className="dirty-mark">*</span> : null}
+              </button>
+            ))
+          ) : (
+            <div className="tree-item tree-meta">All saved flows are linked from scene entities.</div>
+          )}
+          {narrativeRelationIndex.missingReferences.length ? (
+            <>
+              <div className="tree-group open">Broken flow links ({narrativeRelationIndex.missingReferences.length})</div>
+              {narrativeRelationIndex.missingReferences.map((reference, index) => (
+                <div
+                  className="tree-item tree-meta"
+                  key={`missing-narrative-reference-${reference.sceneId}-${reference.entityId}-${reference.flowId}-${index}`}
+                >
+                  {reference.sceneName} / {reference.entityKind} {reference.entityId}: {reference.flowId}
+                </div>
+              ))}
+            </>
+          ) : null}
           <div className="tree-group open">Locales ({project.localeCount})</div>
           {project.locales.map((locale) => (
             <button

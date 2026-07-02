@@ -3076,6 +3076,11 @@ button {
   gap: 3px;
 }
 
+.narrative-tree-group {
+  display: grid;
+  gap: 3px;
+}
+
 .scene-tree-root {
   font-weight: 850;
 }
