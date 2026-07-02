@@ -21,7 +21,7 @@ apps/sample-game/project/prompt-packs/moonlit-dock-art.prompt-pack.json
 
 ## Editor Workflow
 
-Open the **AI** workspace in the editor.
+Open **AI Studio** in the editor.
 
 1. Choose a layered 2D scene.
 2. Write or revise the art brief.
@@ -39,7 +39,7 @@ Open the **AI** workspace in the editor.
 Generation does not mutate project files. The editor writes a prompt-pack JSON
 document only after **Save Approved Pack**.
 
-The AI workspace includes composable presets for visual style, mood, setting,
+AI Studio includes composable presets for visual style, mood, setting,
 palette, gameplay emphasis, output target, and negative prompt guidance. The
 default Creator Alpha direction is original-IP comic adventure art with strong
 negative guidance against photorealism, logos, readable text, watermarks, and
@@ -58,7 +58,7 @@ queueing an image job.
 
 1. Start LM Studio and enable the local server.
 2. Load a text model.
-3. In the editor AI workspace, choose **LM Studio local**.
+3. In AI Studio, choose **LM Studio local**.
 4. Set the base URL to `http://localhost:1234/v1`.
 5. Enter the model id shown by LM Studio.
 6. Generate the prompt pack.
@@ -73,7 +73,7 @@ ComfyUI is used after a prompt pack exists. The editor can generate one target a
 a time and import the resulting PNG into the project asset library.
 
 1. Start ComfyUI locally.
-2. In the editor AI workspace, use **ComfyUI Image Generation**.
+2. In AI Studio, use **ComfyUI Image Generation**.
 3. Set the base URL to `http://127.0.0.1:8188`.
 4. Enter the exact checkpoint filename visible in ComfyUI, including extension,
    or provide a project-relative ComfyUI workflow API JSON path.

@@ -54,7 +54,7 @@ in place.
 ## ComfyUI Does Not Queue
 
 - Start ComfyUI and confirm `http://127.0.0.1:8188` opens.
-- Install a compatible workflow preset in the AI workspace, or export a workflow
+- Install a compatible workflow preset in AI Studio, or export a workflow
   in **API** format and use **Workflow API JSON path (legacy/advanced)**.
 - Save a generation recipe before queueing when you want provenance to include
   `workflowId` and `recipeId`.
@@ -94,7 +94,7 @@ Reference and mask assets only affect installed templates or legacy workflows
 that expose image loader nodes. Check the selected target and workflow:
 
 - the target should show **Reference workflow expected** or
-  **Inpaint workflow expected** in the AI workspace;
+  **Inpaint workflow expected** in AI Studio;
 - an installed compatible workflow template should be selected, or **Workflow API
   JSON path (legacy/advanced)** must be set before queueing reference or mask
   targets;

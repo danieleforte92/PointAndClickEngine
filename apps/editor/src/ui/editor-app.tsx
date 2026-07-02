@@ -7414,7 +7414,7 @@ export function EditorApp() {
 
     return (
       <>
-        <div className="tree-section-label">Overview</div>
+        <div className="tree-section-label">Project</div>
         <div className="tree-item tree-meta">{project.sceneCount} scene(s)</div>
         <div className="tree-item tree-meta">{project.assetCount} asset(s)</div>
         <div className="tree-item tree-meta">{project.diagnostics.length} diagnostic(s)</div>
