@@ -56,6 +56,75 @@ describe("project creation", () => {
   });
 });
 
+describe("project settings", () => {
+  it("updates manifest settings on disk", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+
+    const updated = await applyProjectCommand(projectRoot, {
+      type: "project/update-settings",
+      patch: {
+        defaultLocale: "en",
+        initialSceneId: "new-scene",
+        title: "Updated Adventure",
+        viewport: {
+          height: 768,
+          width: 1366
+        }
+      }
+    });
+
+    expect(updated.bundle.manifest).toMatchObject({
+      defaultLocale: "en",
+      initialSceneId: "new-scene",
+      title: "Updated Adventure",
+      viewport: {
+        height: 768,
+        width: 1366
+      }
+    });
+
+    const manifest = JSON.parse(
+      await readFile(path.join(projectRoot, "adventure.project.json"), "utf8")
+    ) as {
+      defaultLocale: string;
+      initialSceneId: string;
+      title: string;
+      viewport: { height: number; width: number };
+    };
+    expect(manifest.title).toBe("Updated Adventure");
+    expect(manifest.initialSceneId).toBe("new-scene");
+    expect(manifest.defaultLocale).toBe("en");
+    expect(manifest.viewport).toEqual({ height: 768, width: 1366 });
+  });
+
+  it("rejects project settings that point to missing documents", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+
+    await expect(
+      applyProjectCommand(projectRoot, {
+        type: "project/update-settings",
+        patch: {
+          defaultLocale: "it",
+          initialSceneId: "missing-scene",
+          title: "Updated Adventure",
+          viewport: {
+            height: 720,
+            width: 1280
+          }
+        }
+      })
+    ).rejects.toThrow('Initial scene "missing-scene" was not found in the loaded project');
+  });
+});
+
 describe("loadProjectFromDirectory", () => {
   it("loads the sample project bundle from disk", async () => {
     const loaded = await loadProjectFromDirectory(

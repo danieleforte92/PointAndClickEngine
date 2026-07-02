@@ -112,6 +112,16 @@ export interface FlowPatch {
   startNodeId: string;
 }
 
+export interface ProjectSettingsPatch {
+  defaultLocale: string;
+  initialSceneId: string;
+  title: string;
+  viewport: {
+    height: number;
+    width: number;
+  };
+}
+
 export interface PromptPackUpsertPatch {
   documentPath?: string;
   promptPack: PromptPackDocument;
@@ -293,7 +303,13 @@ export type GenerationRecipeUpsertCommand = {
   };
 };
 
+export type ProjectSettingsUpdateCommand = {
+  type: "project/update-settings";
+  patch: ProjectSettingsPatch;
+};
+
 export type EditorProjectCommand =
+  | ProjectSettingsUpdateCommand
   | HotspotUpdateCommand
   | HotspotCreateCommand
   | HotspotDeleteCommand
@@ -2474,6 +2490,37 @@ export async function applyProjectCommand(
   command: EditorProjectCommand
 ): Promise<LoadedProject> {
   const project = await loadProjectFromDirectory(projectDirectory);
+
+  if (command.type === "project/update-settings") {
+    const title = command.patch.title.trim();
+    const defaultLocale = command.patch.defaultLocale.trim();
+    const initialSceneId = command.patch.initialSceneId.trim();
+    const viewport = {
+      height: Math.round(command.patch.viewport.height),
+      width: Math.round(command.patch.viewport.width)
+    };
+
+    if (!title) {
+      throw new Error("Project title is required");
+    }
+    if (!project.bundle.scenes[initialSceneId]) {
+      throw new Error(`Initial scene "${initialSceneId}" was not found in the loaded project`);
+    }
+    if (!project.bundle.locales[defaultLocale]) {
+      throw new Error(`Default locale "${defaultLocale}" was not found in the loaded project`);
+    }
+
+    const nextManifest: ProjectManifest = {
+      ...project.bundle.manifest,
+      defaultLocale,
+      initialSceneId,
+      title,
+      viewport
+    };
+
+    assertDocument<ProjectManifest>("project", nextManifest);
+    await writeJson(projectManifestPath(project), nextManifest);
+  }
 
   if (command.type === "hotspot/update") {
     const scene = project.bundle.scenes[command.sceneId];

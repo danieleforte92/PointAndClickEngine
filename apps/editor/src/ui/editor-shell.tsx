@@ -142,20 +142,39 @@ interface WorkspaceOverviewDiagnostic {
   severity: string;
 }
 
+interface ProjectSettingsDraft {
+  defaultLocale: string;
+  initialSceneId: string;
+  title: string;
+  viewportHeight: string;
+  viewportWidth: string;
+}
+
+interface ProjectSettingsOption {
+  id: string;
+  label: string;
+}
+
 interface WorkspaceOverviewProps {
   assetCount: number;
   diagnostics: WorkspaceOverviewDiagnostic[];
   flowCount: number;
+  hasProjectSettingsChanges: boolean;
+  localeOptions: ProjectSettingsOption[];
   onOpenAi: () => void;
   onOpenAssets: () => void;
   onOpenBuild: () => void;
   onOpenNarrative: () => void;
   onOpenScenes: () => void;
+  onProjectSettingsChange: (field: keyof ProjectSettingsDraft, value: string) => void;
+  onSaveProjectSettings: () => void;
   previewDescription: string;
   previewLabel: string;
+  projectSettings: ProjectSettingsDraft;
   projectHealthLabel: string;
   promptPackCount: number;
   sceneCount: number;
+  sceneOptions: ProjectSettingsOption[];
   status: string;
   viewportDescription: string;
   viewportLabel: string;
@@ -473,16 +492,22 @@ export function WorkspaceOverview({
   assetCount,
   diagnostics,
   flowCount,
+  hasProjectSettingsChanges,
+  localeOptions,
   onOpenAi,
   onOpenAssets,
   onOpenBuild,
   onOpenNarrative,
   onOpenScenes,
+  onProjectSettingsChange,
+  onSaveProjectSettings,
   previewDescription,
   previewLabel,
+  projectSettings,
   projectHealthLabel,
   promptPackCount,
   sceneCount,
+  sceneOptions,
   status,
   viewportDescription,
   viewportLabel
@@ -528,6 +553,76 @@ export function WorkspaceOverview({
             <strong>Build</strong>
             <small>Diagnostics and readiness</small>
           </button>
+        </div>
+      </section>
+      <section className="overview-card project-settings-card">
+        <span className="overview-label">Project settings</span>
+        <strong>Game identity and entry point</strong>
+        <div className="project-settings-grid">
+          <label>
+            <span>Title</span>
+            <input
+              type="text"
+              value={projectSettings.title}
+              onChange={(event) => onProjectSettingsChange("title", event.target.value)}
+            />
+          </label>
+          <label>
+            <span>Initial scene</span>
+            <select
+              value={projectSettings.initialSceneId}
+              onChange={(event) => onProjectSettingsChange("initialSceneId", event.target.value)}
+            >
+              {sceneOptions.map((scene) => (
+                <option key={scene.id} value={scene.id}>
+                  {scene.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Default locale</span>
+            <select
+              value={projectSettings.defaultLocale}
+              onChange={(event) => onProjectSettingsChange("defaultLocale", event.target.value)}
+            >
+              {localeOptions.map((locale) => (
+                <option key={locale.id} value={locale.id}>
+                  {locale.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Viewport width</span>
+            <input
+              min={320}
+              step={1}
+              type="number"
+              value={projectSettings.viewportWidth}
+              onChange={(event) => onProjectSettingsChange("viewportWidth", event.target.value)}
+            />
+          </label>
+          <label>
+            <span>Viewport height</span>
+            <input
+              min={180}
+              step={1}
+              type="number"
+              value={projectSettings.viewportHeight}
+              onChange={(event) => onProjectSettingsChange("viewportHeight", event.target.value)}
+            />
+          </label>
+        </div>
+        <div className="build-actions">
+          <Button
+            className="play-action compact-action"
+            disabled={!hasProjectSettingsChanges}
+            variant="primary"
+            onClick={onSaveProjectSettings}
+          >
+            Apply settings
+          </Button>
         </div>
       </section>
       <section className="overview-card">

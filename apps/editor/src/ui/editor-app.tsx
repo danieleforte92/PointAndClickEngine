@@ -1581,6 +1581,13 @@ export function EditorApp() {
   const [workspace, setWorkspace] = useState<Workspace>("overview");
   const [status, setStatus] = useState("Loading project...");
   const [project, setProject] = useState<EditorProjectSnapshot | null>(null);
+  const [projectSettingsDraft, setProjectSettingsDraft] = useState({
+    defaultLocale: "",
+    initialSceneId: "",
+    title: "",
+    viewportHeight: "",
+    viewportWidth: ""
+  });
   const [history, setHistory] = useState<EditorHistoryState>(emptyHistory);
   const [pendingRecovery, setPendingRecovery] = useState<EditorRecoverySnapshot | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
@@ -1689,6 +1696,33 @@ export function EditorApp() {
 
   const session = history.present;
   const scenes = project ? sceneItems(project.scenes) : [];
+  useEffect(() => {
+    if (!project) {
+      setProjectSettingsDraft({
+        defaultLocale: "",
+        initialSceneId: "",
+        title: "",
+        viewportHeight: "",
+        viewportWidth: ""
+      });
+      return;
+    }
+
+    setProjectSettingsDraft({
+      defaultLocale: project.manifest.defaultLocale,
+      initialSceneId: project.manifest.initialSceneId,
+      title: project.manifest.title,
+      viewportHeight: String(project.manifest.viewport.height),
+      viewportWidth: String(project.manifest.viewport.width)
+    });
+  }, [
+    project?.manifest.defaultLocale,
+    project?.manifest.initialSceneId,
+    project?.manifest.title,
+    project?.manifest.viewport.height,
+    project?.manifest.viewport.width
+  ]);
+
   const narrativeRelationIndex = useMemo(
     () => buildNarrativeRelationIndex(project?.scenes ?? [], project?.flows ?? []),
     [project?.flows, project?.scenes]
@@ -2012,6 +2046,21 @@ export function EditorApp() {
         ? "warn"
         : "good";
   const projectHealth = project ? healthSummary(project.diagnostics, dirtyState.count) : null;
+  const projectSceneOptions = useMemo(
+    () => scenes.map((scene) => ({ id: scene.id, label: `${scene.name} (${scene.id})` })),
+    [scenes]
+  );
+  const projectLocaleOptions = useMemo(
+    () => (project?.locales ?? []).map((locale) => ({ id: locale.locale, label: locale.locale })),
+    [project?.locales]
+  );
+  const hasProjectSettingsChanges = !!project && (
+    projectSettingsDraft.title !== project.manifest.title ||
+    projectSettingsDraft.initialSceneId !== project.manifest.initialSceneId ||
+    projectSettingsDraft.defaultLocale !== project.manifest.defaultLocale ||
+    projectSettingsDraft.viewportWidth !== String(project.manifest.viewport.width) ||
+    projectSettingsDraft.viewportHeight !== String(project.manifest.viewport.height)
+  );
   const currentValidationReport =
     validationReport ??
     (project ? createValidationReport(project.directory, project.diagnostics, "") : null);
@@ -3968,6 +4017,56 @@ export function EditorApp() {
       setWorkspace("overview");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Starter project could not be created");
+    }
+  };
+
+  const updateProjectSettingsDraft = (
+    field: keyof typeof projectSettingsDraft,
+    value: string
+  ) => {
+    setProjectSettingsDraft((current) => ({
+      ...current,
+      [field]: value
+    }));
+  };
+
+  const saveProjectSettings = async () => {
+    if (!project) return;
+
+    const title = projectSettingsDraft.title.trim();
+    const viewportWidth = Number(projectSettingsDraft.viewportWidth);
+    const viewportHeight = Number(projectSettingsDraft.viewportHeight);
+
+    if (!title) {
+      setStatus("Project title is required.");
+      return;
+    }
+    if (!Number.isFinite(viewportWidth) || viewportWidth < 320) {
+      setStatus("Project viewport width must be at least 320.");
+      return;
+    }
+    if (!Number.isFinite(viewportHeight) || viewportHeight < 180) {
+      setStatus("Project viewport height must be at least 180.");
+      return;
+    }
+
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "project/update-settings",
+        patch: {
+          defaultLocale: projectSettingsDraft.defaultLocale,
+          initialSceneId: projectSettingsDraft.initialSceneId,
+          title,
+          viewport: {
+            height: Math.round(viewportHeight),
+            width: Math.round(viewportWidth)
+          }
+        }
+      });
+      setProject(snapshot);
+      setStatus(`Updated project settings for ${snapshot.manifest.title}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Project settings could not be saved");
     }
   };
 
@@ -7504,20 +7603,26 @@ export function EditorApp() {
               assetCount={project.assets.length}
               diagnostics={project.diagnostics}
               flowCount={project.flowCount}
+              hasProjectSettingsChanges={hasProjectSettingsChanges}
+              localeOptions={projectLocaleOptions}
               sceneCount={project.sceneCount}
               onOpenAi={() => changeWorkspace("ai")}
               onOpenAssets={() => changeWorkspace("assets")}
               onOpenBuild={() => changeWorkspace("build")}
               onOpenNarrative={() => changeWorkspace("narrative")}
               onOpenScenes={() => changeWorkspace("scene")}
+              onProjectSettingsChange={updateProjectSettingsDraft}
+              onSaveProjectSettings={saveProjectSettings}
               previewDescription={
                 selectedScene
                   ? `Preview starts from ${selectedScene.id} in the currently opened project.`
                   : "Open a project to prepare a preview bundle."
               }
               previewLabel={dirtyState.count > 0 ? "Draft bundle" : "Saved project bundle"}
+              projectSettings={projectSettingsDraft}
               projectHealthLabel={projectHealth?.label ?? "Loading project..."}
               promptPackCount={project.promptPacks.length}
+              sceneOptions={projectSceneOptions}
               status={status}
               viewportDescription={
                 selectedScene
