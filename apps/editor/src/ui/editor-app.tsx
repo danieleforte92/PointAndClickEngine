@@ -7360,22 +7360,53 @@ export function EditorApp() {
           <div className="tree-group open">Validation</div>
           <div className="tree-item tree-meta">Status: {validationRunState}</div>
           <div className="tree-item tree-meta">Last: {formatValidationTimestamp(validationReport?.ranAt ?? null)}</div>
-          <div className="tree-group open">Readiness ({buildReadinessIssues.length})</div>
-          {buildReadinessIssues.length ? (
-            buildReadinessIssues.map((issue) => (
+          <button
+            className="tree-item tree-child"
+            disabled={validationRunState === "running"}
+            type="button"
+            onClick={runValidation}
+          >
+            <span className="scene-dot muted" /> {validationRunState === "running" ? "Running..." : "Run validation"}
+          </button>
+          <div className="tree-group open">Draft state</div>
+          {dirtyState.count > 0 ? (
+            <div className="tree-item tree-meta">{dirtyState.count} unsaved draft change(s)</div>
+          ) : (
+            <div className="tree-item tree-meta">No draft changes outside saved validation.</div>
+          )}
+          <div className="tree-group open">Blocking issues ({buildBlockingIssues.length})</div>
+          {buildBlockingIssues.length ? (
+            buildBlockingIssues.map((issue) => (
               <button
                 className="tree-item"
                 disabled={!canOpenBuildReadinessTarget(issue.target)}
-                key={`tree-${issue.id}`}
+                key={`tree-blocking-${issue.id}`}
                 type="button"
                 onClick={() => openBuildReadinessIssue(issue)}
               >
                 <span className="scene-dot muted" /> {issue.actionLabel ?? issue.code}
-                <span className="dirty-mark">{issue.severity === "error" ? "!" : "*"}</span>
+                <span className="dirty-mark">!</span>
               </button>
             ))
           ) : (
-            <div className="tree-item tree-meta">No saved-project issues.</div>
+            <div className="tree-item tree-meta">No blocking saved-project issues.</div>
+          )}
+          <div className="tree-group open">Warnings ({buildWarningIssues.length})</div>
+          {buildWarningIssues.length ? (
+            buildWarningIssues.map((issue) => (
+              <button
+                className="tree-item"
+                disabled={!canOpenBuildReadinessTarget(issue.target)}
+                key={`tree-warning-${issue.id}`}
+                type="button"
+                onClick={() => openBuildReadinessIssue(issue)}
+              >
+                <span className="scene-dot muted" /> {issue.actionLabel ?? issue.code}
+                <span className="dirty-mark">*</span>
+              </button>
+            ))
+          ) : (
+            <div className="tree-item tree-meta">No saved-project warnings.</div>
           )}
         </>
       );
