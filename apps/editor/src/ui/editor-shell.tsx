@@ -143,10 +143,19 @@ interface WorkspaceOverviewDiagnostic {
 }
 
 interface WorkspaceOverviewProps {
+  assetCount: number;
   diagnostics: WorkspaceOverviewDiagnostic[];
+  flowCount: number;
+  onOpenAi: () => void;
+  onOpenAssets: () => void;
+  onOpenBuild: () => void;
+  onOpenNarrative: () => void;
+  onOpenScenes: () => void;
   previewDescription: string;
   previewLabel: string;
   projectHealthLabel: string;
+  promptPackCount: number;
+  sceneCount: number;
   status: string;
   viewportDescription: string;
   viewportLabel: string;
@@ -461,10 +470,19 @@ export function ProjectMapPanel({
 }
 
 export function WorkspaceOverview({
+  assetCount,
   diagnostics,
+  flowCount,
+  onOpenAi,
+  onOpenAssets,
+  onOpenBuild,
+  onOpenNarrative,
+  onOpenScenes,
   previewDescription,
   previewLabel,
   projectHealthLabel,
+  promptPackCount,
+  sceneCount,
   status,
   viewportDescription,
   viewportLabel
@@ -480,6 +498,37 @@ export function WorkspaceOverview({
         <span className="overview-label">Preview target</span>
         <strong>{previewLabel}</strong>
         <p>{previewDescription}</p>
+      </section>
+      <section className="overview-card project-structure-card">
+        <span className="overview-label">Project structure</span>
+        <strong>Open a workspace</strong>
+        <div className="project-jump-grid" aria-label="Project workspace shortcuts">
+          <button type="button" onClick={onOpenScenes}>
+            <span>{sceneCount}</span>
+            <strong>Scenes</strong>
+            <small>Scene hierarchy and viewport</small>
+          </button>
+          <button type="button" onClick={onOpenAssets}>
+            <span>{assetCount}</span>
+            <strong>Assets</strong>
+            <small>Library, usage, cleanup</small>
+          </button>
+          <button type="button" onClick={onOpenNarrative}>
+            <span>{flowCount}</span>
+            <strong>Narrative</strong>
+            <small>Flows and locale strings</small>
+          </button>
+          <button type="button" onClick={onOpenAi}>
+            <span>{promptPackCount}</span>
+            <strong>AI Studio</strong>
+            <small>Briefs, recipes, generation</small>
+          </button>
+          <button type="button" onClick={onOpenBuild}>
+            <span>{diagnostics.length}</span>
+            <strong>Build</strong>
+            <small>Diagnostics and readiness</small>
+          </button>
+        </div>
       </section>
       <section className="overview-card">
         <span className="overview-label">Viewport authoring</span>
@@ -515,6 +564,11 @@ export function WorkspaceOverview({
           ) : (
             <p>No project diagnostics right now.</p>
           )}
+        </div>
+        <div className="build-actions">
+          <Button className="secondary-action compact-action" onClick={onOpenBuild}>
+            Open Build
+          </Button>
         </div>
       </section>
     </div>
@@ -839,15 +893,23 @@ export function TopbarActions({
         </IconButton>
       </div>
       <div className="action-cluster project-cluster" aria-label="Project actions">
-        <Button className="secondary-action compact-action" icon={<FolderOpen size={iconSize} />} onClick={onOpenProject}>
-          Open
-        </Button>
-        <Button className="secondary-action compact-action" icon={<FilePlus2 size={iconSize} />} onClick={onCreateProjectFromStarter}>
-          Starter
-        </Button>
-        <Button className="secondary-action compact-action" icon={<Plus size={iconSize} />} onClick={onCreateBlankProject}>
-          Blank
-        </Button>
+        <details className="project-action-menu">
+          <summary>
+            <FolderOpen size={iconSize} />
+            Project
+          </summary>
+          <div className="project-action-menu-popover">
+            <Button className="secondary-action compact-action" icon={<FolderOpen size={iconSize} />} onClick={onOpenProject}>
+              Open Project
+            </Button>
+            <Button className="secondary-action compact-action" icon={<FilePlus2 size={iconSize} />} onClick={onCreateProjectFromStarter}>
+              New From Starter
+            </Button>
+            <Button className="secondary-action compact-action" icon={<Plus size={iconSize} />} onClick={onCreateBlankProject}>
+              Blank Project
+            </Button>
+          </div>
+        </details>
       </div>
       <div className="action-cluster run-cluster" aria-label="Preview actions">
         <Button className="secondary-action compact-action" disabled={!hasProject} icon={<ExternalLink size={iconSize} />} onClick={onOpenBrowser}>

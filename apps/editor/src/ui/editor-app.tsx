@@ -7357,7 +7357,15 @@ export function EditorApp() {
 
           {workspace === "overview" ? (
             <WorkspaceOverview
+              assetCount={project.assets.length}
               diagnostics={project.diagnostics}
+              flowCount={project.flowCount}
+              sceneCount={project.sceneCount}
+              onOpenAi={() => changeWorkspace("ai")}
+              onOpenAssets={() => changeWorkspace("assets")}
+              onOpenBuild={() => changeWorkspace("build")}
+              onOpenNarrative={() => changeWorkspace("narrative")}
+              onOpenScenes={() => changeWorkspace("scene")}
               previewDescription={
                 selectedScene
                   ? `Preview starts from ${selectedScene.id} in the currently opened project.`
@@ -7365,6 +7373,7 @@ export function EditorApp() {
               }
               previewLabel={dirtyState.count > 0 ? "Draft bundle" : "Saved project bundle"}
               projectHealthLabel={projectHealth?.label ?? "Loading project..."}
+              promptPackCount={project.promptPacks.length}
               status={status}
               viewportDescription={
                 selectedScene
