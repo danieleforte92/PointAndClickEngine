@@ -1159,7 +1159,7 @@ function sceneToolLabel(tool: SceneTool): string {
 function sceneToolHint(tool: SceneTool): string {
   switch (tool) {
     case "select":
-      return "Click actors, hotspots, and pickups to inspect them without moving scene geometry.";
+      return "Click an object to inspect it, or drag it to auto-select the right transform tool.";
     case "hotspot":
       return "Drag the selected hotspot to move it, or use the lower-right handle to resize it.";
     case "actor":
@@ -3335,19 +3335,30 @@ export function EditorApp() {
     hotspot: Hotspot,
     event: ReactPointerEvent
   ) => {
-    if (
-      !selectedScene ||
-      !canEditViewportScene ||
-      activeSceneTool !== "hotspot" ||
-      selectedHotspot?.id !== hotspot.id
-    )
-      return;
+    if (!selectedScene || !canEditViewportScene) return;
+    if (mode === "resize" && selectedHotspot?.id !== hotspot.id) return;
 
     const startPoint = scenePointFromClient(event.clientX, event.clientY);
     if (!startPoint) return;
 
     event.preventDefault();
     event.stopPropagation();
+    if (activeSceneTool !== "hotspot" || selectedHotspot?.id !== hotspot.id) {
+      setWorkspace("scene");
+      setActiveSceneTool("hotspot");
+      setSceneInspectorTarget("scene");
+      setSelectedSceneLayerId(null);
+      setSelectedGenerationGuideId(null);
+      updateSessionSelection((current) => ({
+        ...current,
+        activeActorId: null,
+        activeFlowId: null,
+        activeHotspotId: hotspot.id,
+        activeItemId: null,
+        activeLocale: null,
+        activePickupId: null
+      }));
+    }
     setViewportInteraction({
       baseSession: cloneSessionState(history.present),
       kind: "hotspot",
@@ -3393,19 +3404,30 @@ export function EditorApp() {
     pickup: ScenePickup,
     event: ReactPointerEvent
   ) => {
-    if (
-      !selectedScene ||
-      !canEditViewportScene ||
-      activeSceneTool !== "pickup" ||
-      selectedPickup?.id !== pickup.id
-    )
-      return;
+    if (!selectedScene || !canEditViewportScene) return;
+    if (mode === "resize" && selectedPickup?.id !== pickup.id) return;
 
     const startPoint = scenePointFromClient(event.clientX, event.clientY);
     if (!startPoint) return;
 
     event.preventDefault();
     event.stopPropagation();
+    if (activeSceneTool !== "pickup" || selectedPickup?.id !== pickup.id) {
+      setWorkspace("scene");
+      setActiveSceneTool("pickup");
+      setSceneInspectorTarget("scene");
+      setSelectedSceneLayerId(null);
+      setSelectedGenerationGuideId(null);
+      updateSessionSelection((current) => ({
+        ...current,
+        activeActorId: null,
+        activeFlowId: null,
+        activeHotspotId: null,
+        activeItemId: null,
+        activeLocale: null,
+        activePickupId: pickup.id
+      }));
+    }
     setViewportInteraction({
       baseSession: cloneSessionState(history.present),
       kind: "pickup",
@@ -3425,19 +3447,30 @@ export function EditorApp() {
     actor: SceneActor,
     event: ReactPointerEvent
   ) => {
-    if (
-      !selectedScene ||
-      !canEditViewportScene ||
-      activeSceneTool !== "actor" ||
-      selectedActor?.id !== actor.id
-    )
-      return;
+    if (!selectedScene || !canEditViewportScene) return;
+    if (mode === "resize" && selectedActor?.id !== actor.id) return;
 
     const startPoint = scenePointFromClient(event.clientX, event.clientY);
     if (!startPoint) return;
 
     event.preventDefault();
     event.stopPropagation();
+    if (activeSceneTool !== "actor" || selectedActor?.id !== actor.id) {
+      setWorkspace("scene");
+      setActiveSceneTool("actor");
+      setSceneInspectorTarget("scene");
+      setSelectedSceneLayerId(null);
+      setSelectedGenerationGuideId(null);
+      updateSessionSelection((current) => ({
+        ...current,
+        activeActorId: actor.id,
+        activeFlowId: null,
+        activeHotspotId: null,
+        activeItemId: null,
+        activeLocale: null,
+        activePickupId: null
+      }));
+    }
     setViewportInteraction({
       baseSession: cloneSessionState(history.present),
       kind: "actor",
@@ -3479,7 +3512,7 @@ export function EditorApp() {
   };
 
   const startPlayerStartInteraction = (event: ReactPointerEvent) => {
-    if (!selectedScene || !previewPlayerStart || !canEditViewportScene || activeSceneTool !== "player-start") return;
+    if (!selectedScene || !previewPlayerStart || !canEditViewportScene) return;
 
     const startPoint = scenePointFromClient(event.clientX, event.clientY);
     if (!startPoint) return;
@@ -9257,7 +9290,7 @@ export function EditorApp() {
                         ? actorIssues.detail
                         : activeSceneTool === "actor"
                         ? "Click to inspect, drag to move"
-                        : "Switch to Actors to move or resize"
+                        : "Click to inspect, drag to select and move"
                     }
                   >
                     <span className="viewport-label">
@@ -9347,7 +9380,7 @@ export function EditorApp() {
                     title={
                       activeSceneTool === "player-start"
                         ? "Drag to move player start"
-                        : "Switch to Player Start to move the marker"
+                        : "Drag to select and move player start"
                     }
                   >
                     <span />
@@ -9381,7 +9414,7 @@ export function EditorApp() {
                         ? hotspotIssues.detail
                         : activeSceneTool === "hotspot"
                           ? "Click to inspect, drag to move"
-                          : "Switch to Hotspot to move or resize"
+                          : "Click to inspect, drag to select and move"
                     }
                   >
                     <span className="viewport-label">
@@ -9466,7 +9499,7 @@ export function EditorApp() {
                         ? pickupIssues.detail
                         : activeSceneTool === "pickup"
                           ? "Click to inspect, drag to move"
-                          : "Switch to Pickup to move or resize"
+                          : "Click to inspect, drag to select and move"
                     }
                   >
                     <span className="viewport-label">
