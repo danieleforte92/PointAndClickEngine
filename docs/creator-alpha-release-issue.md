@@ -16,7 +16,8 @@ clone, run, inspect, modify, validate, and package without paid provider keys.
   packaging.
 - `pnpm test:e2e` passes or any failure is explicitly documented before
   tagging.
-- `apps/starter-game/project` validates as the minimal clean project.
+- `apps/starter-game/project` validates as the minimal clean gameplay project
+  with curated ComfyUI workflow preset fixtures.
 - `apps/sample-game/project` validates as the public demo project.
 - The packaged Windows editor opens and previews the sample without the Vite dev
   server.
@@ -41,9 +42,10 @@ Record the result here before tagging:
 - [ ] Chroma cleanup saved as a processed PNG asset.
 - [ ] Mock prompt pack generated.
 - [ ] LM Studio prompt pack generated, if LM Studio is installed.
-- [ ] ComfyUI text-to-image asset generated, if ComfyUI is installed.
-- [ ] ComfyUI reference or mask workflow smoke-tested, if a compatible workflow
-  is available.
+- [ ] ComfyUI preset installed, recipe saved, and text-to-image asset generated,
+  if ComfyUI is installed.
+- [ ] ComfyUI chroma or inpaint workflow smoke-tested, if a compatible target is
+  available.
 - [ ] Character Gym can preview a spritesheet target.
 - [ ] Build validation run from the editor.
 - [ ] Browser preview opened.
@@ -57,8 +59,9 @@ Record the result here before tagging:
 - Flow graph editing is not a full node-graph editor yet.
 - Transparent PNG quality depends on the selected ComfyUI workflow or clean
   chroma cleanup.
-- Reference and mask image inputs require a compatible custom ComfyUI API
-  workflow; the built-in text-to-image path does not consume image inputs.
+- Reference and mask image inputs require a compatible installed ComfyUI
+  template or legacy API workflow; plain text-to-image paths do not consume image
+  inputs.
 - OpenAI support requires API platform billing; ChatGPT subscriptions do not
   cover API calls.
 - Hosted demo, public website, web export, and SDK publishing are later
@@ -78,7 +81,8 @@ Record the result here before tagging:
   `pnpm check` outside restricted sandboxes before blocking the release.
 - **Provider confusion**: local AI tools are optional. Keep mock provider paths
   working and call out that models/weights are user-installed.
-- **Workflow mismatch**: custom ComfyUI exports vary. State that only compatible
-  API workflows with expected loader nodes can use reference/mask inputs.
+- **Workflow mismatch**: custom ComfyUI exports vary. State that only installed
+  templates or compatible API workflows with expected loader nodes can use
+  reference/mask inputs.
 - **Stale demo asset**: refresh or explicitly accept the checked-in screenshot
   before tagging.

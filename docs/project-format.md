@@ -12,7 +12,7 @@ animation-packs/<id>.animation-pack.json
 prompt-packs/<id>.prompt-pack.json
 style-bibles/<id>.style-bible.json
 workflow-templates/<id>.workflow-template.json
-generation-recipes/<id>.recipe.json
+generation-recipes/<id>.generation-recipe.json
 locales/<locale>.json
 ```
 

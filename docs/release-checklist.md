@@ -17,7 +17,8 @@ Expected result:
 
 - no unintended project files, generated assets, workflow exports, logs, or test
   artifacts in `git status`;
-- `starter-game` validates as a minimal project;
+- `starter-game` validates as a minimal gameplay project with only curated
+  workflow preset fixtures;
 - `sample-game` validates as the public demo.
 
 Notes:
@@ -52,10 +53,11 @@ Notes:
    verify it is assigned as a new asset without overwriting the source.
 11. In **AI**, generate a mock prompt pack.
 12. With LM Studio running, generate a local prompt pack.
-13. With ComfyUI running, generate and import one text-to-image asset.
-14. With a custom ComfyUI API workflow, queue one target with a linked reference
-    or mask asset and confirm provenance records `referenceAssetIds`,
-    `maskAssetId`, and `parentAssetIds`.
+13. With ComfyUI running, install the background preset, save a recipe, then
+    generate and import one text-to-image asset.
+14. Install the chroma or inpaint preset, queue one target with linked reference
+    or mask assets when available, and confirm provenance records `workflowId`,
+    `recipeId`, `referenceAssetIds`, `maskAssetId`, and `parentAssetIds`.
 15. Send a `sprite-sheet` or `animation-reference` target to Asset Studio and verify Character Gym can slice it.
 16. In **Build**, run validation.
 17. Use **Play from here** and **Browser** preview.

@@ -27,11 +27,16 @@ comfortable with local developer tools.
   and ComfyUI image import.
 - AI workflow documents for style bibles, workflow templates, generation
   recipes, and generated asset provenance.
-- ComfyUI custom workflow patching for prompt, negative prompt, seed,
-  dimensions, checkpoint, output prefix, reference images, and mask images.
-- Generated image asset provenance for workflow family, prompt pack target,
-  linked reference and mask assets, parent asset lineage, dimensions, warnings,
-  model, and seed.
+- ComfyUI preset install for SDXL standard 8GB background T2I, SDXL
+  Lightning/Turbo fast-draft background T2I, SDXL Lightning/Turbo 8GB
+  prop/character chroma, and SD 1.5 8GB masked inpaint, with recipe-first
+  generation and legacy workflow path fallback.
+- ComfyUI template binding patching for prompt, negative prompt, seed,
+  dimensions, checkpoint, output prefix, reference images, mask images, and
+  explicit output nodes.
+- Generated image asset provenance for workflow id, recipe id, workflow family,
+  prompt pack target, linked reference and mask assets, parent asset lineage,
+  dimensions, warnings, model, and seed.
 - Inspector asset import/drop, pickup image assets, and chroma cleanup for flat
   blue/green backgrounds.
 
@@ -42,9 +47,9 @@ comfortable with local developer tools.
   UX is still being completed.
 - Transparent PNG quality depends on the selected ComfyUI workflow or a clean
   flat chroma source for editor cleanup.
-- Reference and mask inputs require a custom ComfyUI API workflow with
-  compatible image loader nodes; the built-in text-to-image path does not use
-  image inputs.
+- Reference and mask inputs require an installed ComfyUI template or legacy API
+  workflow with compatible image loader nodes; plain text-to-image paths do not
+  use image inputs.
 - Flow graph editing, hosted demo, marketing site, web export, and npm SDK
   publishing are outside this release.
 - AI provider keys are optional; OpenAI requires API platform access and is not

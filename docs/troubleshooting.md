@@ -54,8 +54,13 @@ in place.
 ## ComfyUI Does Not Queue
 
 - Start ComfyUI and confirm `http://127.0.0.1:8188` opens.
-- Export the workflow in **API** format.
-- Put the workflow JSON path in **Workflow API JSON path**.
+- Install a compatible workflow preset in the AI workspace, or export a workflow
+  in **API** format and use **Workflow API JSON path (legacy/advanced)**.
+- Save a generation recipe before queueing when you want provenance to include
+  `workflowId` and `recipeId`.
+- For the 8GB presets, place `sdxl_lightning_4step.safetensors` or an SD 1.5
+  inpainting checkpoint in `ComfyUI/models/checkpoints`, then select it in
+  **Checkpoint filename / override** if your local filename differs.
 - Leave checkpoint override empty for workflows that already load their own
   model, especially Krea/Qwen-style exports.
 - Watch the editor's **ComfyUI status** card and the ComfyUI queue/history.
@@ -85,17 +90,19 @@ files cannot silently depend on machine-local locations outside the project.
 
 ## Reference Or Mask Inputs Are Ignored
 
-Reference and mask assets only affect custom workflows that expose image loader
-nodes. Check the selected target and workflow:
+Reference and mask assets only affect installed templates or legacy workflows
+that expose image loader nodes. Check the selected target and workflow:
 
 - the target should show **Reference workflow expected** or
   **Inpaint workflow expected** in the AI workspace;
-- **Workflow API JSON path** must be set before queueing reference or mask
+- an installed compatible workflow template should be selected, or **Workflow API
+  JSON path (legacy/advanced)** must be set before queueing reference or mask
   targets;
 - the exported ComfyUI workflow should contain `LoadImage`, `LoadImageMask`, or
   mask-like `LoadImage` nodes;
-- after queueing, generated asset provenance should include `referenceAssetIds`,
-  `maskAssetId`, and `parentAssetIds`.
+- after queueing, generated asset provenance should include `workflowId`,
+  `recipeId`, `referenceAssetIds`, `maskAssetId`, and `parentAssetIds` where
+  applicable.
 
 If the editor reports that image inputs require a custom workflow, the built-in
 text-to-image path would ignore those files. Export or select an img2img/inpaint
@@ -105,6 +112,10 @@ workflow first.
 
 - Use **Background Draft 16:9** (`1024x576`) or **Background Draft Plus 16:9**
   (`1152x648`) for iteration.
+- For usable scene backgrounds, prefer **Background 16:9 SDXL Standard 8GB**.
+  Lightning/Turbo presets are fast draft paths; repeated character sheets,
+  colored noise, or abstract patterns usually mean the distilled checkpoint is
+  not suitable for that target.
 - Avoid latent 2048x2048 upscales in the default local workflow.
 - Increase **Timeout minutes** for Krea/Qwen-style workflows.
 - Leave checkpoint override empty when the workflow already loads its models.

@@ -73,8 +73,8 @@ the player in your system browser.
 3. In **Player**, choose the player asset or animation pack and adjust walk speed.
 4. In **AI**, generate a mock prompt pack, then review the background, prop,
    character, and animation prompts.
-5. If ComfyUI is running, choose a project-relative workflow API JSON and
-   generate/import one image asset.
+5. If ComfyUI is running, install a workflow preset, save a generation recipe,
+   and generate/import one image asset.
 6. Drop or import an image in an inspector, then try **Remove Background** on a
    flat chroma output.
 7. Open **Build** and run validation.
@@ -87,17 +87,17 @@ Creator Alpha does not require paid provider keys.
 - **Mock deterministic** works offline and is the default open-source path.
 - **LM Studio local** can draft prompt packs through a local OpenAI-compatible
   server.
-- **ComfyUI local** can generate image assets from exported API workflows.
-  Custom workflow API exports can receive linked reference and mask assets
-  through `LoadImage` / `LoadImageMask` nodes.
+- **ComfyUI local** can generate image assets from installed 8GB-oriented
+  workflow presets and reviewable recipes. Legacy exported API workflows remain
+  available for advanced users.
 - **OpenAI** is optional and requires an API platform key; ChatGPT subscriptions
   do not replace API billing.
 
 AI output is treated as draft authoring material. Prompt packs are saved only
 after approval, image generation imports normal asset documents, and provider
 provenance stays visible. Generated image assets record prompt, seed, model,
-workflow family, references, masks, parent asset lineage, warnings, and prompt
-pack target links when available.
+workflow id, recipe id, workflow family, references, masks, parent asset
+lineage, warnings, and prompt pack target links when available.
 
 ## Verify
 

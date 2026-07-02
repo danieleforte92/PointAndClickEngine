@@ -58,9 +58,12 @@ Turn AI support into a bounded local workflow engine, not a prompt-only panel.
   targets into explicit asset-generation recipes.
 - Add a workflow registry for approved ComfyUI API templates with declared
   inputs, patch bindings, output mode, hardware profile, and limitations.
+- Ship the first preset slice as SDXL Lightning 8GB background T2I,
+  SDXL Lightning 8GB prop/character chroma, and SD 1.5 8GB masked scene
+  inpaint; keep video and automated spritesheet workflows out of this milestone.
 - Store generated-asset provenance: prompt, negative prompt, seed, model,
-  workflow id, target id, dimensions, references, masks, warnings, and parent
-  asset lineage.
+  workflow id, recipe id, workflow family, target id, dimensions, references,
+  masks, guide ids, warnings, and parent asset lineage.
 - Support RTX 3070 8GB-friendly draft and preview presets for 16:9 backgrounds
   and isolated prop or character outputs.
 - Upload reference images and masks to ComfyUI for img2img and inpaint workflows

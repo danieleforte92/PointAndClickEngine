@@ -81,9 +81,12 @@ a time and import the resulting PNG into the project asset library.
 6. Optionally set a seed.
 7. Set a timeout long enough for the workflow. Krea/Qwen workflows can take many
    minutes on 8GB GPUs.
-8. Click **Generate And Import Asset**.
+8. Install a compatible workflow preset, then click **Save Recipe**.
+9. Click **Generate And Import Asset**.
 
-The editor queues a small text-to-image workflow through `POST /prompt`, polls
+The editor installs pre-validated ComfyUI API templates into `workflows/` and
+`workflow-templates/`, compiles approved targets into reviewable
+`generation-recipes/`, queues through `POST /prompt`, polls
 `GET /history/{prompt_id}`, downloads the generated image through `/view`, saves
 it under `assets/imported`, and registers a normal image asset document.
 
@@ -97,10 +100,56 @@ Default Creator Alpha presets are 16:9 and friendly to local 8GB GPUs:
 Avoid making latent 2048x2048 upscale the default local path. Use direct 16:9
 draft or preview dimensions first, then clean up selected regions when needed.
 
+### Workflow Presets And Recipes
+
+Creator Alpha ships installable workflow presets:
+
+- **Background 16:9 SDXL Standard 8GB** for usable scene backgrounds. Install
+  an SDXL base-compatible checkpoint in `ComfyUI/models/checkpoints`, or set
+  **Checkpoint filename / override** to the checkpoint name listed by ComfyUI.
+  The template default is `sd_xl_base_1.0.safetensors`.
+- **Background 16:9 SDXL Lightning 8GB Fast Draft** for smoke tests and fast
+  ideation with the ByteDance `sdxl_lightning_4step.safetensors` all-in-one
+  checkpoint.
+- **Background 16:9 SDXL Turbo 8GB Fast Draft** for users who already have
+  Stability AI SDXL Turbo installed, including subfolder names such as
+  `SDXL-TURBO\sd_xl_turbo_1.0_fp16.safetensors`.
+- **Prop/Character Chroma SDXL Lightning 8GB** for isolated assets that should
+  go through Asset Studio chroma cleanup or Bezier cutout.
+- **Prop/Character Chroma SDXL Turbo 8GB** for the same chroma cleanup path on
+  SDXL Turbo.
+- **Scene Inpaint Masked SD 1.5 8GB** for targets with compiled reference and
+  mask assets. Use an SD 1.5 inpainting-compatible checkpoint such as
+  `sd-v1-5-inpainting.safetensors`.
+
+The standard SDXL background preset uses DPM++ 2M, karras scheduler, 24 steps,
+and CFG 6. It is slower than Lightning/Turbo but is the default because prompt
+adherence and negative guidance matter for playable backgrounds. The distilled
+Lightning/Turbo presets are kept as draft paths only; if they produce colored
+noise, character sheets, or repeated figures, switch to the standard preset
+instead of trying to solve it with more prompt text.
+
+ComfyUI checkpoint names include subfolders. If queueing fails with
+`ckpt_name not in list`, copy one of the listed names into **Checkpoint filename
+/ override** or install the matching preset.
+
+Before queueing, the editor compacts guided prompt-pack text into a visual image
+prompt. It removes `Negative guidance` and `IP safety` bookkeeping lines from
+the positive prompt, keeps the visual style/setting/palette content, and adds
+target-specific output contracts. Scene-background targets explicitly ask for an
+environment-only background and forbid character sheets, portraits, lineups, and
+repeated figures.
+
+Installed presets declare their workflow family, output mode, supported inputs,
+binding nodes, output node, hardware notes, and limitations. Saving a recipe
+records target id, prompt pack id, style bible, workflow id, prompt, negative
+prompt, dimensions, seed/model hints, references, masks, and guide ids before
+generation.
+
 ### Custom ComfyUI API Workflows
 
-The **Workflow API JSON path** field accepts a path relative to the loaded
-project directory. For example, if the loaded project is
+The **Workflow API JSON path** field is now legacy/advanced mode. It accepts a
+path relative to the loaded project directory. For example, if the loaded project is
 `apps/starter-game/project`, copy the workflow to
 `apps/starter-game/project/workflows/image_krea2_turbo_t2i.json` and enter
 `workflows/image_krea2_turbo_t2i.json`.
@@ -109,7 +158,10 @@ Absolute paths and paths outside the loaded project are rejected in Creator
 Alpha to prevent project-file path traversal. Root-level experimental workflow
 JSON files are ignored by release checks and are not searched automatically.
 
-When a custom workflow is provided, the editor patches:
+When an installed template is selected, the editor patches only the explicit
+bindings declared by the template and validates binding nodes/inputs plus the
+output node before queueing. In legacy path mode, the editor falls back to
+heuristic patching:
 
 - `CheckpointLoaderSimple.inputs.ckpt_name` when a checkpoint override is set;
 - `EmptyLatentImage.inputs.width` and `height`;
@@ -126,10 +178,9 @@ ComfyUI server API. If a mask is supplied without a separate reference, the
 editor first uploads the mask as an image to provide the required original
 reference.
 
-The built-in text-to-image workflow has no image input nodes, so reference and
-mask assets are useful only with custom workflows that expose image loader nodes.
-The editor blocks queueing linked reference or mask targets until a custom
-workflow API JSON path is set, preventing a plain text-to-image job from
+Reference and mask assets require an installed template or legacy workflow that
+declares image loader bindings. The editor blocks mask queueing when the selected
+template does not support `mask-image`, preventing a plain text-to-image job from
 silently ignoring those inputs.
 
 If the workflow has no `CLIPTextEncode` nodes but has `CheckpointLoaderSimple`
