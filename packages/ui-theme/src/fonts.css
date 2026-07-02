@@ -1,0 +1,39 @@
+/*
+ * Storyboard Studio font contract.
+ *
+ * Drop licensed OSS font files into assets/fonts using these filenames to make
+ * the editor fully offline-branded:
+ * - Fraunces-Variable.woff2
+ * - SourceSans3-Variable.woff2
+ * - JetBrainsMono-Variable.woff2
+ *
+ * Until the binary font assets are committed, the theme intentionally resolves
+ * local/system fonts only so production builds do not emit missing asset URLs.
+ */
+@font-face {
+  font-display: swap;
+  font-family: "PC Story";
+  font-style: normal;
+  font-weight: 300 900;
+  src: local("Fraunces");
+}
+
+@font-face {
+  font-display: swap;
+  font-family: "PC Interface";
+  font-style: normal;
+  font-weight: 300 900;
+  src:
+    local("Source Sans 3"),
+    local("Segoe UI");
+}
+
+@font-face {
+  font-display: swap;
+  font-family: "PC Mono";
+  font-style: normal;
+  font-weight: 300 800;
+  src:
+    local("JetBrains Mono"),
+    local("Cascadia Mono");
+}

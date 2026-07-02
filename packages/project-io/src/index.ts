@@ -277,6 +277,22 @@ export type AnimationPackUpsertCommand = {
   patch: AnimationPackUpsertPatch;
 };
 
+export type WorkflowTemplateUpsertCommand = {
+  type: "workflow-template/upsert";
+  patch: {
+    documentPath?: string;
+    workflowTemplate: WorkflowTemplateDocument;
+  };
+};
+
+export type GenerationRecipeUpsertCommand = {
+  type: "generation-recipe/upsert";
+  patch: {
+    documentPath?: string;
+    generationRecipe: AssetGenerationRecipeDocument;
+  };
+};
+
 export type EditorProjectCommand =
   | HotspotUpdateCommand
   | HotspotCreateCommand
@@ -302,7 +318,9 @@ export type EditorProjectCommand =
   | AssetRelinkCommand
   | AssetDeleteCommand
   | AnimationPackUpsertCommand
-  | PromptPackUpsertCommand;
+  | PromptPackUpsertCommand
+  | WorkflowTemplateUpsertCommand
+  | GenerationRecipeUpsertCommand;
 
 async function readJson(filePath: string): Promise<unknown> {
   return JSON.parse(await readFile(filePath, "utf8")) as unknown;
@@ -1546,6 +1564,9 @@ export async function createBlankProject(
   await mkdir(path.join(directory, "flows"), { recursive: true });
   await mkdir(path.join(directory, "items"), { recursive: true });
   await mkdir(path.join(directory, "prompt-packs"), { recursive: true });
+  await mkdir(path.join(directory, "workflow-templates"), { recursive: true });
+  await mkdir(path.join(directory, "generation-recipes"), { recursive: true });
+  await mkdir(path.join(directory, "workflows"), { recursive: true });
 
   return loadProjectFromDirectory(directory);
 }
@@ -1623,6 +1644,22 @@ function animationPackPathFor(project: LoadedProject, animationPackId: string): 
   return safeProjectPath(project.directory, reference.path, `Animation pack reference "${animationPackId}"`);
 }
 
+function workflowTemplatePathFor(project: LoadedProject, workflowTemplateId: string): string {
+  const reference = (project.bundle.manifest.workflowTemplates ?? []).find((entry) => entry.id === workflowTemplateId);
+  if (!reference) {
+    throw new Error(`Workflow template "${workflowTemplateId}" is not referenced by the project manifest`);
+  }
+  return safeProjectPath(project.directory, reference.path, `Workflow template reference "${workflowTemplateId}"`);
+}
+
+function generationRecipePathFor(project: LoadedProject, generationRecipeId: string): string {
+  const reference = (project.bundle.manifest.generationRecipes ?? []).find((entry) => entry.id === generationRecipeId);
+  if (!reference) {
+    throw new Error(`Generation recipe "${generationRecipeId}" is not referenced by the project manifest`);
+  }
+  return safeProjectPath(project.directory, reference.path, `Generation recipe reference "${generationRecipeId}"`);
+}
+
 function projectManifestPath(project: LoadedProject): string {
   return path.join(project.directory, "adventure.project.json");
 }
@@ -1645,6 +1682,14 @@ function defaultPromptPackDocumentPath(promptPackId: string): string {
 
 function defaultAnimationPackDocumentPath(animationPackId: string): string {
   return `animation-packs/${animationPackId}.animation-pack.json`;
+}
+
+function defaultWorkflowTemplateDocumentPath(workflowTemplateId: string): string {
+  return `workflow-templates/${workflowTemplateId}.workflow-template.json`;
+}
+
+function defaultGenerationRecipeDocumentPath(generationRecipeId: string): string {
+  return `generation-recipes/${generationRecipeId}.generation-recipe.json`;
 }
 
 function describeFlowReference(use: FlowReferenceUse): string {
@@ -2226,6 +2271,48 @@ function upsertAnimationPackManifestReference(
   };
 }
 
+function upsertWorkflowTemplateManifestReference(
+  manifest: ProjectManifest,
+  workflowTemplate: WorkflowTemplateDocument,
+  documentPath: string
+): ProjectManifest {
+  const workflowTemplates = [...(manifest.workflowTemplates ?? [])];
+  const existingIndex = workflowTemplates.findIndex((entry) => entry.id === workflowTemplate.id);
+  const reference = { id: workflowTemplate.id, path: documentPath };
+
+  if (existingIndex >= 0) {
+    workflowTemplates[existingIndex] = reference;
+  } else {
+    workflowTemplates.push(reference);
+  }
+
+  return {
+    ...manifest,
+    workflowTemplates
+  };
+}
+
+function upsertGenerationRecipeManifestReference(
+  manifest: ProjectManifest,
+  generationRecipe: AssetGenerationRecipeDocument,
+  documentPath: string
+): ProjectManifest {
+  const generationRecipes = [...(manifest.generationRecipes ?? [])];
+  const existingIndex = generationRecipes.findIndex((entry) => entry.id === generationRecipe.id);
+  const reference = { id: generationRecipe.id, path: documentPath };
+
+  if (existingIndex >= 0) {
+    generationRecipes[existingIndex] = reference;
+  } else {
+    generationRecipes.push(reference);
+  }
+
+  return {
+    ...manifest,
+    generationRecipes
+  };
+}
+
 function validateFlowReferences(flow: FlowDocument): void {
   const seen = new Set<string>();
   for (const node of flow.nodes) {
@@ -2299,6 +2386,83 @@ export async function validateProjectFiles(project: LoadedProject): Promise<Proj
         continue;
       }
       throw error;
+    }
+
+    let workflowJson: unknown;
+    try {
+      workflowJson = await readJson(workflowFilePath);
+    } catch (error) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "workflow-template.file-invalid",
+          `Workflow template "${workflow.id}" file "${workflow.workflowPath}" is not valid JSON.`,
+          { documentId: workflow.id, path: `workflow-templates/${workflow.id}/workflowPath` }
+        )
+      );
+      continue;
+    }
+
+    const workflowNodes =
+      workflowJson && typeof workflowJson === "object" && !Array.isArray(workflowJson)
+        ? (workflowJson as Record<string, { inputs?: Record<string, unknown> }>)
+        : null;
+    if (!workflowNodes) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "workflow-template.file-not-object",
+          `Workflow template "${workflow.id}" file "${workflow.workflowPath}" must be a ComfyUI API JSON object.`,
+          { documentId: workflow.id, path: `workflow-templates/${workflow.id}/workflowPath` }
+        )
+      );
+      continue;
+    }
+
+    for (const binding of workflow.bindings) {
+      const node = workflowNodes[binding.nodeId];
+      if (!node) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "workflow-template.binding-node-missing",
+            `Workflow template "${workflow.id}" binding "${binding.input}" references missing node "${binding.nodeId}".`,
+            { documentId: workflow.id, path: `workflow-templates/${workflow.id}/bindings/${binding.input}` }
+          )
+        );
+        continue;
+      }
+      if (!node.inputs || !(binding.inputKey in node.inputs)) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "workflow-template.binding-input-missing",
+            `Workflow template "${workflow.id}" binding "${binding.input}" references missing input "${binding.nodeId}.${binding.inputKey}".`,
+            { documentId: workflow.id, path: `workflow-templates/${workflow.id}/bindings/${binding.input}` }
+          )
+        );
+      }
+    }
+
+    const outputNode = workflowNodes[workflow.output.nodeId];
+    if (!outputNode) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "workflow-template.output-node-missing",
+          `Workflow template "${workflow.id}" output references missing node "${workflow.output.nodeId}".`,
+          { documentId: workflow.id, path: `workflow-templates/${workflow.id}/output/nodeId` }
+        )
+      );
+    } else if (!outputNode.inputs || !("images" in outputNode.inputs)) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "workflow-template.output-input-missing",
+          `Workflow template "${workflow.id}" output node "${workflow.output.nodeId}" must have an images input.`,
+          { documentId: workflow.id, path: `workflow-templates/${workflow.id}/output/nodeId` }
+        )
+      );
     }
   }
 
@@ -2795,6 +2959,66 @@ export async function applyProjectCommand(
     const nextManifest = upsertPromptPackManifestReference(project.bundle.manifest, promptPack, documentPath);
     assertDocument<ProjectManifest>("project", nextManifest);
     await writeJson(safeProjectPath(project.directory, documentPath, "Prompt pack document path"), promptPack);
+    await writeJson(projectManifestPath(project), nextManifest);
+  }
+
+  if (command.type === "workflow-template/upsert") {
+    const workflowTemplate = command.patch.workflowTemplate;
+    assertDocument<WorkflowTemplateDocument>("workflowTemplate", workflowTemplate);
+
+    const documentPath =
+      command.patch.documentPath ??
+      (project.bundle.workflowTemplates[workflowTemplate.id]
+        ? path.relative(project.directory, workflowTemplatePathFor(project, workflowTemplate.id)).replace(/\\/g, "/")
+        : defaultWorkflowTemplateDocumentPath(workflowTemplate.id));
+
+    const nextManifest = upsertWorkflowTemplateManifestReference(
+      project.bundle.manifest,
+      workflowTemplate,
+      documentPath
+    );
+    assertDocument<ProjectManifest>("project", nextManifest);
+    await writeJson(
+      safeProjectPath(project.directory, documentPath, "Workflow template document path"),
+      workflowTemplate
+    );
+    await writeJson(projectManifestPath(project), nextManifest);
+  }
+
+  if (command.type === "generation-recipe/upsert") {
+    const generationRecipe = command.patch.generationRecipe;
+    assertDocument<AssetGenerationRecipeDocument>("generationRecipe", generationRecipe);
+
+    if (generationRecipe.sceneId && !project.bundle.scenes[generationRecipe.sceneId]) {
+      throw new Error(`Generation recipe "${generationRecipe.id}" references missing scene "${generationRecipe.sceneId}"`);
+    }
+    if (generationRecipe.promptPackId && !project.bundle.promptPacks[generationRecipe.promptPackId]) {
+      throw new Error(
+        `Generation recipe "${generationRecipe.id}" references missing prompt pack "${generationRecipe.promptPackId}"`
+      );
+    }
+    if (!project.bundle.workflowTemplates[generationRecipe.workflowId]) {
+      throw new Error(
+        `Generation recipe "${generationRecipe.id}" references missing workflow template "${generationRecipe.workflowId}"`
+      );
+    }
+
+    const documentPath =
+      command.patch.documentPath ??
+      (project.bundle.generationRecipes[generationRecipe.id]
+        ? path.relative(project.directory, generationRecipePathFor(project, generationRecipe.id)).replace(/\\/g, "/")
+        : defaultGenerationRecipeDocumentPath(generationRecipe.id));
+
+    const nextManifest = upsertGenerationRecipeManifestReference(
+      project.bundle.manifest,
+      generationRecipe,
+      documentPath
+    );
+    assertDocument<ProjectManifest>("project", nextManifest);
+    await writeJson(
+      safeProjectPath(project.directory, documentPath, "Generation recipe document path"),
+      generationRecipe
+    );
     await writeJson(projectManifestPath(project), nextManifest);
   }
 

@@ -99,6 +99,7 @@ export interface PointClickEditorApi {
     }
   ): Promise<PromptProviderJob>;
   generateImageAsset(request: GenerateImageAssetRequest): Promise<GeneratedImageAssetJob>;
+  installWorkflowPreset(presetId: string): Promise<EditorProjectSnapshot>;
   loadProject(projectDirectory?: string): Promise<EditorProjectSnapshot>;
   loadRecovery(projectDirectory: string): Promise<EditorRecoverySnapshot | null>;
   openPreview(request?: EditorPreviewRequest): Promise<void>;
@@ -117,6 +118,7 @@ const api: PointClickEditorApi = {
   createProjectFromStarter: () => ipcRenderer.invoke("project:create-from-starter"),
   generatePromptPack: (request) => ipcRenderer.invoke("ai:prompt-pack", request),
   generateImageAsset: (request) => ipcRenderer.invoke("ai:image-asset", request),
+  installWorkflowPreset: (presetId) => ipcRenderer.invoke("workflow-preset:install", presetId),
   importAssetFiles: (filePaths) => ipcRenderer.invoke("project:import-asset-files", filePaths),
   importAssets: () => ipcRenderer.invoke("project:import-assets"),
   loadProject: (projectDirectory) => ipcRenderer.invoke("project:load", projectDirectory),

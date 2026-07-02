@@ -18,6 +18,9 @@ export interface GenerateImageAssetRequest {
   targetId: string;
   timeoutMs?: number;
   width: number;
+  outputNodeId?: string;
+  recipeId?: string;
+  workflowId?: string;
   workflowFamily?: WorkflowFamily;
   workflowPath?: string;
 }

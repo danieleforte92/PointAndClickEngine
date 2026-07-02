@@ -88,3 +88,20 @@ test("plays the light-verb inventory loop end to end", async ({ page }) => {
     });
   }
 });
+
+test("keeps the player surface usable on a mobile viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "The Isle of Echoes" })).toBeVisible();
+  await expect(page.locator(".stage-host canvas")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("button", { name: "walk" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Inventory" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Capture" }).click();
+  await expect(page.getByRole("button", { name: "Capture" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("region", { name: "Capture mode summary" })).toBeVisible();
+
+  const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+  expect(hasHorizontalOverflow).toBe(false);
+});

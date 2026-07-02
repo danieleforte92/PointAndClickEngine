@@ -1,0 +1,10 @@
+{
+  "name": "@pointclick/ui-theme",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./storyboard.css": "./src/storyboard.css",
+    "./fonts.css": "./src/fonts.css"
+  }
+}

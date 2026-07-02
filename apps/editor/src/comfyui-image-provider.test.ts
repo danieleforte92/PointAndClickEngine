@@ -221,6 +221,160 @@ describe("generateComfyUIImage", () => {
     expect(workflow["7"].inputs.filename_prefix).toBe("pointclick_tavern-background");
   });
 
+  it("patches custom API workflows through explicit template bindings", async () => {
+    const calls: Array<{ body?: Record<string, any>; url: string }> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      calls.push({
+        url,
+        body: init?.body ? JSON.parse(String(init.body)) : undefined
+      });
+
+      if (url.endsWith("/prompt")) {
+        return {
+          ok: true,
+          json: async () => ({ prompt_id: "prompt-bindings" })
+        } as Response;
+      }
+
+      if (url.endsWith("/history/prompt-bindings")) {
+        return {
+          ok: true,
+          json: async () => ({
+            "prompt-bindings": {
+              outputs: {
+                "9": {
+                  images: [{ filename: "bindings_00001_.png", subfolder: "", type: "output" }]
+                }
+              }
+            }
+          })
+        } as Response;
+      }
+
+      if (url.includes("/view?")) {
+        return {
+          headers: new Headers({ "content-type": "image/png" }),
+          ok: true,
+          arrayBuffer: async () => new Uint8Array([5, 5, 5]).buffer
+        } as Response;
+      }
+
+      throw new Error(`Unexpected URL ${url}`);
+    }) as typeof fetch;
+
+    await generateComfyUIImage(
+      {
+        height: 720,
+        negativePrompt: "text",
+        prompt: "A readable beach cave.",
+        seed: 314,
+        targetId: "beach-cave",
+        width: 1280
+      },
+      {
+        checkpointName: "override.safetensors",
+        outputNodeId: "9",
+        pollIntervalMs: 1,
+        timeoutMs: 1_000,
+        workflowBindings: [
+          { input: "prompt", nodeId: "6", inputKey: "text", required: true },
+          { input: "negative-prompt", nodeId: "7", inputKey: "text" },
+          { input: "seed", nodeId: "3", inputKey: "seed" },
+          { input: "dimensions", nodeId: "5", inputKey: "width" },
+          { input: "checkpoint", nodeId: "4", inputKey: "ckpt_name" },
+          { input: "output-prefix", nodeId: "9", inputKey: "filename_prefix" }
+        ],
+        workflowJson: {
+          "3": { class_type: "KSampler", inputs: { seed: 1 } },
+          "4": { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: "old.safetensors" } },
+          "5": { class_type: "EmptyLatentImage", inputs: { width: 512, height: 512 } },
+          "6": { class_type: "CLIPTextEncode", inputs: { text: "old positive" } },
+          "7": { class_type: "CLIPTextEncode", inputs: { text: "old negative" } },
+          "9": { class_type: "SaveImage", inputs: { filename_prefix: "old", images: ["8", 0] } }
+        }
+      },
+      {
+        fetchImpl,
+        sleep: async () => {}
+      }
+    );
+
+    const workflow = calls[0]!.body!.prompt as Record<string, any>;
+    expect(workflow["3"].inputs.seed).toBe(314);
+    expect(workflow["4"].inputs.ckpt_name).toBe("override.safetensors");
+    expect(workflow["5"].inputs).toMatchObject({ height: 720, width: 1280 });
+    expect(workflow["6"].inputs.text).toBe("A readable beach cave.");
+    expect(workflow["7"].inputs.text).toBe("text");
+    expect(workflow["9"].inputs.filename_prefix).toBe("pointclick_beach-cave");
+  });
+
+  it("explains checkpoint validation errors with available ComfyUI checkpoint names", async () => {
+    const fetchImpl = (async (url: string) => {
+      if (url.endsWith("/prompt")) {
+        return {
+          ok: false,
+          status: 400,
+          text: async () =>
+            JSON.stringify({
+              error: {
+                type: "prompt_outputs_failed_validation",
+                message: "Prompt outputs failed validation"
+              },
+              node_errors: {
+                "4": {
+                  errors: [
+                    {
+                      type: "value_not_in_list",
+                      message: "Value not in list",
+                      extra_info: {
+                        input_name: "ckpt_name",
+                        input_config: [["SDXL-TURBO\\sd_xl_turbo_1.0_fp16.safetensors"], {}],
+                        received_value: "sdxl_lightning_4step.safetensors"
+                      }
+                    }
+                  ],
+                  class_type: "CheckpointLoaderSimple"
+                }
+              }
+            })
+        } as Response;
+      }
+
+      throw new Error(`Unexpected URL ${url}`);
+    }) as typeof fetch;
+
+    await expect(
+      generateComfyUIImage(
+        {
+          height: 720,
+          prompt: "A readable market.",
+          targetId: "market",
+          width: 1280
+        },
+        {
+          pollIntervalMs: 1,
+          timeoutMs: 1_000,
+          workflowBindings: [
+            { input: "prompt", nodeId: "6", inputKey: "text", required: true },
+            { input: "checkpoint", nodeId: "4", inputKey: "ckpt_name" },
+            { input: "output-prefix", nodeId: "9", inputKey: "filename_prefix" }
+          ],
+          workflowJson: {
+            "4": { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: "sdxl_lightning_4step.safetensors" } },
+            "6": { class_type: "CLIPTextEncode", inputs: { text: "old" } },
+            "9": { class_type: "SaveImage", inputs: { filename_prefix: "old", images: ["8", 0] } }
+          }
+        },
+        {
+          fetchImpl,
+          sleep: async () => {}
+        }
+      )
+    ).rejects.toThrow(
+      'ComfyUI rejected checkpoint "sdxl_lightning_4step.safetensors" on node 4'
+    );
+  });
+
   it("patches Krea-style workflows with linked prompt and resolution nodes", async () => {
     const calls: Array<{ body?: Record<string, any>; url: string }> = [];
     const fetchImpl = (async (url: string, init?: RequestInit) => {

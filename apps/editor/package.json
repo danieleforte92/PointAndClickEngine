@@ -23,6 +23,7 @@
     "@electron-forge/shared-types": "^7.8.1",
     "@pointclick/contracts": "workspace:*",
     "@pointclick/project-io": "workspace:*",
+    "@pointclick/ui-theme": "workspace:*",
     "@vitejs/plugin-react": "^4.5.2",
     "lucide-react": "^1.21.0",
     "react": "^19.1.0",

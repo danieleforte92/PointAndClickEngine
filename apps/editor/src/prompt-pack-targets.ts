@@ -115,6 +115,24 @@ function chromaColorForTarget(target: PromptPackGenerationTarget): string {
   return target.chromaColor ?? (target.backgroundMode === "chroma-green" ? "#00FF00" : "#00A2FF");
 }
 
+function compactPositivePrompt(prompt: string): string {
+  const lines = prompt
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const compacted: string[] = [];
+
+  for (const line of lines) {
+    if (line === "Guided scene preset blocks:") continue;
+    if (/^-\s*(Negative guidance|IP safety):/i.test(line)) continue;
+
+    const presetMatch = line.match(/^-\s*([^:]+):\s*(.+)$/);
+    compacted.push(presetMatch ? presetMatch[2]!.trim() : line);
+  }
+
+  return compacted.join(" ");
+}
+
 function targetOutputContractPrompt(target: PromptPackGenerationTarget): string {
   if (target.backgroundMode === "chroma-blue" || target.backgroundMode === "chroma-green") {
     const color = chromaColorForTarget(target);
@@ -123,6 +141,10 @@ function targetOutputContractPrompt(target: PromptPackGenerationTarget): string 
 
   if (target.backgroundMode === "transparent-alpha" || target.expectedAlpha || target.transparent) {
     return "Output contract: isolate only the requested subject for transparent PNG alpha. Do not include scenery, floor plane, cast shadow, contact shadow, border, frame, or background props.";
+  }
+
+  if (target.intendedUse === "scene-background" || target.sourceEntityKind === "scene") {
+    return "Output contract: wide 2D environment background only, no characters, no people, no faces, no portraits, no character sheet, no sprite sheet, no lineup, no isolated mascots, no repeated figures. Design a playable point-and-click scene with clear walkable lower area, readable hotspots, foreground/midground/background depth, and no UI text.";
   }
 
   return "";
@@ -135,7 +157,7 @@ export function composeTargetPositivePrompt(
 ): string {
   const customization = target.customPositivePrompt?.trim();
   return [
-    basePrompt.trim(),
+    compactPositivePrompt(basePrompt),
     styleBiblePositivePrompt(styleBible),
     customization ? `Target customization: ${customization}` : "",
     targetOutputContractPrompt(target)
@@ -149,6 +171,10 @@ export function composeTargetNegativePrompt(
   target: PromptPackGenerationTarget,
   styleBible?: StyleBibleDocument | null
 ): string {
+  const backgroundNegativePrompt =
+    target.intendedUse === "scene-background" || target.sourceEntityKind === "scene"
+      ? "characters, people, faces, portraits, character sheet, sprite sheet, lineup, repeated figures, isolated mascot, chibi character, full body character, character turnaround"
+      : undefined;
   const chromaNegativePrompt =
     target.backgroundMode === "chroma-blue" || target.backgroundMode === "chroma-green"
       ? "detailed background, environment, scenery, gradient background, textured background, patterned backdrop, floor, ground plane, contact shadow, cast shadow, vignette, props behind subject"
@@ -156,6 +182,7 @@ export function composeTargetNegativePrompt(
   const parts = [
     target.safetyNegativePrompt,
     target.customNegativePrompt,
+    backgroundNegativePrompt,
     chromaNegativePrompt,
     styleBible?.negativePrompt,
     styleBible?.forbidden?.join(", "),

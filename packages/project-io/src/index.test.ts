@@ -1539,6 +1539,68 @@ describe("loadProjectFromDirectory", () => {
     });
   });
 
+  it("upserts workflow templates and generation recipes", async () => {
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const loaded = await createBlankProject(path.join(tempRoot, "recipe-project"));
+    await mkdir(path.join(loaded.directory, "workflows"), { recursive: true });
+    await writeFile(
+      path.join(loaded.directory, "workflows/test.workflow.json"),
+      JSON.stringify({
+        "6": { class_type: "CLIPTextEncode", inputs: { text: "old" } },
+        "9": { class_type: "SaveImage", inputs: { images: ["6", 0] } }
+      }),
+      "utf8"
+    );
+
+    const withWorkflow = await applyProjectCommand(loaded.directory, {
+      type: "workflow-template/upsert",
+      patch: {
+        workflowTemplate: {
+          schemaVersion: 1,
+          id: "test-workflow",
+          name: "Test Workflow",
+          family: "background_t2i_fast",
+          workflowPath: "workflows/test.workflow.json",
+          outputMode: "opaque-image",
+          supportedInputs: ["prompt"],
+          bindings: [{ input: "prompt", nodeId: "6", inputKey: "text", required: true }],
+          output: { nodeId: "9", kind: "opaque-image" }
+        }
+      }
+    });
+
+    const withRecipe = await applyProjectCommand(withWorkflow.directory, {
+      type: "generation-recipe/upsert",
+      patch: {
+        generationRecipe: {
+          schemaVersion: 1,
+          id: "start-test-workflow",
+          sceneId: "start",
+          targetId: "start-background",
+          assetType: "background",
+          workflowFamily: "background_t2i_fast",
+          workflowId: "test-workflow",
+          resolution: { width: 1280, height: 720 },
+          prompt: { positive: "Paint a readable cave." },
+          generation: { seed: 42 }
+        }
+      }
+    });
+
+    expect(withRecipe.bundle.workflowTemplates["test-workflow"]?.workflowPath).toBe("workflows/test.workflow.json");
+    expect(withRecipe.bundle.generationRecipes["start-test-workflow"]?.workflowId).toBe("test-workflow");
+    expect(withRecipe.bundle.manifest.workflowTemplates?.[0]).toMatchObject({
+      id: "test-workflow",
+      path: "workflow-templates/test-workflow.workflow-template.json"
+    });
+    expect(withRecipe.bundle.manifest.generationRecipes?.[0]).toMatchObject({
+      id: "start-test-workflow",
+      path: "generation-recipes/start-test-workflow.generation-recipe.json"
+    });
+    expect(validateProjectBundle(withRecipe.bundle)).toEqual([]);
+    expect(await validateProjectFiles(withRecipe)).toEqual([]);
+  });
+
   it("upserts an animation pack document and manifest entry", async () => {
     const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
     const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));

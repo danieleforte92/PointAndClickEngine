@@ -32,6 +32,7 @@ import { generateOpenAIPromptPack } from "./openai-prompt-provider";
 import type { EditorPreviewRequest } from "./preload";
 import { mockPromptPackProvider, type GeneratePromptPackRequest, type PromptProviderId } from "./prompt-pack-studio";
 import { createValidationReport } from "./validation-report";
+import { workflowPresetById } from "./workflow-presets";
 import {
   applyProjectCommand,
   createBlankProject,
@@ -574,6 +575,27 @@ async function applyEditorCommand(command: EditorProjectCommand) {
   return summarizeProject(loaded.directory, loaded.bundle);
 }
 
+async function installWorkflowPreset(presetId: string) {
+  const preset = workflowPresetById(presetId);
+  if (!preset) {
+    throw new Error(`Unknown workflow preset "${presetId}"`);
+  }
+
+  const projectDirectory = currentProjectPath();
+  const workflowPath = safeProjectPath(projectDirectory, preset.template.workflowPath, "Workflow preset path");
+  await mkdir(path.dirname(workflowPath), { recursive: true });
+  await writeFile(workflowPath, `${JSON.stringify(preset.workflowJson, null, 2)}\n`, "utf8");
+
+  const loaded = await applyProjectCommand(projectDirectory, {
+    type: "workflow-template/upsert",
+    patch: {
+      workflowTemplate: preset.template
+    }
+  });
+  loadedProjectDirectory = loaded.directory;
+  return summarizeProject(loaded.directory, loaded.bundle);
+}
+
 async function runEditorValidation() {
   const loaded = await loadProjectFromDirectory(currentProjectPath());
   loadedProjectDirectory = loaded.directory;
@@ -712,9 +734,20 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
 
   const projectDirectory = currentProjectPath();
   const projectBeforeGeneration = await loadProjectFromDirectory(projectDirectory);
-  const workflowJson = request.workflowPath
-    ? await readComfyWorkflowJson(projectDirectory, request.workflowPath)
-    : undefined;
+  const recipe = request.recipeId ? projectBeforeGeneration.bundle.generationRecipes[request.recipeId] : undefined;
+  if (request.recipeId && !recipe) {
+    throw new Error(`Generation recipe "${request.recipeId}" was not found in the loaded project.`);
+  }
+  const workflowId = request.workflowId ?? recipe?.workflowId;
+  const workflowTemplate = workflowId ? projectBeforeGeneration.bundle.workflowTemplates[workflowId] : undefined;
+  if (workflowId && !workflowTemplate) {
+    throw new Error(`Workflow template "${workflowId}" was not found in the loaded project.`);
+  }
+  if (workflowTemplate && request.maskAssetId && !workflowTemplate.supportedInputs.includes("mask-image")) {
+    throw new Error(`Workflow template "${workflowTemplate.id}" does not support mask-image input.`);
+  }
+  const workflowPath = workflowTemplate?.workflowPath ?? request.workflowPath;
+  const workflowJson = workflowPath ? await readComfyWorkflowJson(projectDirectory, workflowPath) : undefined;
   const referenceImages = await Promise.all(
     (request.referenceAssetIds ?? []).map((assetId) =>
       readAssetUploadInput(projectDirectory, projectBeforeGeneration.bundle, assetId)
@@ -725,7 +758,11 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
     : undefined;
   console.info(
     `[ComfyUI] Queueing ${request.targetId} at ${request.baseUrl ?? "http://127.0.0.1:8188"} using ${
-      request.workflowPath ? `workflow ${request.workflowPath}` : `checkpoint ${request.checkpointName}`
+      workflowTemplate
+        ? `workflow template ${workflowTemplate.id}`
+        : request.workflowPath
+          ? `legacy workflow ${request.workflowPath}`
+          : `checkpoint ${request.checkpointName}`
     }`
   );
   const result = await generateComfyUIImage(
@@ -742,7 +779,9 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
       ...(request.checkpointName ? { checkpointName: request.checkpointName } : {}),
       ...(referenceImages.length ? { referenceImages } : {}),
       ...(maskImage ? { maskImage } : {}),
+      ...(workflowTemplate ? { outputNodeId: request.outputNodeId ?? workflowTemplate.output.nodeId } : {}),
       ...(request.timeoutMs ? { timeoutMs: request.timeoutMs } : {}),
+      ...(workflowTemplate ? { workflowBindings: workflowTemplate.bindings } : {}),
       ...(workflowJson ? { workflowJson } : {})
     }
   );
@@ -771,6 +810,7 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
     maskAssetId: request.maskAssetId,
     referenceAssetIds: request.referenceAssetIds
   });
+  const provenanceWorkflowFamily = request.workflowFamily ?? workflowTemplate?.family;
   const baseAssetId = slugifyAssetId(path.basename(targetPath, path.extname(targetPath)));
   let assetId = baseAssetId;
   let counter = 1;
@@ -793,7 +833,9 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
           provider: "comfyui",
           model: result.model,
           seed: result.seed,
-          ...(request.workflowFamily ? { workflowFamily: request.workflowFamily } : {}),
+          ...(workflowTemplate ? { workflowId: workflowTemplate.id } : {}),
+          ...(request.recipeId ? { recipeId: request.recipeId } : {}),
+          ...(provenanceWorkflowFamily ? { workflowFamily: provenanceWorkflowFamily } : {}),
           prompt: {
             positive: request.prompt,
             ...(request.negativePrompt ? { negative: request.negativePrompt } : {})
@@ -888,6 +930,9 @@ app.whenReady().then(() => {
   });
   ipcMain.handle("ai:image-asset", async (_event, request) => {
     return generateImageAsset(request);
+  });
+  ipcMain.handle("workflow-preset:install", async (_event, presetId: string) => {
+    return installWorkflowPreset(presetId);
   });
   ipcMain.handle("project:command", async (_event, command: EditorProjectCommand) => {
     return applyEditorCommand(command);

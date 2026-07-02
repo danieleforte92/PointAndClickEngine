@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { PlayerApp } from "./player-app";
+import "@pointclick/ui-theme/storyboard.css";
 import "./styles.css";
 
 const root = document.getElementById("root");
@@ -11,4 +12,3 @@ createRoot(root).render(
     <PlayerApp />
   </StrictMode>
 );
-

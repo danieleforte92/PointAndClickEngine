@@ -4,8 +4,10 @@ import { findImageReference } from "./comfyui-output-parser";
 import {
   buildTextToImageWorkflow,
   checkpointNameFromWorkflow,
-  patchCustomWorkflow
+  patchCustomWorkflow,
+  patchWorkflowWithBindings
 } from "./comfyui-workflow-patcher";
+import type { WorkflowTemplateBinding } from "@pointclick/contracts";
 
 export interface ComfyUIImageProviderConfig {
   baseUrl?: string;
@@ -15,6 +17,7 @@ export interface ComfyUIImageProviderConfig {
   referenceImages?: ComfyUIUploadInput[];
   maskImage?: ComfyUIUploadInput;
   timeoutMs?: number;
+  workflowBindings?: WorkflowTemplateBinding[];
   workflowJson?: unknown;
 }
 
@@ -89,17 +92,20 @@ export async function generateComfyUIImage(
         uploadedReferenceImages[0] ?? (await client.uploadImage(config.maskImage))
       )
     : undefined;
+  const patchRequest = {
+    ...request,
+    ...(uploadedReferenceImages.length ? { uploadedReferenceImages } : {}),
+    ...(uploadedMaskImage ? { uploadedMaskImage } : {})
+  };
   const workflow = config.workflowJson
-    ? patchCustomWorkflow(
-        config.workflowJson,
-        {
-          ...request,
-          ...(uploadedReferenceImages.length ? { uploadedReferenceImages } : {}),
-          ...(uploadedMaskImage ? { uploadedMaskImage } : {})
-        },
-        checkpointName,
-        seed
-      )
+    ? config.workflowBindings
+      ? patchWorkflowWithBindings(config.workflowJson, patchRequest, {
+          bindings: config.workflowBindings,
+          checkpointName,
+          ...(config.outputNodeId ? { outputNodeId: config.outputNodeId } : {}),
+          seed
+        })
+      : patchCustomWorkflow(config.workflowJson, patchRequest, checkpointName, seed)
     : buildTextToImageWorkflow(request, checkpointName!, seed);
   const model = checkpointName ?? checkpointNameFromWorkflow(workflow);
   const jobStore = options.jobStore ?? new InMemoryComfyUIJobStore();

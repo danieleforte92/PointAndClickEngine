@@ -9,6 +9,59 @@ async function readError(response: Response) {
   return response.text().catch(() => response.statusText);
 }
 
+function tryParseJson(value: string): unknown {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function formatComfyQueueError(status: number, body: string) {
+  const payload = tryParseJson(body);
+  if (!payload || typeof payload !== "object") {
+    return `ComfyUI prompt queue failed (${status}): ${body}`;
+  }
+
+  const nodeErrors = (payload as { node_errors?: unknown }).node_errors;
+  if (nodeErrors && typeof nodeErrors === "object") {
+    for (const [nodeId, nodeError] of Object.entries(nodeErrors)) {
+      const errors = (nodeError as { errors?: unknown }).errors;
+      if (!Array.isArray(errors)) continue;
+
+      for (const error of errors) {
+        const errorRecord = error as {
+          extra_info?: { input_config?: unknown; input_name?: unknown; received_value?: unknown };
+          message?: unknown;
+          type?: unknown;
+        };
+        if (errorRecord.type !== "value_not_in_list" || errorRecord.extra_info?.input_name !== "ckpt_name") {
+          continue;
+        }
+
+        const available = Array.isArray(errorRecord.extra_info.input_config)
+          ? errorRecord.extra_info.input_config[0]
+          : undefined;
+        const availableCheckpoints = Array.isArray(available)
+          ? available.filter((item): item is string => typeof item === "string")
+          : [];
+        const received = String(errorRecord.extra_info.received_value ?? "");
+        const availableMessage = availableCheckpoints.length
+          ? ` Available checkpoint(s): ${availableCheckpoints.map((item) => `"${item}"`).join(", ")}.`
+          : "";
+
+        return (
+          `ComfyUI rejected checkpoint "${received}" on node ${nodeId}. ` +
+          `Install that checkpoint, reinstall a preset that matches your local model, or set ` +
+          `"Checkpoint filename / override" to one of ComfyUI's checkpoint names.${availableMessage}`
+        );
+      }
+    }
+  }
+
+  return `ComfyUI prompt queue failed (${status}): ${body}`;
+}
+
 export interface ComfyUIUploadInput {
   bytes: Uint8Array;
   filename: string;
@@ -38,7 +91,7 @@ export class ComfyUIClient {
     });
 
     if (!response.ok) {
-      throw new Error(`ComfyUI prompt queue failed (${response.status}): ${await readError(response)}`);
+      throw new Error(formatComfyQueueError(response.status, await readError(response)));
     }
 
     const payload = (await response.json()) as ComfyPromptResponse;

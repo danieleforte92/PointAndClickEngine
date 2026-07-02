@@ -56,6 +56,9 @@ importers:
       '@pointclick/project-io':
         specifier: workspace:*
         version: link:../../packages/project-io
+      '@pointclick/ui-theme':
+        specifier: workspace:*
+        version: link:../../packages/ui-theme
       '@vitejs/plugin-react':
         specifier: ^4.5.2
         version: 4.7.0(vite@6.4.3(@types/node@24.13.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4))
@@ -105,6 +108,9 @@ importers:
       '@pointclick/sample-game':
         specifier: workspace:*
         version: link:../sample-game
+      '@pointclick/ui-theme':
+        specifier: workspace:*
+        version: link:../../packages/ui-theme
       '@vitejs/plugin-react':
         specifier: ^4.5.2
         version: 4.7.0(vite@6.4.3(@types/node@24.13.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4))
@@ -234,6 +240,8 @@ importers:
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
+
+  packages/ui-theme: {}
 
 packages:
 

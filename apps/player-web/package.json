@@ -13,6 +13,7 @@
     "@pointclick/renderer-2d": "workspace:*",
     "@pointclick/runtime": "workspace:*",
     "@pointclick/sample-game": "workspace:*",
+    "@pointclick/ui-theme": "workspace:*",
     "@vitejs/plugin-react": "^4.5.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -24,4 +25,3 @@
     "typescript": "^5.8.3"
   }
 }
-

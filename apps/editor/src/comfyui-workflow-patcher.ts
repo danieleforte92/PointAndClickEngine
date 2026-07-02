@@ -1,3 +1,5 @@
+import type { WorkflowTemplateBinding } from "@pointclick/contracts";
+
 export interface ComfyWorkflowNode {
   class_type?: string;
   inputs?: Record<string, unknown>;
@@ -22,6 +24,13 @@ export interface ComfyWorkflowPatchRequest {
   uploadedMaskImage?: ComfyUploadedInputImage;
   uploadedReferenceImages?: ComfyUploadedInputImage[];
   width: number;
+}
+
+export interface ExplicitWorkflowPatchOptions {
+  bindings: WorkflowTemplateBinding[];
+  checkpointName?: string | null;
+  outputNodeId?: string;
+  seed: number;
 }
 
 export const defaultNegativePrompt = "blur, low contrast, warped geometry, unreadable silhouettes, baked text";
@@ -140,6 +149,70 @@ export function checkpointNameFromWorkflow(workflow: ComfyWorkflow) {
 function ensureInputs(node: ComfyWorkflowNode) {
   node.inputs ??= {};
   return node.inputs;
+}
+
+function validateWorkflowNodeInput(workflow: ComfyWorkflow, nodeId: string, inputKey: string, label: string) {
+  const node = workflow[nodeId];
+  if (!node) {
+    throw new Error(`ComfyUI workflow binding "${label}" references missing node "${nodeId}".`);
+  }
+
+  const inputs = ensureInputs(node);
+  if (!(inputKey in inputs)) {
+    throw new Error(`ComfyUI workflow binding "${label}" references missing input "${nodeId}.${inputKey}".`);
+  }
+
+  return inputs;
+}
+
+export function validateWorkflowOutputNode(workflow: ComfyWorkflow, outputNodeId: string) {
+  const outputNode = workflow[outputNodeId];
+  if (!outputNode) {
+    throw new Error(`ComfyUI workflow output node "${outputNodeId}" does not exist.`);
+  }
+  if (!outputNode.inputs || !("images" in outputNode.inputs)) {
+    throw new Error(`ComfyUI workflow output node "${outputNodeId}" must expose an "images" input.`);
+  }
+}
+
+export function patchWorkflowWithBindings(
+  workflowJson: unknown,
+  request: ComfyWorkflowPatchRequest,
+  options: ExplicitWorkflowPatchOptions
+): ComfyWorkflow {
+  const workflow = cloneWorkflow(workflowJson);
+  const uploadedReferenceImage = request.uploadedReferenceImages?.[0];
+
+  for (const binding of options.bindings) {
+    const inputs = validateWorkflowNodeInput(workflow, binding.nodeId, binding.inputKey, binding.input);
+
+    if (binding.input === "prompt") {
+      inputs[binding.inputKey] = request.prompt;
+    } else if (binding.input === "negative-prompt") {
+      inputs[binding.inputKey] = request.negativePrompt?.trim() || defaultNegativePrompt;
+    } else if (binding.input === "seed") {
+      inputs[binding.inputKey] = options.seed;
+    } else if (binding.input === "dimensions") {
+      inputs[binding.inputKey] = binding.inputKey.toLowerCase().includes("height") ? request.height : request.width;
+      if ("width" in inputs) inputs.width = request.width;
+      if ("height" in inputs) inputs.height = request.height;
+    } else if (binding.input === "checkpoint" && options.checkpointName) {
+      inputs[binding.inputKey] = options.checkpointName;
+    } else if (binding.input === "reference-image" && uploadedReferenceImage) {
+      inputs[binding.inputKey] = uploadedReferenceImage.name;
+    } else if (binding.input === "mask-image" && request.uploadedMaskImage) {
+      inputs[binding.inputKey] = request.uploadedMaskImage.name;
+    } else if (binding.input === "output-prefix") {
+      inputs[binding.inputKey] = `pointclick_${request.targetId}`;
+    } else if (binding.required) {
+      throw new Error(`ComfyUI workflow binding "${binding.input}" requires an input that was not provided.`);
+    }
+  }
+
+  if (options.outputNodeId) {
+    validateWorkflowOutputNode(workflow, options.outputNodeId);
+  }
+  return workflow;
 }
 
 function isImageLoaderNode(node: ComfyWorkflowNode) {

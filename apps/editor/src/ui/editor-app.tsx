@@ -7,6 +7,7 @@ import type {
   ItemDocument,
   Layered2DScene,
   LocaleDocument,
+  AssetGenerationRecipeDocument,
   PromptPackDocument,
   PromptPackGenerationTarget,
   Rect,
@@ -17,7 +18,8 @@ import type {
   SceneGenerationGuideRole,
   SceneGenerationGuideShape,
   SceneLayer,
-  ScenePickup
+  ScenePickup,
+  WorkflowTemplateDocument
 } from "@pointclick/contracts";
 import {
   startTransition,
@@ -34,7 +36,6 @@ import {
   Eraser,
   ExternalLink,
   FilePlus2,
-  FolderOpen,
   Image,
   Package,
   Plus,
@@ -71,11 +72,22 @@ import {
   workspaceCapabilities
 } from "../editor-capabilities";
 import {
+  AiContextSummary,
+  AiProviderBoundary,
+  AssetStudioSidebar,
+  BuildWorkspace,
   iconSize,
-  SceneToolIcon,
-  TopbarActions,
-  toolCapabilities,
-  WorkspaceTabs
+  InspectorPanel,
+  ProjectMapPanel,
+  RecoveryBanner,
+  SavedPromptPacksCard,
+  ProjectStartScreen,
+  StudioTopbar,
+  WorkspaceOverview,
+  WorkspaceStagePanel,
+  WorkspaceStageToolbar,
+  WorkspaceTimeline,
+  WorkflowTemplateSummary
 } from "./editor-shell";
 import {
   buildActorFromDraft,
@@ -161,6 +173,7 @@ import {
   resolvePromptForGenerationTarget
 } from "../prompt-pack-targets";
 import { estimateImageWorkflowFamily } from "../image-generation";
+import { workflowPresets } from "../workflow-presets";
 import type { EditorProjectSnapshot } from "../preload";
 import type {
   BuildReadinessIssue,
@@ -508,6 +521,95 @@ function validationTone(report: EditorValidationReport | null): "good" | "warn" 
   if (report.summary.errorCount > 0) return "error";
   if (report.summary.warningCount > 0) return "warn";
   return "good";
+}
+
+interface InspectorDetailState {
+  hasSelectedFlow: boolean;
+  hasSelectedHotspot: boolean;
+  hasSelectedItem: boolean;
+  hasSelectedLocale: boolean;
+  hasSelectedPickup: boolean;
+  hasSelectedScene: boolean;
+  isPlayerInspectorSelected: boolean;
+  workspace: Workspace;
+}
+
+type WorkspaceCapability = (typeof workspaceCapabilities)[number];
+
+interface StageToolbarModelState {
+  hasSelectedScene: boolean;
+  selectedSceneActorCount: number;
+  selectedSceneHotspotCount: number;
+  selectedScenePickupCount: number;
+  selectedSceneToolLabel: string;
+  sceneLabel: string;
+  workspace: Workspace;
+  workspaceCapability: WorkspaceCapability;
+}
+
+interface StageToolbarModel {
+  badgeLabel: string;
+  badgeTone: "good" | "warn" | "error" | "muted";
+  detail: string;
+  primaryLabel: string;
+}
+
+function inspectorDetailFor({
+  hasSelectedFlow,
+  hasSelectedHotspot,
+  hasSelectedItem,
+  hasSelectedLocale,
+  hasSelectedPickup,
+  hasSelectedScene,
+  isPlayerInspectorSelected,
+  workspace
+}: InspectorDetailState): string {
+  if (workspace === "overview") return "Status";
+  if (workspace === "assets") return "Library";
+  if (workspace === "ai") return "AI";
+  if (workspace === "build") return "Validation";
+  if (hasSelectedFlow) return "Flow";
+  if (hasSelectedLocale) return "Locale";
+  if (isPlayerInspectorSelected) return "Player";
+  if (hasSelectedHotspot) return "Hotspot";
+  if (hasSelectedPickup) return "Pickup";
+  if (hasSelectedItem) return "Item";
+  if (hasSelectedScene) return "Scene";
+  return "";
+}
+
+function stageToolbarModelFor({
+  hasSelectedScene,
+  selectedSceneActorCount,
+  selectedSceneHotspotCount,
+  selectedScenePickupCount,
+  selectedSceneToolLabel,
+  sceneLabel,
+  workspace,
+  workspaceCapability
+}: StageToolbarModelState): StageToolbarModel {
+  if (workspace === "scene") {
+    return {
+      badgeLabel: selectedSceneToolLabel,
+      badgeTone: "warn",
+      detail: hasSelectedScene
+        ? `${selectedSceneHotspotCount} hotspot(s) / ${selectedScenePickupCount} pickup(s) / ${selectedSceneActorCount} actor(s)`
+        : workspaceCapability.summary,
+      primaryLabel: hasSelectedScene ? sceneLabel : workspaceCapability.label
+    };
+  }
+
+  return {
+    badgeLabel: capabilityBadgeLabel(workspaceCapability.status),
+    badgeTone: capabilityStatusTone(workspaceCapability.status),
+    detail:
+      workspace === "overview"
+        ? "Editor overview and capability status"
+        : workspace === "narrative"
+          ? "Structured flow and locale editing"
+          : workspaceCapability.summary,
+    primaryLabel: workspaceCapability.label
+  };
 }
 
 function nextFlowId(snapshot: EditorProjectSnapshot): string {
@@ -1036,25 +1138,6 @@ type AssetCropInteraction =
 type SceneTool = "select" | "actor" | "hotspot" | "pickup" | "player-start" | "walk-area";
 type SceneInspectorTarget = "scene" | "player";
 
-function sceneToolFromCapability(capabilityId: string): SceneTool | null {
-  switch (capabilityId) {
-    case "tool-select":
-      return "select";
-    case "tool-hotspot":
-      return "hotspot";
-    case "tool-actor":
-      return "actor";
-    case "tool-pickup":
-      return "pickup";
-    case "tool-player-start":
-      return "player-start";
-    case "tool-walk-area":
-      return "walk-area";
-    default:
-      return null;
-  }
-}
-
 function sceneToolLabel(tool: SceneTool): string {
   switch (tool) {
     case "select":
@@ -1275,6 +1358,48 @@ function expectedAlphaForBackgroundMode(
   fallback: boolean
 ) {
   return backgroundMode === "transparent-alpha" ? true : backgroundMode ? false : fallback;
+}
+
+function assetTypeForGenerationTarget(
+  target: PromptPackGenerationTarget
+): AssetGenerationRecipeDocument["assetType"] {
+  if (target.intendedUse === "scene-background") return "background";
+  if (target.intendedUse === "prop") return "prop";
+  if (target.intendedUse === "character-reference") return "character";
+  if (target.intendedUse === "sprite-sheet") return "sprite-sheet";
+  if (target.intendedUse === "animation-reference") return "animation";
+  return "prop";
+}
+
+function recipeIdForTarget(targetId: string, workflowId: string) {
+  return `${targetId}-${workflowId}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function workflowTemplateSupportsTarget(
+  template: WorkflowTemplateDocument,
+  target: PromptPackGenerationTarget | null,
+  workflowFamily: string
+) {
+  if (template.family !== workflowFamily) return false;
+  if (target?.maskAssetId && !template.supportedInputs.includes("mask-image")) return false;
+  if (target?.referenceAssetId && !template.supportedInputs.includes("reference-image") && template.family !== "prop_isolated_alpha_or_chroma") {
+    return false;
+  }
+  return true;
+}
+
+function workflowTemplatePriority(template: WorkflowTemplateDocument) {
+  if (template.id === "pc-background-16x9-sdxl-standard") return 0;
+  if (template.id === "pc-background-16x9-t2i") return 10;
+  if (template.id === "pc-background-16x9-sdxl-turbo") return 20;
+  return 5;
+}
+
+function sortWorkflowTemplatesForTarget(templates: WorkflowTemplateDocument[]) {
+  return [...templates].sort((left, right) => {
+    const priorityDelta = workflowTemplatePriority(left) - workflowTemplatePriority(right);
+    return priorityDelta || left.name.localeCompare(right.name);
+  });
 }
 
 function targetWithPromptDraft(
@@ -1512,6 +1637,8 @@ export function EditorApp() {
   const [comfyUiWorkflowPath, setComfyUiWorkflowPath] = useState("");
   const [comfyUiSeed, setComfyUiSeed] = useState("");
   const [comfyUiOutputPresetId, setComfyUiOutputPresetId] = useState(defaultPromptPresetSelection.comfyOutputPreset);
+  const [selectedWorkflowPresetId, setSelectedWorkflowPresetId] = useState(workflowPresets[0]?.id ?? "");
+  const [selectedWorkflowTemplateId, setSelectedWorkflowTemplateId] = useState("");
   const [comfyUiTimeoutMinutes, setComfyUiTimeoutMinutes] = useState(
     String(comfyOutputPresetById(defaultPromptPresetSelection.comfyOutputPreset).timeoutMinutes)
   );
@@ -1847,11 +1974,29 @@ export function EditorApp() {
     selectedGenerationPrompt
   );
   const selectedImageWorkflowFamily = estimateImageWorkflowFamily(selectedEffectiveGenerationTarget);
+  const compatibleWorkflowTemplates = project
+    ? sortWorkflowTemplatesForTarget(
+        project.workflowTemplates.filter((template) =>
+          workflowTemplateSupportsTarget(template, selectedEffectiveGenerationTarget, selectedImageWorkflowFamily)
+        )
+      )
+    : [];
+  const selectedWorkflowTemplate =
+    compatibleWorkflowTemplates.find((template) => template.id === selectedWorkflowTemplateId) ??
+    compatibleWorkflowTemplates[0] ??
+    null;
+  const selectedRecipeId =
+    selectedEffectiveGenerationTarget && selectedWorkflowTemplate
+      ? recipeIdForTarget(selectedEffectiveGenerationTarget.id, selectedWorkflowTemplate.id)
+      : "";
+  const selectedGenerationRecipe = selectedRecipeId
+    ? project?.generationRecipes.find((recipe) => recipe.id === selectedRecipeId) ?? null
+    : null;
   const selectedImageInputWorkflowWarning =
     selectedEffectiveGenerationTarget?.referenceAssetId || selectedEffectiveGenerationTarget?.maskAssetId
-      ? comfyUiWorkflowPath.trim()
+      ? selectedWorkflowTemplate || comfyUiWorkflowPath.trim()
         ? null
-        : "Linked reference or mask assets require a custom ComfyUI workflow API JSON path. The built-in text-to-image workflow has no LoadImage or LoadImageMask nodes."
+        : "Linked reference or mask assets require an installed compatible workflow template or a legacy workflow API JSON path."
       : null;
   const selectedImageTargetWorkflowTone =
     selectedImageInputWorkflowWarning || selectedImageTargetWorkflow.mode === "inpaint"
@@ -2084,6 +2229,16 @@ export function EditorApp() {
       setSelectedGenerationTargetId(imageGenerationTargets[0]?.id ?? "");
     }
   }, [imageGenerationTargets, selectedGenerationTargetId]);
+
+  useEffect(() => {
+    if (compatibleWorkflowTemplates.length === 0) {
+      if (selectedWorkflowTemplateId) setSelectedWorkflowTemplateId("");
+      return;
+    }
+    if (!compatibleWorkflowTemplates.some((template) => template.id === selectedWorkflowTemplateId)) {
+      setSelectedWorkflowTemplateId(compatibleWorkflowTemplates[0]?.id ?? "");
+    }
+  }, [compatibleWorkflowTemplates, selectedWorkflowTemplateId]);
 
   useEffect(() => {
     if (!guideSourceOptions.length) {
@@ -4666,6 +4821,78 @@ export function EditorApp() {
     }
   };
 
+  const installSelectedWorkflowPreset = async () => {
+    if (!project || !selectedWorkflowPresetId) return;
+    setStatus(`Installing workflow preset ${selectedWorkflowPresetId}...`);
+    try {
+      const snapshot = await window.pointClick.installWorkflowPreset(selectedWorkflowPresetId);
+      setProject(snapshot);
+      setSelectedWorkflowTemplateId(selectedWorkflowPresetId);
+      setStatus(`Installed workflow preset ${selectedWorkflowPresetId}.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Workflow preset could not be installed");
+    }
+  };
+
+  const saveSelectedGenerationRecipe = async () => {
+    if (!project || !selectedPromptPack || !selectedEffectiveGenerationTarget || !selectedWorkflowTemplate) {
+      setStatus("Save a prompt pack and install a compatible workflow template before saving a recipe.");
+      return;
+    }
+
+    const seedText = comfyUiSeed.trim();
+    const parsedSeed = seedText ? Number(seedText) : null;
+    if (parsedSeed !== null && (!Number.isFinite(parsedSeed) || parsedSeed < 0)) {
+      setStatus("Recipe seed must be a positive number or empty for random.");
+      return;
+    }
+
+    const inputs = {
+      ...(selectedEffectiveGenerationTarget.referenceAssetId
+        ? { referenceAssetIds: [selectedEffectiveGenerationTarget.referenceAssetId] }
+        : {}),
+      ...(selectedEffectiveGenerationTarget.maskAssetId
+        ? { maskAssetId: selectedEffectiveGenerationTarget.maskAssetId }
+        : {}),
+      ...(selectedEffectiveGenerationTarget.guideIds?.length
+        ? { guideIds: selectedEffectiveGenerationTarget.guideIds }
+        : {})
+    };
+    const generationRecipe: AssetGenerationRecipeDocument = {
+      schemaVersion: 1,
+      id: recipeIdForTarget(selectedEffectiveGenerationTarget.id, selectedWorkflowTemplate.id),
+      sceneId: selectedPromptPack.sceneId,
+      promptPackId: selectedPromptPack.id,
+      targetId: selectedEffectiveGenerationTarget.id,
+      assetType: assetTypeForGenerationTarget(selectedEffectiveGenerationTarget),
+      workflowFamily: selectedWorkflowTemplate.family,
+      workflowId: selectedWorkflowTemplate.id,
+      ...(activeStyleBible ? { styleBibleId: activeStyleBible.id } : {}),
+      resolution: selectedGenerationDimensions,
+      prompt: {
+        positive: selectedGenerationPrompt,
+        ...(selectedGenerationNegativePrompt ? { negative: selectedGenerationNegativePrompt } : {})
+      },
+      ...(Object.keys(inputs).length ? { inputs } : {}),
+      generation: {
+        ...(parsedSeed !== null ? { seed: parsedSeed } : {}),
+        ...(comfyUiCheckpoint.trim() ? { model: comfyUiCheckpoint.trim() } : {})
+      }
+    };
+
+    setStatus(`Saving recipe ${generationRecipe.id}...`);
+    try {
+      const snapshot = await window.pointClick.applyCommand({
+        type: "generation-recipe/upsert",
+        patch: { generationRecipe }
+      });
+      setProject(snapshot);
+      setStatus(`Saved recipe ${generationRecipe.id}.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Generation recipe could not be saved");
+    }
+  };
+
   const generateImageAsset = async () => {
     if (!project) {
       setComfyUiGenerationStatus("Open or create a project before generating image assets.");
@@ -4690,17 +4917,18 @@ export function EditorApp() {
 
     const checkpointName = comfyUiCheckpoint.trim();
     const workflowPath = comfyUiWorkflowPath.trim();
-    if (!checkpointName && !workflowPath) {
-      setComfyUiGenerationStatus("ComfyUI needs a checkpoint filename or a workflow API JSON path.");
-      setStatus("ComfyUI needs a checkpoint filename or a workflow API JSON path.");
+    if (!checkpointName && !workflowPath && !selectedWorkflowTemplate) {
+      setComfyUiGenerationStatus("ComfyUI needs a checkpoint filename, an installed workflow template, or a legacy workflow API JSON path.");
+      setStatus("ComfyUI needs a checkpoint filename, an installed workflow template, or a legacy workflow API JSON path.");
       return;
     }
     if (
       !workflowPath &&
+      !selectedWorkflowTemplate &&
       (selectedEffectiveGenerationTarget.referenceAssetId || selectedEffectiveGenerationTarget.maskAssetId)
     ) {
       const workflowInputStatus =
-        "Linked reference or mask assets require a custom ComfyUI workflow API JSON path before queueing.";
+        "Linked reference or mask assets require a compatible workflow template or legacy workflow API JSON path before queueing.";
       setComfyUiGenerationStatus(workflowInputStatus);
       setStatus(workflowInputStatus);
       return;
@@ -4753,6 +4981,9 @@ export function EditorApp() {
         ...(checkpointName ? { checkpointName } : {}),
         ...(parsedSeed !== null ? { seed: parsedSeed } : {}),
         timeoutMs: Math.round(timeoutMinutes * 60_000),
+        ...(selectedWorkflowTemplate ? { workflowId: selectedWorkflowTemplate.id } : {}),
+        ...(selectedGenerationRecipe ? { recipeId: selectedGenerationRecipe.id } : {}),
+        ...(selectedWorkflowTemplate ? { outputNodeId: selectedWorkflowTemplate.output.nodeId } : {}),
         ...(workflowPath ? { workflowPath } : {})
       };
       const job = await window.pointClick.generateImageAsset(imageRequest);
@@ -7047,312 +7278,126 @@ export function EditorApp() {
     );
   };
 
+  const stageToolbarModel = stageToolbarModelFor({
+    hasSelectedScene: !!selectedScene,
+    sceneLabel,
+    selectedSceneActorCount: selectedScene?.actors.length ?? 0,
+    selectedSceneHotspotCount: selectedScene?.hotspots.length ?? 0,
+    selectedScenePickupCount: selectedScene?.pickups.length ?? 0,
+    selectedSceneToolLabel,
+    workspace,
+    workspaceCapability
+  });
+
+  const stageToolbar = (
+    <WorkspaceStageToolbar
+      activeSceneTool={activeSceneTool}
+      badgeLabel={stageToolbarModel.badgeLabel}
+      badgeTone={stageToolbarModel.badgeTone}
+      canUseSceneTools={!!selectedScene}
+      detail={stageToolbarModel.detail}
+      isSceneWorkspace={workspace === "scene"}
+      primaryLabel={stageToolbarModel.primaryLabel}
+      onSceneToolChange={(tool) => setActiveSceneTool(tool as SceneTool)}
+    />
+  );
+
+  const stageTimeline = (
+    <WorkspaceTimeline
+      diagnosticsCount={project?.diagnostics.length ?? 0}
+      directory={project?.directory ?? null}
+      flowCount={project?.flowCount ?? 0}
+      itemCount={project?.itemCount ?? 0}
+      localeCount={project?.localeCount ?? 0}
+      sceneCount={project?.sceneCount ?? 0}
+    />
+  );
+
   return (
     <div className="studio-shell">
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark">P/C</span>
-          <div>
-            <strong>Point & Click Studio</strong>
-            <small>{project?.manifest.title ?? "Loading project..."}</small>
-          </div>
-        </div>
+      <StudioTopbar
+        activeWorkspace={workspace}
+        canRedo={canRedo}
+        canUndo={canUndo}
+        hasProject={!!project}
+        isDirty={dirtyState.count > 0}
+        projectTitle={project?.manifest.title ?? "Loading project..."}
+        onCreateBlankProject={createBlankProject}
+        onCreateProjectFromStarter={createProjectFromStarter}
+        onOpenBrowser={openBrowser}
+        onOpenProject={openProject}
+        onPlay={play}
+        onRedo={() => replaceSession((current) => redoHistory(current))}
+        onUndo={() => replaceSession((current) => undoHistory(current))}
+        onWorkspaceChange={changeWorkspace}
+      />
 
-        <WorkspaceTabs activeWorkspace={workspace} onWorkspaceChange={changeWorkspace} />
-
-        <TopbarActions
-          canRedo={canRedo}
-          canUndo={canUndo}
-          hasProject={!!project}
-          isDirty={dirtyState.count > 0}
-          onCreateBlankProject={createBlankProject}
-          onCreateProjectFromStarter={createProjectFromStarter}
-          onOpenBrowser={openBrowser}
-          onOpenProject={openProject}
-          onPlay={play}
-          onRedo={() => replaceSession((current) => redoHistory(current))}
-          onUndo={() => replaceSession((current) => undoHistory(current))}
-        />
-      </header>
-
-      {pendingRecovery ? (
-        <div className="recovery-banner">
-          <div>
-            <strong>Recovered draft available</strong>
-            <small>We found unapplied local edits for this project.</small>
-          </div>
-          <div className="recovery-actions">
-            <button className="secondary-action" type="button" onClick={discardRecovery}>
-              Discard
-            </button>
-            <button className="play-action" type="button" onClick={restoreRecovery}>
-              Restore drafts
-            </button>
-          </div>
-        </div>
-      ) : null}
+      {pendingRecovery ? <RecoveryBanner onDiscard={discardRecovery} onRestore={restoreRecovery} /> : null}
 
       {!project ? (
-        <main className="project-start-screen">
-          <section className="project-start-panel">
-            <span className="overview-label">Project bootstrap</span>
-            <strong>Create or open an adventure project</strong>
-            <p>{status}</p>
-            <div className="project-start-actions">
-              <button className="play-action" type="button" onClick={createProjectFromStarter}>
-                New From Starter
-              </button>
-              <button className="secondary-action" type="button" onClick={createBlankProject}>
-                Blank Project
-              </button>
-              <button className="secondary-action" type="button" onClick={openProject}>
-                Open Project
-              </button>
-            </div>
-          </section>
-          <section className="project-start-grid" aria-label="Project creation options">
-            <article>
-              <span>01</span>
-              <strong>Starter</strong>
-              <p>Copies the checked-in starter into an empty folder, then opens it ready for scene editing.</p>
-            </article>
-            <article>
-              <span>02</span>
-              <strong>Blank</strong>
-              <p>Creates a valid minimal project with one layered scene, one locale, and empty asset libraries.</p>
-            </article>
-            <article>
-              <span>03</span>
-              <strong>Open</strong>
-              <p>Loads any existing folder that contains an `adventure.project.json` manifest.</p>
-            </article>
-          </section>
-        </main>
+        <ProjectStartScreen
+          status={status}
+          onCreateBlankProject={createBlankProject}
+          onCreateProjectFromStarter={createProjectFromStarter}
+          onOpenProject={openProject}
+        />
       ) : (
       <>
       <div className="workspace-grid">
-        <aside className="project-panel panel">
-          <div className="panel-heading">
-            <span>Project</span>
-            <button type="button" aria-label="Open project" onClick={openProject}>
-              <FolderOpen size={13} />
-            </button>
-          </div>
-          <div className="tree">
-            {renderContextualTree()}
-          </div>
-          <div className="project-health">
-            <span className={`health-light ${projectHealth?.tone ?? "warn"}`} />
-            <div>
-              <strong>{projectHealth?.label ?? "Loading project health..."}</strong>
-              <small>
-                {projectHealth ? `${projectHealth.detail} - ${localeLabel}` : status}
-              </small>
-            </div>
-          </div>
-        </aside>
+        <ProjectMapPanel
+          healthDetail={projectHealth ? `${projectHealth.detail} - ${localeLabel}` : status}
+          healthLabel={projectHealth?.label ?? "Loading project health..."}
+          healthTone={projectHealth?.tone ?? "warn"}
+          onOpenProject={openProject}
+        >
+          {renderContextualTree()}
+        </ProjectMapPanel>
 
-        <section className="canvas-panel panel">
-          <div className="canvas-toolbar">
-            <div className="toolset">
-              {toolCapabilities.map((tool) => (
-                <button
-                  className={
-                    sceneToolFromCapability(tool.id) === activeSceneTool && workspace === "scene" ? "active" : ""
-                  }
-                  disabled={tool.status === "planned" || !selectedScene || workspace !== "scene"}
-                  key={tool.id}
-                  title={`${capabilityBadgeLabel(tool.status)}: ${tool.detail}`}
-                  type="button"
-                  onClick={() => {
-                    const nextTool = sceneToolFromCapability(tool.id);
-                    if (nextTool) {
-                      setActiveSceneTool(nextTool);
-                    }
-                  }}
-                >
-                  <SceneToolIcon toolId={tool.id} />
-                  <span>{tool.label}</span>
-                </button>
-              ))}
-            </div>
-            <div className="canvas-meta">
-              <span className="canvas-meta-primary">
-                {workspace === "scene" && selectedScene ? sceneLabel : workspaceCapability.label}
-              </span>
-              <span>
-                {workspace === "overview"
-                  ? "Editor overview and capability status"
-                  : workspace === "scene" && selectedScene
-                    ? `${selectedScene.hotspots.length} hotspot(s) / ${selectedScene.pickups.length} pickup(s) / ${selectedScene.actors.length} actor(s)`
-                    : workspace === "narrative"
-                      ? "Structured flow and locale editing"
-                      : workspaceCapability.summary}
-              </span>
-              <span className={`capability-badge compact ${capabilityStatusTone(workspaceCapability.status)}`}>
-                {workspace === "scene" ? selectedSceneToolLabel : capabilityBadgeLabel(workspaceCapability.status)}
-              </span>
-            </div>
-          </div>
+        <WorkspaceStagePanel toolbar={stageToolbar} timeline={stageTimeline}>
 
           {workspace === "overview" ? (
-            <div className="workspace-overview">
-              <section className="overview-card">
-                <span className="overview-label">Project health</span>
-                <strong>{projectHealth?.label ?? "Loading project..."}</strong>
-                <p>{status}</p>
-              </section>
-              <section className="overview-card">
-                <span className="overview-label">Preview target</span>
-                <strong>{dirtyState.count > 0 ? "Draft bundle" : "Saved project bundle"}</strong>
-                <p>
-                  {selectedScene
-                    ? `Preview starts from ${selectedScene.id} in the currently opened project.`
-                    : "Open a project to prepare a preview bundle."}
-                </p>
-              </section>
-              <section className="overview-card">
-                <span className="overview-label">Viewport authoring</span>
-                <strong>{selectedScene ? "Direct manipulation is live" : "Open a scene to author visually"}</strong>
-                <p>
-                  {selectedScene
-                    ? "Hotspots, pickups, player start, and walk points can be edited directly from the scene viewport."
-                    : "Scene tools appear once a layered 2D scene is selected."}
-                </p>
-              </section>
-              <section className="overview-card">
-                <span className="overview-label">Capabilities</span>
-                <div className="capability-list">
-                  {workspaceCapabilities.map((item) => (
-                    <div className="capability-card" key={item.id}>
-                      <div>
-                        <strong>{item.label}</strong>
-                        <p>{item.summary}</p>
-                      </div>
-                      <span className={`capability-badge ${capabilityStatusTone(item.status)}`}>
-                        {capabilityBadgeLabel(item.status)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-              <section className="overview-card">
-                <span className="overview-label">Diagnostics</span>
-                <div className="diagnostic-list">
-                  {project?.diagnostics.length ? (
-                    project.diagnostics.slice(0, 6).map((diagnostic, index) => (
-                      <div className={`diagnostic-item ${diagnostic.severity}`} key={`${diagnostic.code}-${index}`}>
-                        <strong>{diagnostic.code}</strong>
-                        <p>{diagnostic.message}</p>
-                      </div>
-                    ))
-                  ) : (
-                    <p>No project diagnostics right now.</p>
-                  )}
-                </div>
-              </section>
-            </div>
+            <WorkspaceOverview
+              diagnostics={project.diagnostics}
+              previewDescription={
+                selectedScene
+                  ? `Preview starts from ${selectedScene.id} in the currently opened project.`
+                  : "Open a project to prepare a preview bundle."
+              }
+              previewLabel={dirtyState.count > 0 ? "Draft bundle" : "Saved project bundle"}
+              projectHealthLabel={projectHealth?.label ?? "Loading project..."}
+              status={status}
+              viewportDescription={
+                selectedScene
+                  ? "Hotspots, pickups, player start, and walk points can be edited directly from the scene viewport."
+                  : "Scene tools appear once a layered 2D scene is selected."
+              }
+              viewportLabel={selectedScene ? "Direct manipulation is live" : "Open a scene to author visually"}
+            />
           ) : workspace === "build" ? (
-            <div className="workspace-overview build-workspace">
-              <section className={`overview-card build-readiness-card ${buildReadinessTone}`}>
-                <div>
-                  <span className="overview-label">Preview readiness</span>
-                  <strong>{buildReadinessSummary}</strong>
-                  <p>
-                    {buildBlockingIssues.length > 0
-                      ? "Resolve blocking saved-project diagnostics before relying on preview."
-                      : buildWarningIssues.length > 0
-                        ? "Preview can run, but these saved-project warnings should be reviewed."
-                        : dirtyState.count > 0
-                          ? "Preview can include draft changes, while validation still reflects saved files."
-                          : "Saved validation and preview target currently match."}
-                  </p>
-                </div>
-                <span className={`capability-badge ${buildReadinessTone}`}>
-                  {buildReadinessTone === "error" ? "Blocked" : buildReadinessTone === "warn" ? "Review" : "Ready"}
-                </span>
-              </section>
-              <section className="overview-card">
-                <span className="overview-label">Project validation</span>
-                <strong>{validationSummaryLabel(currentValidationReport)}</strong>
-                <p>{validationStatus}</p>
-                <div className="build-actions">
-                  <button
-                    className="play-action"
-                    disabled={!project || validationRunState === "running"}
-                    type="button"
-                    onClick={runValidation}
-                  >
-                    {validationRunState === "running" ? "Validating..." : "Validate Project"}
-                  </button>
-                </div>
-              </section>
-              <section className="overview-card">
-                <span className="overview-label">Validation freshness</span>
-                <strong>{previewReadinessLabel}</strong>
-                <p>
-                  {dirtyState.count > 0
-                    ? `${dirtyState.count} draft change(s) exist outside saved-file validation.`
-                    : "Saved validation and preview target currently match."}
-                </p>
-                <p className="diagnostic-meta">Last run: {formatValidationTimestamp(validationReport?.ranAt ?? null)}</p>
-                <p className="diagnostic-meta">Saved target: {project?.directory ?? "No project loaded"}</p>
-              </section>
-              <section className="overview-card build-issues-card">
-                <span className="overview-label">Action checklist</span>
-                <strong>
-                  {buildReadinessIssues.length || dirtyState.count > 0
-                    ? "Issues to review"
-                    : "No diagnostics found for the saved project"}
-                </strong>
-                <div className="diagnostic-list readiness-list">
-                  {dirtyState.count > 0 ? (
-                    <div className="diagnostic-item warning readiness-item">
-                      <div>
-                        <strong>Unsaved draft changes</strong>
-                        <p>{dirtyState.count} draft change(s) can be previewed, but validation uses saved files.</p>
-                      </div>
-                      <span className="capability-badge warn">Draft</span>
-                    </div>
-                  ) : null}
-                  {buildReadinessIssues.length ? (
-                    buildReadinessIssues.map((issue) => {
-                      const canOpenIssue = canOpenBuildReadinessTarget(issue.target);
-                      return (
-                      <div className={`diagnostic-item ${issue.severity} readiness-item`} key={issue.id}>
-                        <div>
-                          <strong>{issue.code}</strong>
-                          <p>{issue.message}</p>
-                          {issue.path ? <p className="diagnostic-meta">{issue.path}</p> : null}
-                        </div>
-                        <div className="readiness-actions">
-                          <span
-                            className={`capability-badge ${
-                              issue.severity === "error" ? "warn" : "muted"
-                            }`}
-                          >
-                            {issue.severity}
-                          </span>
-                          {issue.actionLabel ? (
-                            <button
-                              className="secondary-action compact-action"
-                              disabled={!canOpenIssue}
-                              type="button"
-                              onClick={() => openBuildReadinessIssue(issue)}
-                            >
-                              {issue.actionLabel}
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-                      );
-                    })
-                  ) : (
-                    dirtyState.count === 0 ? <p>No diagnostics found for the saved project.</p> : null
-                  )}
-                </div>
-              </section>
-            </div>
+            <BuildWorkspace
+              blockingIssueCount={buildBlockingIssues.length}
+              dirtyDraftCount={dirtyState.count}
+              issues={buildReadinessIssues.map((issue) => ({
+                actionLabel: issue.actionLabel,
+                canOpen: canOpenBuildReadinessTarget(issue.target),
+                code: issue.code,
+                id: issue.id,
+                message: issue.message,
+                onOpen: () => openBuildReadinessIssue(issue),
+                path: issue.path,
+                severity: issue.severity
+              }))}
+              onRunValidation={runValidation}
+              previewReadinessLabel={previewReadinessLabel}
+              readinessSummary={buildReadinessSummary}
+              readinessTone={buildReadinessTone}
+              savedTarget={project.directory}
+              validationLastRunLabel={formatValidationTimestamp(validationReport?.ranAt ?? null)}
+              validationRunState={validationRunState}
+              validationStatus={validationStatus}
+              validationSummary={validationSummaryLabel(currentValidationReport)}
+              warningIssueCount={buildWarningIssues.length}
+            />
           ) : workspace === "ai" ? (
             <div className="workspace-overview build-workspace ai-workspace">
               <section className="overview-card prompt-studio-card">
@@ -7580,75 +7625,44 @@ export function EditorApp() {
                   </button>
                 </div>
               </section>
-              <section className="overview-card">
-                <span className="overview-label">Provider boundary</span>
-                <strong>{selectedPromptProvider.label}</strong>
-                <p>
-                  {promptProviderId === "openai"
+              <AiProviderBoundary
+                description={
+                  promptProviderId === "openai"
                     ? "OpenAI calls run through the Electron main process. API keys are not saved to project files."
                     : promptProviderId === "lmstudio"
                       ? "LM Studio calls run against your local OpenAI-compatible server. Local URLs and keys are not saved to project files."
-                      : "Mock generation is offline, deterministic, and safe for open-source contributors."}
-                </p>
-                <div className="diagnostic-list">
-                  <div className="diagnostic-item">
-                    <div>
-                      <strong>ChatGPT Plus</strong>
-                      <p>Plus/Codex subscriptions do not replace API platform billing for app calls.</p>
-                    </div>
-                  </div>
-                  <div className="diagnostic-item">
-                    <div>
-                      <strong>Project mutation</strong>
-                      <p>Generation never writes files until you approve and save the pack.</p>
-                    </div>
-                  </div>
-                </div>
-              </section>
-              <section className="overview-card">
-                <span className="overview-label">Extracted context</span>
-                <strong>
-                  {promptPackContext
-                    ? `${promptPackContext.hotspots.length} hotspot(s), ${promptPackContext.pickups.length} pickup(s), ${promptPackContext.actors.length} actor(s)`
-                    : "No context"}
-                </strong>
-                <p>
-                  {promptPackContext
+                      : "Mock generation is offline, deterministic, and safe for open-source contributors."
+                }
+                providerLabel={selectedPromptProvider.label}
+              />
+              <AiContextSummary
+                detail={
+                  promptPackContext
                     ? `${promptPackContext.sceneSize.width} x ${promptPackContext.sceneSize.height} - ${promptPackContext.locale}`
-                    : "Choose a layered scene to inspect AI prompt context."}
-                </p>
-                {promptPackContext ? (
-                  <div className="prompt-chip-list">
-                    {Object.entries(promptPackContext.labels).map(([key, value]) => (
-                      <span className="prompt-chip" key={`ai-context-${key}`} title={key}>
-                        {value}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-              </section>
-              <section className="overview-card">
-                <span className="overview-label">Saved prompt packs</span>
-                <strong>{project?.promptPackCount ?? 0} pack(s)</strong>
-                <p>
-                  {selectedPromptPack
-                    ? `${selectedPromptPack.id} targets ${selectedPromptPack.sceneId}`
-                    : "Approved packs will be written under project prompt-packs."}
-                </p>
-                {selectedPromptPack ? (
-                  <div className="diagnostic-list">
-                    <div className="diagnostic-item">
-                      <div>
-                        <strong>{selectedPromptPack.name}</strong>
-                        <p>{selectedPromptPack.provenance.provider} - {selectedPromptPack.provenance.model}</p>
-                      </div>
-                      <span className="capability-badge good">
-                        {selectedPromptPack.outputs.generationTargets.length} target(s)
-                      </span>
-                    </div>
-                  </div>
-                ) : null}
-              </section>
+                    : "Choose a layered scene to inspect AI prompt context."
+                }
+                labels={promptPackContext?.labels ?? null}
+                summary={
+                  promptPackContext
+                    ? `${promptPackContext.hotspots.length} hotspot(s), ${promptPackContext.pickups.length} pickup(s), ${promptPackContext.actors.length} actor(s)`
+                    : "No context"
+                }
+              />
+              <SavedPromptPacksCard
+                packCount={project.promptPackCount}
+                selectedPromptPack={
+                  selectedPromptPack
+                    ? {
+                        id: selectedPromptPack.id,
+                        model: selectedPromptPack.provenance.model,
+                        name: selectedPromptPack.name,
+                        provider: selectedPromptPack.provenance.provider,
+                        sceneId: selectedPromptPack.sceneId,
+                        targetCount: selectedPromptPack.outputs.generationTargets.length
+                      }
+                    : null
+                }
+              />
               <section className="overview-card prompt-studio-card">
                 <span className="overview-label">ComfyUI Image Generation</span>
                 <strong>
@@ -7682,7 +7696,59 @@ export function EditorApp() {
                     </select>
                   </label>
                   <label className="prompt-studio-field">
-                    Workflow API JSON path
+                    Install preset
+                    <select
+                      value={selectedWorkflowPresetId}
+                      onChange={(event) => setSelectedWorkflowPresetId(event.target.value)}
+                    >
+                      {workflowPresets.map((preset) => (
+                        <option key={`workflow-preset-${preset.id}`} value={preset.id}>
+                          {preset.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="build-actions inline-actions">
+                    <button
+                      className="secondary-action compact-action"
+                      disabled={!project || !selectedWorkflowPresetId}
+                      type="button"
+                      onClick={installSelectedWorkflowPreset}
+                    >
+                      Install Preset
+                    </button>
+                  </div>
+                  <label className="prompt-studio-field">
+                    Installed workflow template
+                    <select
+                      disabled={compatibleWorkflowTemplates.length === 0}
+                      value={selectedWorkflowTemplate?.id ?? ""}
+                      onChange={(event) => setSelectedWorkflowTemplateId(event.target.value)}
+                    >
+                      {compatibleWorkflowTemplates.length ? (
+                        compatibleWorkflowTemplates.map((template) => (
+                          <option key={`workflow-template-${template.id}`} value={template.id}>
+                            {template.name} ({template.outputMode})
+                          </option>
+                        ))
+                      ) : (
+                        <option value="">No compatible template installed</option>
+                      )}
+                    </select>
+                  </label>
+                  {selectedWorkflowTemplate ? (
+                    <WorkflowTemplateSummary
+                      family={selectedWorkflowTemplate.family}
+                      hardwareProfile={selectedWorkflowTemplate.hardwareProfile ?? "custom hardware"}
+                      notes={
+                        selectedWorkflowTemplate.notes?.join(" ") ??
+                        "Template bindings will patch prompt, seed, size, and output prefix before queueing."
+                      }
+                      outputNodeId={selectedWorkflowTemplate.output.nodeId}
+                    />
+                  ) : null}
+                  <label className="prompt-studio-field">
+                    Workflow API JSON path (legacy/advanced)
                     <input
                       placeholder="Optional project-relative path, e.g. workflows/image_krea2_turbo_t2i.json"
                       value={comfyUiWorkflowPath}
@@ -7858,6 +7924,27 @@ export function EditorApp() {
                       onChange={(event) => setComfyUiTimeoutMinutes(event.target.value)}
                     />
                   </label>
+                  <div className="target-customization-panel">
+                    <div className="target-customization-heading">
+                      <div>
+                        <span className="overview-label">Generation recipe</span>
+                        <strong>{selectedRecipeId || "No recipe target"}</strong>
+                      </div>
+                      <button
+                        className="secondary-action compact-action"
+                        disabled={!selectedPromptPack || !selectedEffectiveGenerationTarget || !selectedWorkflowTemplate}
+                        type="button"
+                        onClick={saveSelectedGenerationRecipe}
+                      >
+                        Save Recipe
+                      </button>
+                    </div>
+                    <p className="target-customization-note">
+                      {selectedGenerationRecipe
+                        ? "Recipe ready. Generate will include recipeId and workflowId in asset provenance."
+                        : "Save a recipe to make the prompt, target, workflow, seed, dimensions, references, and masks reviewable before generation."}
+                    </p>
+                  </div>
                   <label className="prompt-studio-field">
                     Positive prompt preview
                     <textarea readOnly value={selectedGenerationPrompt} />
@@ -8056,35 +8143,14 @@ export function EditorApp() {
           ) : workspace === "assets" ? (
             <div className="workspace-overview build-workspace asset-workspace">
               <section className="overview-card asset-studio-shell">
-                <div className="asset-studio-sidebar">
-                  <span className="overview-label">Asset Studio</span>
-                  <strong>{project?.assetCount ?? 0} asset(s)</strong>
-                  <p>{selectedAsset ? selectedAsset.id : "Import or select an image asset."}</p>
-                  <button className="play-action compact-action" disabled={!project} type="button" onClick={importAssets}>
-                    <Image size={iconSize} /> Import Assets
-                  </button>
-                  <div className="asset-tool-rail" role="tablist" aria-label="Asset tools">
-                    {[
-                      { icon: Image, id: "info" as const, label: "Info" },
-                      { icon: Eraser, id: "chroma" as const, label: "Chroma Key" },
-                      { icon: Scissors, id: "crop" as const, label: "Crop" },
-                      { icon: Crosshair, id: "guide" as const, label: "Generation Guide" },
-                      { icon: Package, id: "animation" as const, label: "Animation Pack" }
-                    ].map((tool) => {
-                      const ToolIcon = tool.icon;
-                      return (
-                        <button
-                          className={activeAssetTool === tool.id ? "active" : ""}
-                          key={`asset-tool-${tool.id}`}
-                          type="button"
-                          onClick={() => activateAssetTool(tool.id)}
-                        >
-                          <ToolIcon size={iconSize} /> {tool.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                <AssetStudioSidebar
+                  activeTool={activeAssetTool}
+                  assetCount={project.assetCount}
+                  canImport={!!project}
+                  selectedAssetId={selectedAsset?.id ?? null}
+                  onImportAssets={importAssets}
+                  onToolChange={activateAssetTool}
+                />
                 <div className="asset-studio-preview">
                   <div
                     className={`asset-studio-image ${selectedAssetUrl ? "has-preview" : ""} ${activeAssetTool === "crop" ? "crop-editor-active" : ""}`}
@@ -9177,47 +9243,20 @@ export function EditorApp() {
             </div>
           )}
 
-          <div className="timeline-strip">
-            <span>Project</span>
-            <div className="timeline-node selected">{project?.sceneCount ?? 0} scene(s)</div>
-            <div className="timeline-node">{project?.flowCount ?? 0} flow(s)</div>
-            <div className="timeline-node">{project?.itemCount ?? 0} item(s)</div>
-            <div className="timeline-node">{project?.localeCount ?? 0} locale(s)</div>
-            <div className="timeline-node">{project?.diagnostics.length ?? 0} diagnostic(s)</div>
-            <div className="timeline-node">{project?.directory ?? "No folder"}</div>
-          </div>
-        </section>
+        </WorkspaceStagePanel>
 
-        <aside className="inspector-panel panel">
-          <div className="panel-heading">
-            <span>Inspector</span>
-            <small>
-              {workspace === "overview"
-                ? "Status"
-                : workspace === "assets"
-                  ? "Library"
-                  : workspace === "ai"
-                    ? "AI"
-                  : workspace === "build"
-                    ? "Validation"
-                  : selectedFlow
-                ? "Flow"
-                : selectedLocale
-                  ? "Locale"
-                  : isPlayerInspectorSelected
-                    ? "Player"
-                  : selectedHotspot
-                    ? "Hotspot"
-                    : selectedPickup
-                      ? "Pickup"
-                      : selectedItem
-                        ? "Item"
-                    : selectedScene
-                      ? "Scene"
-                      : ""}
-            </small>
-          </div>
-          <div className="inspector-content">
+        <InspectorPanel
+          detail={inspectorDetailFor({
+            hasSelectedFlow: !!selectedFlow,
+            hasSelectedHotspot: !!selectedHotspot,
+            hasSelectedItem: !!selectedItem,
+            hasSelectedLocale: !!selectedLocale,
+            hasSelectedPickup: !!selectedPickup,
+            hasSelectedScene: !!selectedScene,
+            isPlayerInspectorSelected,
+            workspace
+          })}
+        >
             {workspace === "overview" ? (
               <>
                 <div className="flow-link">
@@ -11204,8 +11243,7 @@ export function EditorApp() {
             ) : (
               <div className="empty-inspector">No project loaded.</div>
             )}
-          </div>
-        </aside>
+        </InspectorPanel>
       </div>
       </>
       )}

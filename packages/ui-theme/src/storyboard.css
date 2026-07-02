@@ -1,0 +1,181 @@
+@import "./fonts.css";
+
+:root {
+  --pc-font-display: "PC Story", Georgia, "Times New Roman", serif;
+  --pc-font-ui: "PC Interface", "Segoe UI", Tahoma, sans-serif;
+  --pc-font-mono: "PC Mono", "Cascadia Mono", "Courier New", monospace;
+
+  --pc-ink-950: #111315;
+  --pc-ink-900: #171a1e;
+  --pc-ink-850: #1e2227;
+  --pc-ink-800: #272c31;
+  --pc-ink-700: #394047;
+
+  --pc-paper-50: #fbf6ea;
+  --pc-paper-100: #f1e6d1;
+  --pc-paper-200: #dfcda9;
+  --pc-paper-300: #c6aa78;
+
+  --pc-copper-500: #aa6248;
+  --pc-copper-600: #8e4d39;
+  --pc-amber-400: #e3b568;
+  --pc-teal-400: #60b7b1;
+  --pc-teal-600: #327a78;
+  --pc-red-400: #d96f61;
+  --pc-green-400: #73bd8d;
+
+  --pc-text: #f6eddb;
+  --pc-text-muted: #b9ad98;
+  --pc-text-subtle: #837b6d;
+  --pc-text-dark: #201b16;
+
+  --pc-surface-page: #14171a;
+  --pc-surface-panel: #1d2024;
+  --pc-surface-panel-raised: #25282c;
+  --pc-surface-paper: #efe3ca;
+  --pc-surface-paper-soft: #f7efdf;
+  --pc-surface-field: #15181c;
+  --pc-border: rgba(223, 205, 169, 0.18);
+  --pc-border-strong: rgba(227, 181, 104, 0.46);
+
+  --pc-radius-xs: 3px;
+  --pc-radius-sm: 5px;
+  --pc-radius-md: 8px;
+  --pc-radius-lg: 12px;
+  --pc-radius-panel: 6px 18px 6px 18px;
+
+  --pc-space-1: 4px;
+  --pc-space-2: 8px;
+  --pc-space-3: 12px;
+  --pc-space-4: 16px;
+  --pc-space-5: 20px;
+  --pc-space-6: 24px;
+
+  --pc-shadow-panel: 0 24px 60px rgba(0, 0, 0, 0.28);
+  --pc-shadow-stage: 0 34px 90px rgba(0, 0, 0, 0.38);
+  --pc-focus-ring: 0 0 0 3px rgba(96, 183, 177, 0.22);
+}
+
+.pc-button,
+.pc-icon-button,
+.pc-badge,
+.pc-field,
+.pc-panel,
+.pc-section,
+.pc-status-card {
+  font-family: var(--pc-font-ui);
+}
+
+.pc-button,
+.pc-icon-button {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.pc-button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  color: var(--pc-text);
+  background: var(--pc-ink-850);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.pc-button:hover,
+.pc-icon-button:hover {
+  border-color: var(--pc-border-strong);
+  transform: translateY(-1px);
+}
+
+.pc-button:disabled,
+.pc-icon-button:disabled {
+  cursor: default;
+  opacity: 0.48;
+  transform: none;
+}
+
+.pc-button-primary {
+  color: var(--pc-text-dark);
+  border-color: rgba(227, 181, 104, 0.62);
+  background: linear-gradient(180deg, #f0c878, var(--pc-amber-400));
+  box-shadow: 0 12px 26px rgba(227, 181, 104, 0.18);
+}
+
+.pc-button-secondary {
+  color: #eadbc1;
+  background: linear-gradient(180deg, #282b30, #202429);
+}
+
+.pc-button-ghost {
+  color: var(--pc-text-muted);
+  background: transparent;
+}
+
+.pc-icon-button {
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  color: var(--pc-amber-400);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.pc-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 0.56rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.pc-panel,
+.pc-section,
+.pc-status-card {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-panel);
+  background: linear-gradient(180deg, rgba(42, 45, 49, 0.96), rgba(30, 33, 37, 0.98));
+}
+
+.pc-field {
+  color: var(--pc-text-muted);
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.pc-field input,
+.pc-field select,
+.pc-field textarea {
+  width: 100%;
+  margin-top: 7px;
+  color: var(--pc-text);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  outline: none;
+  background: var(--pc-surface-field);
+  font-family: var(--pc-font-mono);
+}
+
+.pc-field input:focus,
+.pc-field select:focus,
+.pc-field textarea:focus {
+  border-color: var(--pc-teal-400);
+  box-shadow: var(--pc-focus-ring);
+}

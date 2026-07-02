@@ -127,7 +127,7 @@ describe("resolvePromptForGenerationTarget", () => {
   it("composes target prompt customizations", () => {
     expect(
       composeTargetPositivePrompt("BASE", target({ customPositivePrompt: "Use a brass hook." }))
-    ).toBe("BASE\n\nTarget customization: Use a brass hook.");
+    ).toContain("Target customization: Use a brass hook.");
   });
 
   it("adds style bible details to positive prompts", () => {
@@ -160,6 +160,34 @@ describe("resolvePromptForGenerationTarget", () => {
     ).toContain("transparent PNG alpha");
   });
 
+  it("compacts guided scene blocks before image generation", () => {
+    const prompt = composeTargetPositivePrompt(
+      [
+        'Wide layered 2D adventure background for "Cave".',
+        "Guided scene preset blocks:",
+        "- Visual style preset: Hand-painted 2D comedic point-and-click adventure game aesthetic.",
+        "- Setting preset: A moonlit pirate dock with lanterns and a clear walkable area.",
+        "- Negative guidance: anime, manga, extra limbs, text, logos",
+        "- IP safety: original IP only, avoid existing franchise characters and logos."
+      ].join("\n"),
+      target({ intendedUse: "scene-background" })
+    );
+
+    expect(prompt).toContain("Hand-painted 2D comedic point-and-click adventure game aesthetic.");
+    expect(prompt).toContain("A moonlit pirate dock with lanterns and a clear walkable area.");
+    expect(prompt).toContain("environment background only");
+    expect(prompt).toContain("no character sheet");
+    expect(prompt).not.toContain("Negative guidance");
+    expect(prompt).not.toContain("IP safety");
+    expect(prompt).not.toContain("anime");
+  });
+
+  it("adds character sheet failures to background negative prompts", () => {
+    expect(composeTargetNegativePrompt(promptPack, target({ intendedUse: "scene-background" }))).toContain(
+      "character sheet"
+    );
+  });
+
   it("merges target and pack negative prompts without duplicates", () => {
     expect(
       composeTargetNegativePrompt(
@@ -171,6 +199,7 @@ describe("resolvePromptForGenerationTarget", () => {
           }
         },
         target({
+          intendedUse: "prop",
           customNegativePrompt: "extra fingers, blur",
           safetyNegativePrompt: "room background, floor"
         })
@@ -189,6 +218,7 @@ describe("resolvePromptForGenerationTarget", () => {
           }
         },
         target({
+          intendedUse: "prop",
           backgroundMode: "chroma-green",
           safetyNegativePrompt: "room background, floor"
         })
@@ -208,7 +238,7 @@ describe("resolvePromptForGenerationTarget", () => {
             negativePrompt: "blur, logos"
           }
         },
-        target({ safetyNegativePrompt: "room background" }),
+        target({ intendedUse: "prop", safetyNegativePrompt: "room background" }),
         styleBible
       )
     ).toBe("room background, photorealistic, logos, baked UI text, blur");

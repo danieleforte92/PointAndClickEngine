@@ -1,7 +1,7 @@
 :root {
-  color: #f4ead3;
-  background: #071019;
-  font-family: "Trebuchet MS", sans-serif;
+  color: var(--pc-paper-50);
+  background: var(--pc-surface-page);
+  font-family: var(--pc-font-ui);
   font-synthesis: none;
 }
 
@@ -21,8 +21,9 @@ body {
   min-height: 100vh;
   overflow-x: hidden;
   background:
-    radial-gradient(circle at 80% 0%, rgba(45, 105, 127, 0.32), transparent 38%),
-    linear-gradient(145deg, #071019, #0e1d2a 58%, #09131e);
+    linear-gradient(135deg, rgba(170, 98, 72, 0.12), transparent 36%),
+    radial-gradient(circle at 78% 0%, rgba(96, 183, 177, 0.2), transparent 38%),
+    linear-gradient(145deg, #121416, #1d2024 58%, #14171a);
 }
 
 button {
@@ -596,5 +597,184 @@ h1 {
 
   .hint {
     display: none;
+  }
+}
+
+/* Storyboard Studio player skin. DOM and text remain stable for Playwright capture. */
+.player-shell {
+  width: min(1440px, 100%);
+  padding-top: 30px;
+}
+
+.game-header {
+  color: var(--pc-paper-50);
+}
+
+.eyebrow,
+.status span,
+.event-readout span,
+.demo-progress span,
+.story-signal span,
+.event-feed-heading span,
+.capture-strip-meta span,
+.inventory-strip > span {
+  color: var(--pc-teal-400);
+  font-family: var(--pc-font-mono);
+  letter-spacing: 0.16em;
+}
+
+h1,
+.demo-brief-copy h2,
+.demo-step h3,
+.status strong,
+.demo-progress strong,
+.story-signal strong,
+.event-feed-heading strong,
+.capture-strip-copy strong,
+.dialogue-card .line {
+  font-family: var(--pc-font-display);
+  letter-spacing: 0;
+}
+
+h1 {
+  color: var(--pc-paper-50);
+  text-shadow: 0 14px 36px rgba(0, 0, 0, 0.34);
+}
+
+.status strong,
+.demo-progress strong,
+.story-signal strong,
+.event-feed-heading strong,
+.capture-strip-copy strong,
+.capture-strip-meta strong {
+  color: var(--pc-amber-400);
+}
+
+.demo-brief,
+.demo-step,
+.demo-state-strip,
+.story-signal,
+.event-feed,
+.capture-strip,
+.verb-bar,
+.inventory-strip,
+.event-readout {
+  border-color: var(--pc-border);
+  border-radius: var(--pc-radius-panel);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01)),
+    rgba(29, 32, 36, 0.88);
+}
+
+.demo-brief {
+  background:
+    linear-gradient(135deg, rgba(170, 98, 72, 0.18), transparent 42%),
+    rgba(29, 32, 36, 0.9);
+}
+
+.demo-summary,
+.demo-step p,
+.story-signal p,
+.capture-strip-copy p {
+  color: var(--pc-text-muted);
+}
+
+.demo-step.done,
+.story-signal.done {
+  border-color: rgba(227, 181, 104, 0.42);
+  background:
+    linear-gradient(145deg, rgba(170, 98, 72, 0.2), rgba(96, 183, 177, 0.08)),
+    rgba(29, 32, 36, 0.9);
+}
+
+.demo-step-index,
+.demo-step strong {
+  color: var(--pc-amber-400);
+  font-family: var(--pc-font-mono);
+}
+
+.surface-mode-toggle {
+  border-color: var(--pc-border);
+  background: rgba(17, 19, 21, 0.62);
+}
+
+.surface-mode-toggle button {
+  color: var(--pc-paper-100);
+  font-family: var(--pc-font-ui);
+}
+
+.surface-mode-toggle button.active,
+.verb-bar button.active,
+.inventory-items button.selected {
+  color: var(--pc-text-dark);
+  border-color: var(--pc-amber-400);
+  background: linear-gradient(180deg, #f0c878, var(--pc-amber-400));
+}
+
+.stage-frame {
+  border-color: rgba(223, 205, 169, 0.24);
+  border-radius: 6px 28px 6px 28px;
+  background: #24282d;
+  box-shadow: var(--pc-shadow-stage);
+}
+
+.hint,
+.feedback-banner {
+  color: var(--pc-paper-100);
+  border-color: var(--pc-border);
+  background: rgba(17, 19, 21, 0.74);
+  font-family: var(--pc-font-ui);
+}
+
+.verb-bar button,
+.inventory-items button {
+  color: var(--pc-paper-100);
+  border-color: var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: rgba(23, 26, 30, 0.86);
+  font-family: var(--pc-font-ui);
+}
+
+.verb-bar button:hover,
+.inventory-items button:hover {
+  border-color: var(--pc-border-strong);
+}
+
+.event-readout strong,
+.event-feed ol,
+.capture-strip-meta strong {
+  font-family: var(--pc-font-mono);
+}
+
+.dialogue-card {
+  color: var(--pc-text-dark);
+  border: 1px solid rgba(255, 255, 255, 0.44);
+  border-radius: 4px 22px 4px 22px;
+  background:
+    linear-gradient(180deg, var(--pc-surface-paper-soft), var(--pc-surface-paper));
+}
+
+.speaker,
+.continue {
+  color: var(--pc-copper-600);
+  font-family: var(--pc-font-mono);
+}
+
+@media (max-width: 640px) {
+  .player-shell {
+    padding-inline: 14px;
+  }
+
+  h1 {
+    font-size: clamp(1.8rem, 12vw, 3rem);
+  }
+
+  .game-header {
+    display: grid;
+  }
+
+  .verb-bar,
+  .inventory-strip {
+    flex-wrap: wrap;
   }
 }
