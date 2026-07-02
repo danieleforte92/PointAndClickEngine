@@ -7291,9 +7291,24 @@ export function EditorApp() {
     }
 
     if (workspace === "ai") {
+      const targetGroups = savedPromptPackTargets.reduce<Record<string, typeof savedPromptPackTargets>>(
+        (groups, target) => {
+          const key = target.intendedUse;
+          groups[key] = [...(groups[key] ?? []), target];
+          return groups;
+        },
+        {}
+      );
+
       return (
         <>
-          <div className="tree-section-label">AI</div>
+          <div className="tree-section-label">AI Studio</div>
+          <div className="tree-group open">Target workflow</div>
+          <div className="tree-item tree-meta">1. Brief</div>
+          <div className="tree-item tree-meta">2. Context</div>
+          <div className="tree-item tree-meta">3. Recipe</div>
+          <div className="tree-item tree-meta">4. Generate</div>
+          <div className="tree-item tree-meta">5. Review & Apply</div>
           <div className="tree-group open">Prompt Packs ({project.promptPackCount})</div>
           {project.promptPacks.map((promptPack) => (
             <button
@@ -7308,21 +7323,27 @@ export function EditorApp() {
               <span className="scene-dot muted" /> {promptPack.id}
             </button>
           ))}
-          <div className="tree-group open">Generation Targets ({savedPromptPackTargets.length})</div>
-          {savedPromptPackTargets.length ? (
-            savedPromptPackTargets.map((target) => (
-              <button
-                className={`tree-item tree-child ${
-                  selectedSavedGenerationTarget?.id === target.id ? "selected" : ""
-                }`}
-                key={target.id}
-                type="button"
-                onClick={() => setSelectedGenerationTargetId(target.id)}
-              >
-                <span className="scene-dot muted" /> {target.id}
-              </button>
-            ))
-          ) : (
+          <div className="tree-group open">Game targets ({savedPromptPackTargets.length})</div>
+          {savedPromptPackTargets.length ? Object.entries(targetGroups).map(([intendedUse, targets]) => (
+            <div className="narrative-tree-group" key={`ai-target-group-${intendedUse}`}>
+              <div className="tree-item tree-meta">{intendedUse}</div>
+              <div className="scene-tree-children">
+                {targets.map((target) => (
+                  <button
+                    className={`tree-item tree-child ${
+                      selectedSavedGenerationTarget?.id === target.id ? "selected" : ""
+                    }`}
+                    key={target.id}
+                    type="button"
+                    onClick={() => setSelectedGenerationTargetId(target.id)}
+                  >
+                    <span className="scene-dot muted" /> {target.id}
+                    {target.maskAssetId || target.referenceAssetId ? <span className="dirty-mark">*</span> : null}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )) : (
             <div className="tree-item tree-meta">Select or generate a prompt pack.</div>
           )}
           <div className="tree-group open">Context</div>
@@ -7502,8 +7523,8 @@ export function EditorApp() {
           ) : workspace === "ai" ? (
             <div className="workspace-overview build-workspace ai-workspace">
               <section className="overview-card prompt-studio-card">
-                <span className="overview-label">AI Prompt Pack Studio</span>
-                <strong>{promptPackScene ? `${promptPackScene.name} brief` : "No layered scene"}</strong>
+                <span className="overview-label">Brief & Context</span>
+                <strong>{promptPackScene ? `${promptPackScene.name} target brief` : "No layered scene"}</strong>
                 <p>{selectedPromptProvider.detail}</p>
                 <div className="prompt-studio-controls">
                   <label className="prompt-studio-field">
@@ -7765,15 +7786,15 @@ export function EditorApp() {
                 }
               />
               <section className="overview-card prompt-studio-card">
-                <span className="overview-label">ComfyUI Image Generation</span>
+                <span className="overview-label">Recipe, Generate, Review</span>
                 <strong>
                   {activeImagePromptPack
                     ? `${activeImagePromptPack.id} target`
                     : "Generate or save a prompt pack first"}
                 </strong>
                 <p>
-                  Uses a local ComfyUI text-to-image workflow, imports the PNG into `assets/imported`,
-                  and registers it as a project image asset.
+                  Choose a game target, save a recipe, generate through ComfyUI, then review and
+                  import the output as a normal project asset.
                 </p>
                 <div className="prompt-studio-controls">
                   <label className="prompt-studio-field">
