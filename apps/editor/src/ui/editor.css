@@ -3071,6 +3071,22 @@ button {
   background: linear-gradient(90deg, rgba(170, 98, 72, 0.24), rgba(96, 183, 177, 0.08));
 }
 
+.scene-tree-branch {
+  display: grid;
+  gap: 3px;
+}
+
+.scene-tree-root {
+  font-weight: 850;
+}
+
+.scene-tree-children {
+  display: grid;
+  gap: 3px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(223, 205, 169, 0.12);
+}
+
 .tree-item.tree-meta {
   color: var(--pc-text-subtle);
   font-family: var(--pc-font-mono);
