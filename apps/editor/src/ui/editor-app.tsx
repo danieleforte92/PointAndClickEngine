@@ -564,7 +564,7 @@ function inspectorDetailFor({
   isPlayerInspectorSelected,
   workspace
 }: InspectorDetailState): string {
-  if (workspace === "overview") return "Status";
+  if (workspace === "overview") return "Project";
   if (workspace === "assets") return "Library";
   if (workspace === "ai") return "AI";
   if (workspace === "build") return "Validation";
@@ -604,7 +604,7 @@ function stageToolbarModelFor({
     badgeTone: capabilityStatusTone(workspaceCapability.status),
     detail:
       workspace === "overview"
-        ? "Editor overview and capability status"
+        ? "Project command center and readiness"
         : workspace === "narrative"
           ? "Structured flow and locale editing"
           : workspaceCapability.summary,

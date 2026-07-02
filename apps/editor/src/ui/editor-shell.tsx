@@ -16,7 +16,6 @@ import {
   Plus,
   Redo2,
   Route,
-  Search,
   Scissors,
   Trash2,
   Undo2,
@@ -37,7 +36,7 @@ export const iconSize = 15;
 export function WorkspaceIcon({ workspace }: { workspace: Workspace }) {
   switch (workspace) {
     case "overview":
-      return <Search size={iconSize} />;
+      return <FolderOpen size={iconSize} />;
     case "scene":
       return <Clapperboard size={iconSize} />;
     case "narrative":
@@ -315,12 +314,14 @@ export function WorkspaceStageToolbar({
 }: WorkspaceStageToolbarProps) {
   return (
     <div className="canvas-toolbar">
-      <SceneToolPalette
-        activeTool={activeSceneTool}
-        disabled={!canUseSceneTools}
-        isSceneWorkspace={isSceneWorkspace}
-        onToolChange={onSceneToolChange}
-      />
+      {isSceneWorkspace ? (
+        <SceneToolPalette
+          activeTool={activeSceneTool}
+          disabled={!canUseSceneTools}
+          isSceneWorkspace={isSceneWorkspace}
+          onToolChange={onSceneToolChange}
+        />
+      ) : null}
       <div className="canvas-meta">
         <span className="canvas-meta-primary">{primaryLabel}</span>
         <span>{detail}</span>
@@ -471,7 +472,7 @@ export function WorkspaceOverview({
   return (
     <div className="workspace-overview">
       <section className="overview-card">
-        <span className="overview-label">Project health</span>
+        <span className="overview-label">Project command center</span>
         <strong>{projectHealthLabel}</strong>
         <p>{status}</p>
       </section>

@@ -18,6 +18,30 @@ import type {
 } from "@pointclick/contracts";
 
 export type Workspace = "overview" | "scene" | "narrative" | "assets" | "ai" | "build";
+export type SceneNavigationEntityKind =
+  | "scene"
+  | "background"
+  | "layer"
+  | "walk-area"
+  | "player-start"
+  | "actor"
+  | "pickup"
+  | "hotspot"
+  | "guide";
+export type ProjectNavigationSection = "health" | "settings" | "entrypoints" | "structure" | "diagnostics";
+
+export type EditorNavigationTarget =
+  | { workspace: "overview"; section?: ProjectNavigationSection }
+  | { workspace: "scene"; sceneId?: string; entityKind?: SceneNavigationEntityKind; entityId?: string }
+  | { workspace: "narrative"; flowId?: string; textKey?: string; sceneId?: string; entityId?: string }
+  | { workspace: "assets"; assetId?: string }
+  | { workspace: "ai"; targetId?: string; sceneId?: string; assetId?: string }
+  | { workspace: "build"; diagnosticId?: string };
+
+export function workspaceForNavigationTarget(target: EditorNavigationTarget): Workspace {
+  return target.workspace;
+}
+
 export type FlagValueKind = "string" | "number" | "boolean";
 export type DraftNodeType = "line" | "set-flag" | "change-scene" | "end";
 

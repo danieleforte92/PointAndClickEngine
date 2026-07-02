@@ -14,15 +14,15 @@ export interface EditorCapability {
 export const workspaceCapabilities: EditorCapability[] = [
   {
     id: "overview",
-    label: "Overview",
+    label: "Project",
     status: "available",
     workspace: "overview",
-    summary: "Project health, diagnostics, drafts, and capability status.",
-    detail: "Use this as the editor home to understand what is ready, limited, or still under construction."
+    summary: "Game settings, structure, health, drafts, and capability status.",
+    detail: "Use Project as the editor home to understand the game, jump to workspaces, and review readiness."
   },
   {
     id: "scene",
-    label: "Scene",
+    label: "Scenes",
     status: "beta",
     workspace: "scene",
     summary: "Edit scenes, player setup, hotspots, actors, pickups, and walk areas.",
@@ -48,7 +48,7 @@ export const workspaceCapabilities: EditorCapability[] = [
   },
   {
     id: "ai",
-    label: "AI",
+    label: "AI Studio",
     status: "beta",
     workspace: "ai",
     summary: "Generate prompt packs and local image assets.",

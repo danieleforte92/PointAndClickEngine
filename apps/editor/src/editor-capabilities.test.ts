@@ -35,6 +35,17 @@ describe("editor capabilities", () => {
     ]);
   });
 
+  it("presents the home workspace as a project-first surface", () => {
+    const project = workspaceCapabilities.find((capability) => capability.workspace === "overview");
+    const scene = workspaceCapabilities.find((capability) => capability.workspace === "scene");
+    const ai = workspaceCapabilities.find((capability) => capability.workspace === "ai");
+
+    expect(project?.label).toBe("Project");
+    expect(project?.summary).toContain("Game settings");
+    expect(scene?.label).toBe("Scenes");
+    expect(ai?.label).toBe("AI Studio");
+  });
+
   it("keeps badge labels and tones stable for the editor shell", () => {
     expect(capabilityBadgeLabel("available")).toBe("Available");
     expect(capabilityBadgeLabel("beta")).toBe("Beta");

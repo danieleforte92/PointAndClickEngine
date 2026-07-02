@@ -21,7 +21,8 @@ import {
   resizeSceneRectFromBottomRight,
   restoreSessionFromRecovery,
   sceneItems,
-  undoHistory
+  undoHistory,
+  workspaceForNavigationTarget
 } from "./editor-session";
 
 const sceneDocument: SceneDocument = {
@@ -129,6 +130,21 @@ const project = {
   locales: [localeDocument],
   scenes: [sceneDocument]
 };
+
+describe("editor-session navigation targets", () => {
+  it("keeps cross-workspace targets anchored to the destination workspace", () => {
+    expect(workspaceForNavigationTarget({ workspace: "overview", section: "structure" })).toBe("overview");
+    expect(
+      workspaceForNavigationTarget({
+        workspace: "scene",
+        sceneId: "moonlit-dock",
+        entityKind: "hotspot",
+        entityId: "tavern-entrance"
+      })
+    ).toBe("scene");
+    expect(workspaceForNavigationTarget({ workspace: "build", diagnosticId: "asset.file-missing" })).toBe("build");
+  });
+});
 
 describe("editor-session history", () => {
   it("undoes and redoes draft edits", () => {
