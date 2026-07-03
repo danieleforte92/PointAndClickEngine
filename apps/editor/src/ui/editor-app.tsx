@@ -10972,6 +10972,354 @@ export function EditorApp() {
                   </button>
                 </div>
               </>
+            ) : selectedScene && selectedSceneLayer ? (
+              <>
+                <div className="context-setup-card">
+                  <span className={`capability-badge ${selectedSceneLayer.locked ? "warn" : "good"}`}>Layer</span>
+                  <strong>{selectedSceneLayer.name || selectedSceneLayer.id}</strong>
+                  <p>
+                    Scene layers are local to {selectedScene.name}. Use visibility, depth, opacity, and bounds to
+                    compose foregrounds, overlays, fog, and parallax-ready art.
+                  </p>
+                  <div className="context-action-row">
+                    <button type="button" onClick={() => setSelectedSceneLayerId(null)}>
+                      Back to scene
+                    </button>
+                    <button type="button" onClick={createSceneLayer} disabled={imageAssets.length === 0}>
+                      Add layer
+                    </button>
+                  </div>
+                </div>
+                <label>
+                  Layer id
+                  <input
+                    value={selectedSceneLayer.id}
+                    onChange={(event) => updateSceneLayerDraft(selectedSceneLayer.id, "id", event.target.value)}
+                  />
+                </label>
+                <label>
+                  Name
+                  <input
+                    value={selectedSceneLayer.name}
+                    onChange={(event) => updateSceneLayerDraft(selectedSceneLayer.id, "name", event.target.value)}
+                  />
+                </label>
+                <label>
+                  Asset
+                  <select
+                    className={
+                      selectedSceneLayer.assetId.trim() && !availableAssetIdsSet.has(selectedSceneLayer.assetId.trim())
+                        ? "field-input-invalid"
+                        : ""
+                    }
+                    value={selectedSceneLayer.assetId}
+                    onChange={(event) => updateSceneLayerDraft(selectedSceneLayer.id, "assetId", event.target.value)}
+                  >
+                    <option value="">Select asset</option>
+                    {imageAssets.map((asset) => (
+                      <option key={`focused-layer-asset-${asset.id}`} value={asset.id}>
+                        {asset.id}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedSceneLayer.assetId.trim() && !availableAssetIdsSet.has(selectedSceneLayer.assetId.trim()) ? (
+                    <small className="field-hint error">Layer asset no longer exists.</small>
+                  ) : null}
+                </label>
+                <div className="field-group">
+                  <span>Composition</span>
+                  <div className="four-fields">
+                    <input
+                      aria-label="Layer depth"
+                      value={selectedSceneLayer.depth}
+                      onChange={(event) => updateSceneLayerDraft(selectedSceneLayer.id, "depth", event.target.value)}
+                    />
+                    <input
+                      aria-label="Layer opacity"
+                      value={selectedSceneLayer.opacity}
+                      onChange={(event) => updateSceneLayerDraft(selectedSceneLayer.id, "opacity", event.target.value)}
+                    />
+                  </div>
+                  <div className="four-fields">
+                    <input
+                      aria-label="Layer X"
+                      value={selectedSceneLayer.x}
+                      onChange={(event) => updateSceneLayerDraft(selectedSceneLayer.id, "x", event.target.value)}
+                    />
+                    <input
+                      aria-label="Layer Y"
+                      value={selectedSceneLayer.y}
+                      onChange={(event) => updateSceneLayerDraft(selectedSceneLayer.id, "y", event.target.value)}
+                    />
+                    <input
+                      aria-label="Layer width"
+                      value={selectedSceneLayer.width}
+                      onChange={(event) => updateSceneLayerDraft(selectedSceneLayer.id, "width", event.target.value)}
+                    />
+                    <input
+                      aria-label="Layer height"
+                      value={selectedSceneLayer.height}
+                      onChange={(event) => updateSceneLayerDraft(selectedSceneLayer.id, "height", event.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="flow-link">
+                  <span>Layer state</span>
+                  <div className="layer-action-row">
+                    <label className="inline-toggle">
+                      <input
+                        checked={selectedSceneLayer.visible}
+                        type="checkbox"
+                        onChange={(event) =>
+                          updateSceneLayerDraft(selectedSceneLayer.id, "visible", event.target.checked)
+                        }
+                      />
+                      Visible
+                    </label>
+                    <label className="inline-toggle">
+                      <input
+                        checked={selectedSceneLayer.locked}
+                        type="checkbox"
+                        onChange={(event) =>
+                          updateSceneLayerDraft(selectedSceneLayer.id, "locked", event.target.checked)
+                        }
+                      />
+                      Locked
+                    </label>
+                  </div>
+                  <strong>
+                    {selectedSceneLayer.visible ? "Visible" : "Hidden"}
+                    {selectedScene && dirtyState.sceneIds.has(selectedScene.id) ? " - unsaved draft" : ""}
+                  </strong>
+                  <button
+                    className="danger"
+                    type="button"
+                    disabled={selectedSceneLayer.locked}
+                    onClick={() => deleteSceneLayerDraft(selectedSceneLayer.id)}
+                  >
+                    Delete layer
+                  </button>
+                  <button type="button" onClick={applySceneChanges}>
+                    Apply scene changes -&gt;
+                  </button>
+                </div>
+              </>
+            ) : selectedScene && selectedGenerationGuideId && selectedGenerationGuide ? (
+              <>
+                <div className="context-setup-card">
+                  <span className={`capability-badge ${selectedGenerationGuide.locked ? "warn" : "good"}`}>
+                    Guide
+                  </span>
+                  <strong>{selectedGenerationGuide.name}</strong>
+                  <p>
+                    Generation guides are scene-local targets for AI context, masks, references, and review. Keep
+                    them visible while drafting and lock them when they are approved.
+                  </p>
+                  <div className="context-action-row">
+                    <button type="button" onClick={() => setSelectedGenerationGuideId(null)}>
+                      Back to scene
+                    </button>
+                    <button type="button" onClick={() => createBlankGenerationGuide("rect")}>
+                      Add guide
+                    </button>
+                  </div>
+                </div>
+                <div className="four-fields">
+                  <label>
+                    ID
+                    <input
+                      value={selectedGenerationGuide.id}
+                      onChange={(event) => updateSelectedGenerationGuide({ id: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Name
+                    <input
+                      value={selectedGenerationGuide.name}
+                      onChange={(event) => updateSelectedGenerationGuide({ name: event.target.value })}
+                    />
+                  </label>
+                </div>
+                <div className="four-fields">
+                  <label>
+                    Role
+                    <select
+                      value={selectedGenerationGuide.role}
+                      onChange={(event) =>
+                        updateSelectedGenerationGuide({
+                          role: event.target.value as SceneGenerationGuideRole
+                        })
+                      }
+                    >
+                      {generationGuideRoles.map((role) => (
+                        <option key={`focused-generation-guide-role-${role}`} value={role}>
+                          {role}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Color
+                    <input
+                      type="color"
+                      value={selectedGenerationGuide.color ?? generationGuideColor(selectedGenerationGuide)}
+                      onChange={(event) => updateSelectedGenerationGuide({ color: event.target.value })}
+                    />
+                  </label>
+                </div>
+                <label>
+                  Tags
+                  <input
+                    value={(selectedGenerationGuide.tags ?? []).join(", ")}
+                    onChange={(event) =>
+                      updateSelectedGenerationGuide({
+                        tags: event.target.value
+                          .split(",")
+                          .map((tag) => tag.trim())
+                          .filter(Boolean)
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Shape
+                  <select
+                    value={selectedGenerationGuide.shape.type}
+                    onChange={(event) => {
+                      const shapeType = event.target.value as SceneGenerationGuideShape["type"];
+                      const bounds = boundsForGenerationGuideShape(selectedGenerationGuide.shape);
+                      updateSelectedGenerationGuideShape(
+                        shapeType === "polygon"
+                          ? {
+                              type: "polygon",
+                              points: [
+                                { x: bounds.x, y: bounds.y + bounds.height },
+                                { x: bounds.x + bounds.width / 2, y: bounds.y },
+                                { x: bounds.x + bounds.width, y: bounds.y + bounds.height }
+                              ]
+                            }
+                          : { type: shapeType, bounds }
+                      );
+                    }}
+                  >
+                    <option value="rect">rect</option>
+                    <option value="ellipse">ellipse</option>
+                    <option value="polygon">polygon</option>
+                  </select>
+                </label>
+                {(() => {
+                  const guideShape = selectedGenerationGuide.shape;
+                  if (guideShape.type === "polygon") {
+                    return (
+                      <div className="generation-guide-points">
+                        {guideShape.points.map((point, index) => (
+                          <div className="four-fields" key={`focused-generation-guide-point-${index}`}>
+                            <input
+                              aria-label={`Guide point ${index + 1} x`}
+                              value={String(point.x)}
+                              onChange={(event) => {
+                                const nextPoints = [...guideShape.points];
+                                nextPoints[index] = { ...point, x: Number(event.target.value) };
+                                updateSelectedGenerationGuideShape({ type: "polygon", points: nextPoints });
+                              }}
+                            />
+                            <input
+                              aria-label={`Guide point ${index + 1} y`}
+                              value={String(point.y)}
+                              onChange={(event) => {
+                                const nextPoints = [...guideShape.points];
+                                nextPoints[index] = { ...point, y: Number(event.target.value) };
+                                updateSelectedGenerationGuideShape({ type: "polygon", points: nextPoints });
+                              }}
+                            />
+                            <button
+                              type="button"
+                              disabled={guideShape.points.length <= 3}
+                              onClick={() =>
+                                updateSelectedGenerationGuideShape({
+                                  type: "polygon",
+                                  points: guideShape.points.filter((_, pointIndex) => pointIndex !== index)
+                                })
+                              }
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const lastPoint = guideShape.points.at(-1) ?? { x: 0, y: 0 };
+                            updateSelectedGenerationGuideShape({
+                              type: "polygon",
+                              points: [...guideShape.points, { x: lastPoint.x + 16, y: lastPoint.y + 16 }]
+                            });
+                          }}
+                        >
+                          Add point
+                        </button>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="four-fields">
+                      {(["x", "y", "width", "height"] as const).map((field) => (
+                        <input
+                          aria-label={`Guide ${field}`}
+                          key={`focused-generation-guide-bounds-${field}`}
+                          value={String(guideShape.bounds[field])}
+                          onChange={(event) =>
+                            updateSelectedGenerationGuideShape({
+                              ...guideShape,
+                              bounds: {
+                                ...guideShape.bounds,
+                                [field]: Number(event.target.value)
+                              }
+                            })
+                          }
+                        />
+                      ))}
+                    </div>
+                  );
+                })()}
+                <div className="flow-link">
+                  <span>Guide state</span>
+                  <div className="layer-action-row">
+                    <label className="inline-toggle">
+                      <input
+                        checked={selectedGenerationGuide.visible !== false}
+                        type="checkbox"
+                        onChange={(event) => updateSelectedGenerationGuide({ visible: event.target.checked })}
+                      />
+                      Visible
+                    </label>
+                    <label className="inline-toggle">
+                      <input
+                        checked={selectedGenerationGuide.locked ?? false}
+                        type="checkbox"
+                        onChange={(event) => updateSelectedGenerationGuide({ locked: event.target.checked })}
+                      />
+                      Locked
+                    </label>
+                  </div>
+                  <strong>
+                    {generationGuideShapeLabel(selectedGenerationGuide.shape)}
+                    {selectedScene && dirtyState.sceneIds.has(selectedScene.id) ? " - unsaved draft" : ""}
+                  </strong>
+                  <button
+                    className="danger"
+                    type="button"
+                    disabled={selectedGenerationGuide.locked}
+                    onClick={deleteSelectedGenerationGuide}
+                  >
+                    Delete guide
+                  </button>
+                  <button type="button" onClick={applySceneChanges}>
+                    Apply scene changes -&gt;
+                  </button>
+                </div>
+              </>
             ) : selectedScene ? (
               <>
                 <label>
