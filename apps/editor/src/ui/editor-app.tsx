@@ -133,6 +133,7 @@ import {
   type EditorSessionState,
   type FlowDraft,
   type FlowDraftNode,
+  type NarrativeFlowReference,
   type SceneDraft,
   type SceneLayerDraft,
   type SceneSelectionTarget,
@@ -1801,6 +1802,12 @@ export function EditorApp() {
       : null;
   const selectedLocale = localeFromSnapshot(project, session.activeLocale) ?? null;
   const selectedFlow = flowFromSnapshot(project, session.activeFlowId) ?? null;
+  const selectedFlowReferences = useMemo(() => {
+    if (!selectedFlow) return [];
+    return narrativeRelationIndex.sceneGroups.flatMap((group) =>
+      group.references.filter((reference) => reference.flowId === selectedFlow.id)
+    );
+  }, [narrativeRelationIndex.sceneGroups, selectedFlow]);
   const selectedItem = itemFromSnapshot(project, session.activeItemId) ?? project?.selectedItem ?? null;
   const selectedPickup =
     pickupFromSnapshot(project, session.activeSceneId, session.activePickupId) ?? null;
@@ -5795,6 +5802,31 @@ export function EditorApp() {
     }));
   };
 
+  const openNarrativeReferenceSource = (reference: NarrativeFlowReference) => {
+    setWorkspace("scene");
+    setSceneInspectorTarget("scene");
+    setSelectedSceneLayerId(null);
+    setSelectedGenerationGuideId(null);
+    setActiveSceneTool(
+      reference.entityKind === "actor"
+        ? "actor"
+        : reference.entityKind === "pickup"
+          ? "pickup"
+          : "hotspot"
+    );
+    updateSessionSelection((current) => ({
+      ...current,
+      activeActorId: reference.entityKind === "actor" ? reference.entityId : null,
+      activeFlowId: null,
+      activeHotspotId: reference.entityKind === "hotspot" ? reference.entityId : null,
+      activeItemId: null,
+      activeLocale: null,
+      activePickupId: reference.entityKind === "pickup" ? reference.entityId : null,
+      activeSceneId: reference.sceneId
+    }));
+    setStatus(`Opened ${reference.entityKind} ${reference.entityId} in ${reference.sceneName}.`);
+  };
+
   const selectItem = (item: ItemDocument) => {
     setSceneInspectorTarget("scene");
     updateSessionSelection((current) => ({
@@ -7409,12 +7441,14 @@ export function EditorApp() {
             <>
               <div className="tree-group open">Broken flow links ({narrativeRelationIndex.missingReferences.length})</div>
               {narrativeRelationIndex.missingReferences.map((reference, index) => (
-                <div
+                <button
                   className="tree-item tree-meta"
                   key={`missing-narrative-reference-${reference.sceneId}-${reference.entityId}-${reference.flowId}-${index}`}
+                  type="button"
+                  onClick={() => openNarrativeReferenceSource(reference)}
                 >
                   {reference.sceneName} / {reference.entityKind} {reference.entityId}: {reference.flowId}
-                </div>
+                </button>
               ))}
             </>
           ) : null}
@@ -9848,6 +9882,32 @@ export function EditorApp() {
                     }
                   />
                 </label>
+                <div className="flow-link">
+                  <span>Scene triggers</span>
+                  <strong>
+                    {selectedFlowReferences.length
+                      ? `${selectedFlowReferences.length} linked trigger(s)`
+                      : "No scene trigger"}
+                  </strong>
+                  <p className="inspector-copy">
+                    {selectedFlowReferences.length
+                      ? "Open the scene entity that invokes this flow."
+                      : "This flow is global or not yet linked from a scene entity."}
+                  </p>
+                  {selectedFlowReferences.length ? (
+                    <div className="inspector-actions-inline">
+                      {selectedFlowReferences.map((reference, index) => (
+                        <button
+                          key={`flow-reference-source-${reference.sceneId}-${reference.entityKind}-${reference.entityId}-${reference.action}-${index}`}
+                          type="button"
+                          onClick={() => openNarrativeReferenceSource(reference)}
+                        >
+                          {reference.entityKind} {reference.entityId} / {reference.action}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
                 <label>
                   Start node
                   <select
