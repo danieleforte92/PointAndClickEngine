@@ -28,6 +28,7 @@ import {
   toolCapabilities,
   workspaceCapabilities
 } from "../editor-capabilities";
+import type { CreatorPathStep, CreatorPathStepState } from "../creator-path";
 import type { Workspace } from "../editor-session";
 import { Badge, Button, IconButton } from "./components";
 
@@ -157,6 +158,7 @@ interface ProjectSettingsOption {
 
 interface WorkspaceOverviewProps {
   assetCount: number;
+  creatorPathSteps: CreatorPathStep[];
   diagnostics: WorkspaceOverviewDiagnostic[];
   flowCount: number;
   hasProjectSettingsChanges: boolean;
@@ -164,6 +166,7 @@ interface WorkspaceOverviewProps {
   onOpenAi: () => void;
   onOpenAssets: () => void;
   onOpenBuild: () => void;
+  onOpenCreatorPathStep: (step: CreatorPathStep) => void;
   onOpenNarrative: () => void;
   onOpenScenes: () => void;
   onProjectSettingsChange: (field: keyof ProjectSettingsDraft, value: string) => void;
@@ -193,8 +196,10 @@ interface BuildWorkspaceIssue {
 
 interface BuildWorkspaceProps {
   blockingIssueCount: number;
+  creatorPathSteps: CreatorPathStep[];
   dirtyDraftCount: number;
   issues: BuildWorkspaceIssue[];
+  onOpenCreatorPathStep: (step: CreatorPathStep) => void;
   onRunValidation: () => void;
   previewReadinessLabel: string;
   readinessSummary: string;
@@ -488,8 +493,75 @@ export function ProjectMapPanel({
   );
 }
 
+function creatorPathBadgeLabel(state: CreatorPathStepState) {
+  switch (state) {
+    case "blocked":
+      return "Blocked";
+    case "warning":
+      return "Review";
+    case "pending":
+      return "Next";
+    case "optional":
+      return "Optional";
+    case "complete":
+      return "Done";
+  }
+}
+
+function creatorPathBadgeTone(state: CreatorPathStepState) {
+  switch (state) {
+    case "blocked":
+      return "error";
+    case "warning":
+      return "warn";
+    case "complete":
+      return "good";
+    case "optional":
+    case "pending":
+      return "muted";
+  }
+}
+
+function CreatorPathChecklist({
+  detail,
+  onOpenStep,
+  steps,
+  title
+}: {
+  detail: string;
+  onOpenStep: (step: CreatorPathStep) => void;
+  steps: CreatorPathStep[];
+  title: string;
+}) {
+  return (
+    <section className="overview-card creator-path-card">
+      <span className="overview-label">Creator path</span>
+      <strong>{title}</strong>
+      <p>{detail}</p>
+      <div className="creator-path-list">
+        {steps.map((step) => (
+          <div className={`creator-path-step ${step.state}`} key={step.id}>
+            <Badge tone={creatorPathBadgeTone(step.state)}>{creatorPathBadgeLabel(step.state)}</Badge>
+            <div className="creator-path-step-copy">
+              <strong>
+                {step.label}
+                {step.optional ? <span> Optional</span> : null}
+              </strong>
+              <p>{step.detail}</p>
+            </div>
+            <Button className="secondary-action compact-action" onClick={() => onOpenStep(step)}>
+              {step.actionLabel}
+            </Button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function WorkspaceOverview({
   assetCount,
+  creatorPathSteps,
   diagnostics,
   flowCount,
   hasProjectSettingsChanges,
@@ -497,6 +569,7 @@ export function WorkspaceOverview({
   onOpenAi,
   onOpenAssets,
   onOpenBuild,
+  onOpenCreatorPathStep,
   onOpenNarrative,
   onOpenScenes,
   onProjectSettingsChange,
@@ -524,6 +597,12 @@ export function WorkspaceOverview({
         <strong>{previewLabel}</strong>
         <p>{previewDescription}</p>
       </section>
+      <CreatorPathChecklist
+        detail="Follow the minimum production path from project setup to saved validation."
+        steps={creatorPathSteps}
+        title="Guided production checklist"
+        onOpenStep={onOpenCreatorPathStep}
+      />
       <section className="overview-card project-structure-card">
         <span className="overview-label">Project structure</span>
         <strong>Open a workspace</strong>
@@ -695,8 +774,10 @@ function readinessDescription({
 
 export function BuildWorkspace({
   blockingIssueCount,
+  creatorPathSteps,
   dirtyDraftCount,
   issues,
+  onOpenCreatorPathStep,
   onRunValidation,
   previewReadinessLabel,
   readinessSummary,
@@ -745,6 +826,12 @@ export function BuildWorkspace({
         <p className="diagnostic-meta">Last run: {validationLastRunLabel}</p>
         <p className="diagnostic-meta">Saved target: {savedTarget}</p>
       </section>
+      <CreatorPathChecklist
+        detail="Use this as the handoff gate for the whole game, including optional AI production."
+        steps={creatorPathSteps}
+        title="Production readiness path"
+        onOpenStep={onOpenCreatorPathStep}
+      />
       <section className="overview-card build-issues-card">
         <span className="overview-label">Action checklist</span>
         <strong>{issues.length || dirtyDraftCount > 0 ? "Issues to review" : "No diagnostics found for the saved project"}</strong>

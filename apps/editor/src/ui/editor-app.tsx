@@ -71,6 +71,7 @@ import {
   capabilityStatusTone,
   workspaceCapabilities
 } from "../editor-capabilities";
+import { createCreatorPathSteps, type CreatorPathStep } from "../creator-path";
 import {
   AiContextSummary,
   AiProviderBoundary,
@@ -2199,6 +2200,33 @@ export function EditorApp() {
         : dirtyState.count > 0
           ? "Preview can include unsaved drafts"
           : "Preview aligned with saved project";
+  const creatorPathSteps = useMemo(
+    () =>
+      createCreatorPathSteps({
+        dirtyDraftCount: dirtyState.count,
+        flowCount: project?.flowCount ?? 0,
+        generationRecipeCount: project?.generationRecipes.length ?? 0,
+        hasProjectSettingsChanges,
+        missingNarrativeLinkCount: narrativeRelationIndex.missingReferences.length,
+        promptPackCount: project?.promptPacks.length ?? 0,
+        sceneCount: project?.sceneCount ?? 0,
+        validationErrorCount: currentValidationReport?.summary.errorCount ?? 0,
+        validationRan: validationReport !== null,
+        validationWarningCount: currentValidationReport?.summary.warningCount ?? 0
+      }),
+    [
+      currentValidationReport?.summary.errorCount,
+      currentValidationReport?.summary.warningCount,
+      dirtyState.count,
+      hasProjectSettingsChanges,
+      narrativeRelationIndex.missingReferences.length,
+      project?.flowCount,
+      project?.generationRecipes.length,
+      project?.promptPacks.length,
+      project?.sceneCount,
+      validationReport
+    ]
+  );
   const selectedAssetUsage = selectedAsset ? assetUsage(selectedAsset, project) : [];
   const selectedAssetHealth = selectedAsset ? assetHealth(selectedAsset, project) : "available";
   const selectedAssetUrl = selectedAsset ? assetPreviewUrls[selectedAsset.path] : undefined;
@@ -7360,6 +7388,10 @@ export function EditorApp() {
     }
   };
 
+  const openCreatorPathStep = (step: CreatorPathStep) => {
+    changeWorkspace(step.workspace);
+  };
+
   const renderContextualTree = () => {
     if (!project) {
       return <div className="tree-item tree-meta">No project loaded</div>;
@@ -7939,6 +7971,7 @@ export function EditorApp() {
           {workspace === "overview" ? (
             <WorkspaceOverview
               assetCount={project.assets.length}
+              creatorPathSteps={creatorPathSteps}
               diagnostics={project.diagnostics}
               flowCount={project.flowCount}
               hasProjectSettingsChanges={hasProjectSettingsChanges}
@@ -7947,6 +7980,7 @@ export function EditorApp() {
               onOpenAi={() => changeWorkspace("ai")}
               onOpenAssets={() => changeWorkspace("assets")}
               onOpenBuild={() => changeWorkspace("build")}
+              onOpenCreatorPathStep={openCreatorPathStep}
               onOpenNarrative={() => changeWorkspace("narrative")}
               onOpenScenes={() => changeWorkspace("scene")}
               onProjectSettingsChange={updateProjectSettingsDraft}
@@ -7972,6 +8006,7 @@ export function EditorApp() {
           ) : workspace === "build" ? (
             <BuildWorkspace
               blockingIssueCount={buildBlockingIssues.length}
+              creatorPathSteps={creatorPathSteps}
               dirtyDraftCount={dirtyState.count}
               issues={buildReadinessIssues.map((issue) => ({
                 actionLabel: issue.actionLabel,
@@ -7983,6 +8018,7 @@ export function EditorApp() {
                 path: issue.path,
                 severity: issue.severity
               }))}
+              onOpenCreatorPathStep={openCreatorPathStep}
               onRunValidation={runValidation}
               previewReadinessLabel={previewReadinessLabel}
               readinessSummary={buildReadinessSummary}
