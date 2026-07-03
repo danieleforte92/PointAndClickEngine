@@ -587,6 +587,14 @@ button {
   font-weight: 900;
 }
 
+.tree-count {
+  margin-left: auto;
+  color: #d9a561;
+  font-family: var(--pc-font-mono);
+  font-size: 0.64rem;
+  font-weight: 900;
+}
+
 .tree-item.tree-meta {
   color: #6f8792;
   cursor: default;

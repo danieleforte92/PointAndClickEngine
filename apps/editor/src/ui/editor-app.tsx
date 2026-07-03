@@ -151,6 +151,7 @@ import {
   type PromptProviderId,
   type PromptProviderJob
 } from "../prompt-pack-studio";
+import { createProjectSummary } from "../project-summary";
 import {
   animationPreviewIssue,
   buildAnimationClipPreviewState,
@@ -2192,6 +2193,7 @@ export function EditorApp() {
         : dirtyState.count > 0
           ? `${dirtyState.count} unsaved draft change(s)`
           : "Preview ready";
+  const projectSummary = useMemo(() => (project ? createProjectSummary(project) : null), [project]);
   const previewReadinessLabel =
     currentValidationReport?.summary.errorCount
       ? "Preview blocked for saved project content"
@@ -2204,12 +2206,12 @@ export function EditorApp() {
     () =>
       createCreatorPathSteps({
         dirtyDraftCount: dirtyState.count,
-        flowCount: project?.flowCount ?? 0,
-        generationRecipeCount: project?.generationRecipes.length ?? 0,
+        flowCount: projectSummary?.flowCount ?? 0,
+        generationRecipeCount: projectSummary?.generationRecipeCount ?? 0,
         hasProjectSettingsChanges,
         missingNarrativeLinkCount: narrativeRelationIndex.missingReferences.length,
-        promptPackCount: project?.promptPacks.length ?? 0,
-        sceneCount: project?.sceneCount ?? 0,
+        promptPackCount: projectSummary?.promptPackCount ?? 0,
+        sceneCount: projectSummary?.sceneCount ?? 0,
         validationErrorCount: currentValidationReport?.summary.errorCount ?? 0,
         validationRan: validationReport !== null,
         validationWarningCount: currentValidationReport?.summary.warningCount ?? 0
@@ -2220,10 +2222,10 @@ export function EditorApp() {
       dirtyState.count,
       hasProjectSettingsChanges,
       narrativeRelationIndex.missingReferences.length,
-      project?.flowCount,
-      project?.generationRecipes.length,
-      project?.promptPacks.length,
-      project?.sceneCount,
+      projectSummary?.flowCount,
+      projectSummary?.generationRecipeCount,
+      projectSummary?.promptPackCount,
+      projectSummary?.sceneCount,
       validationReport
     ]
   );
@@ -7881,12 +7883,53 @@ export function EditorApp() {
       );
     }
 
+    if (!projectSummary) {
+      return <div className="tree-item tree-meta">Project summary unavailable</div>;
+    }
+
     return (
       <>
         <div className="tree-section-label">Project</div>
-        <div className="tree-item tree-meta">{project.sceneCount} scene(s)</div>
-        <div className="tree-item tree-meta">{project.assetCount} asset(s)</div>
-        <div className="tree-item tree-meta">{project.diagnostics.length} diagnostic(s)</div>
+        <div className="tree-group open">Structure</div>
+        <button className="tree-item tree-child" type="button" onClick={() => changeWorkspace("scene")}>
+          <span className="scene-dot muted" /> Scenes
+          <span className="tree-count">{projectSummary.sceneCount}</span>
+        </button>
+        <button className="tree-item tree-child" type="button" onClick={() => changeWorkspace("assets")}>
+          <span className="scene-dot muted" /> Assets
+          <span className="tree-count">{projectSummary.assetCount}</span>
+        </button>
+        <button className="tree-item tree-child" type="button" onClick={() => changeWorkspace("narrative")}>
+          <span className="scene-dot muted" /> Narrative flows
+          <span className="tree-count">{projectSummary.flowCount}</span>
+        </button>
+        <button className="tree-item tree-child" type="button" onClick={() => changeWorkspace("narrative")}>
+          <span className="scene-dot muted" /> Items and locales
+          <span className="tree-count">
+            {projectSummary.itemCount}/{projectSummary.localeCount}
+          </span>
+        </button>
+        <div className="tree-group open">Production</div>
+        <button className="tree-item tree-child" type="button" onClick={() => changeWorkspace("ai")}>
+          <span className="scene-dot muted" /> AI prompt packs
+          <span className="tree-count">{projectSummary.promptPackCount}</span>
+        </button>
+        <button className="tree-item tree-child" type="button" onClick={() => changeWorkspace("ai")}>
+          <span className="scene-dot muted" /> Generation recipes
+          <span className="tree-count">{projectSummary.generationRecipeCount}</span>
+        </button>
+        <button className="tree-item tree-child" type="button" onClick={() => changeWorkspace("build")}>
+          <span className="scene-dot muted" /> Diagnostics
+          <span className="tree-count">
+            {projectSummary.errorCount}/{projectSummary.warningCount}
+          </span>
+        </button>
+        {dirtyState.count > 0 ? (
+          <button className="tree-item tree-child" type="button" onClick={() => changeWorkspace("build")}>
+            <span className="scene-dot muted" /> Unsaved drafts
+            <span className="tree-count">{dirtyState.count}</span>
+          </button>
+        ) : null}
       </>
     );
   };
@@ -7970,13 +8013,13 @@ export function EditorApp() {
 
           {workspace === "overview" ? (
             <WorkspaceOverview
-              assetCount={project.assets.length}
+              assetCount={projectSummary?.assetCount ?? project.assets.length}
               creatorPathSteps={creatorPathSteps}
               diagnostics={project.diagnostics}
-              flowCount={project.flowCount}
+              flowCount={projectSummary?.flowCount ?? project.flowCount}
               hasProjectSettingsChanges={hasProjectSettingsChanges}
               localeOptions={projectLocaleOptions}
-              sceneCount={project.sceneCount}
+              sceneCount={projectSummary?.sceneCount ?? project.sceneCount}
               onOpenAi={() => changeWorkspace("ai")}
               onOpenAssets={() => changeWorkspace("assets")}
               onOpenBuild={() => changeWorkspace("build")}
@@ -7993,7 +8036,7 @@ export function EditorApp() {
               previewLabel={dirtyState.count > 0 ? "Draft bundle" : "Saved project bundle"}
               projectSettings={projectSettingsDraft}
               projectHealthLabel={projectHealth?.label ?? "Loading project..."}
-              promptPackCount={project.promptPacks.length}
+              promptPackCount={projectSummary?.promptPackCount ?? project.promptPacks.length}
               sceneOptions={projectSceneOptions}
               status={status}
               viewportDescription={
@@ -9968,10 +10011,9 @@ export function EditorApp() {
                 </div>
                 <div className="flow-link">
                   <span>Project diagnostics</span>
-                  <strong>{project?.diagnostics.length ?? 0} total</strong>
+                  <strong>{projectSummary?.diagnosticCount ?? 0} total</strong>
                   <p className="inspector-copy">
-                    {project?.diagnostics.filter((item) => item.severity === "error").length ?? 0} error(s),{" "}
-                    {project?.diagnostics.filter((item) => item.severity === "warning").length ?? 0} warning(s)
+                    {projectSummary?.errorCount ?? 0} error(s), {projectSummary?.warningCount ?? 0} warning(s)
                   </p>
                 </div>
                 <div className="flow-link">
