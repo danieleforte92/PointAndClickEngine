@@ -2819,6 +2819,39 @@ button {
   margin-top: 0;
 }
 
+.flow-line-locale {
+  margin: 8px 0 10px;
+  padding: 9px;
+  border: 1px solid #34515a;
+  border-radius: 3px 8px 3px 8px;
+  background: #111b22;
+}
+
+.flow-line-locale.missing {
+  border-color: #715c35;
+  background: #211d17;
+}
+
+.flow-line-locale-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.flow-line-locale-header strong {
+  color: #9cb3bc;
+  font-family: "Courier New", monospace;
+  font-size: 0.6rem;
+}
+
+.flow-line-locale p {
+  margin: 8px 0 0;
+  color: #d6e1e5;
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+
 .flow-actions {
   display: grid;
   gap: 6px;

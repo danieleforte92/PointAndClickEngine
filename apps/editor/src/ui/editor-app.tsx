@@ -486,6 +486,11 @@ function promptPackTargetLookup(
   return null;
 }
 
+function fallbackFlowLineText(flowId: string, nodeId: string, textKey: string) {
+  const keyLabel = textKey.trim() || `${flowId}.${nodeId}`;
+  return `Draft text for ${keyLabel}`;
+}
+
 function parseWalkAreaDraft(
   walkAreaPoints: Array<{ x: string; y: string }>
 ): { points: Array<{ x: number; y: number }> } | null {
@@ -7087,9 +7092,7 @@ export function EditorApp() {
     }
   };
 
-  const applyLocaleUpsert = async (key: string, value: string) => {
-    if (!selectedLocale) return;
-
+  const saveLocaleString = async (localeId: string, key: string, value: string) => {
     const normalizedKey = key.trim();
     if (!normalizedKey) {
       setStatus("Locale keys cannot be empty");
@@ -7100,7 +7103,7 @@ export function EditorApp() {
     try {
       const snapshot = await window.pointClick.applyCommand({
         type: "locale/upsert",
-        locale: selectedLocale.locale,
+        locale: localeId,
         patch: {
           key: normalizedKey,
           value
@@ -7109,12 +7112,63 @@ export function EditorApp() {
       setProject(snapshot);
       setHistory((current) => ({
         ...current,
-        present: discardSavedDraft(current.present, "locale", selectedLocale.locale)
+        present: discardSavedDraft(current.present, "locale", localeId)
       }));
       setStatus(`Saved ${normalizedKey}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Failed to save locale string");
     }
+  };
+
+  const applyLocaleUpsert = async (key: string, value: string) => {
+    if (!selectedLocale) return;
+    await saveLocaleString(selectedLocale.locale, key, value);
+  };
+
+  const openFlowTextLocaleKey = (key: string) => {
+    if (!defaultLocaleDocument) {
+      setStatus(`Default locale "${defaultLocaleId}" is unavailable.`);
+      return;
+    }
+    const normalizedKey = key.trim();
+    if (!normalizedKey) {
+      setStatus("Set a text key before opening the locale entry.");
+      return;
+    }
+
+    setWorkspace("narrative");
+    setSceneInspectorTarget("scene");
+    updateDraftWithHistory((current) => ({
+      ...current,
+      activeActorId: null,
+      activeFlowId: null,
+      activeHotspotId: null,
+      activeItemId: null,
+      activeLocale: defaultLocaleDocument.locale,
+      activePickupId: null,
+      localeEntryDrafts: {
+        ...current.localeEntryDrafts,
+        [defaultLocaleDocument.locale]: {
+          key: normalizedKey,
+          value: defaultLocaleStrings?.[normalizedKey] ?? ""
+        }
+      }
+    }));
+    setStatus(`Opened ${normalizedKey} in ${defaultLocaleDocument.locale}.`);
+  };
+
+  const createFlowTextLocaleKey = async (node: FlowDraftNode) => {
+    if (node.type !== "line" || !selectedFlow || !defaultLocaleDocument) return;
+    const textKey = node.textKey.trim();
+    if (!textKey) {
+      setStatus("Set a text key before creating locale text.");
+      return;
+    }
+    await saveLocaleString(
+      defaultLocaleDocument.locale,
+      textKey,
+      fallbackFlowLineText(selectedFlow.id, node.id, textKey)
+    );
   };
 
   const applyLocaleDelete = async (key: string) => {
@@ -10096,6 +10150,46 @@ export function EditorApp() {
                               }
                             />
                           </label>
+                          {(() => {
+                            const textKey = node.textKey.trim();
+                            const localeValue =
+                              textKey && defaultLocaleStrings ? defaultLocaleStrings[textKey] : undefined;
+                            const localeMissing = !!textKey && !!defaultLocaleStrings && localeValue === undefined;
+                            return (
+                              <div className={`flow-line-locale ${localeMissing ? "missing" : "ready"}`}>
+                                <div className="flow-line-locale-header">
+                                  <span className={`capability-badge compact ${localeMissing ? "warn" : "good"}`}>
+                                    {localeMissing ? "Missing text" : "Localized"}
+                                  </span>
+                                  <strong>{defaultLocaleId}</strong>
+                                </div>
+                                <p>
+                                  {localeValue ??
+                                    (textKey
+                                      ? "No text exists for this key yet."
+                                      : "Add a text key to connect this line to locale text.")}
+                                </p>
+                                <div className="inspector-actions-inline">
+                                  <button
+                                    type="button"
+                                    disabled={!textKey || !defaultLocaleDocument}
+                                    onClick={() => openFlowTextLocaleKey(textKey)}
+                                  >
+                                    Open locale key
+                                  </button>
+                                  {localeMissing ? (
+                                    <button
+                                      type="button"
+                                      disabled={!defaultLocaleDocument}
+                                      onClick={() => createFlowTextLocaleKey(node)}
+                                    >
+                                      Create draft text
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </div>
+                            );
+                          })()}
                           <label>
                             Next
                             <select
