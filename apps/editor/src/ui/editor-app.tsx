@@ -2143,6 +2143,19 @@ export function EditorApp() {
       : selectedImageTargetWorkflow.mode === "transparent"
         ? "warn"
         : "good";
+  const aiWorkflowReady = !!selectedWorkflowTemplate || !!comfyUiWorkflowPath.trim();
+  const aiRecipeReady = !!selectedGenerationRecipe;
+  const aiNextAction = !activeImagePromptPack
+    ? "Generate or save a prompt pack."
+    : !selectedEffectiveGenerationTarget
+      ? "Select a generation target."
+      : selectedImageInputWorkflowWarning
+        ? "Install a workflow template that supports linked image inputs."
+        : !aiWorkflowReady
+          ? "Install a compatible workflow template or set a legacy workflow path."
+          : !aiRecipeReady
+            ? "Save the generation recipe for this target."
+            : "Generate, review, and apply the imported asset.";
   const projectHealth = project ? healthSummary(project.diagnostics, dirtyState.count) : null;
   const projectSceneOptions = useMemo(
     () => scenes.map((scene) => ({ id: scene.id, label: `${scene.name} (${scene.id})` })),
@@ -7983,6 +7996,57 @@ export function EditorApp() {
             />
           ) : workspace === "ai" ? (
             <div className="workspace-overview build-workspace ai-workspace">
+              <section className="overview-card ai-target-cockpit">
+                <div className="ai-target-cockpit-header">
+                  <div>
+                    <span className="overview-label">Target cockpit</span>
+                    <strong>{selectedEffectiveGenerationTarget?.id ?? "No target selected"}</strong>
+                    <p>{aiNextAction}</p>
+                  </div>
+                  <span className={`capability-badge ${aiRecipeReady ? "good" : aiWorkflowReady ? "warn" : "muted"}`}>
+                    {aiRecipeReady ? "Recipe ready" : aiWorkflowReady ? "Recipe needed" : "Setup needed"}
+                  </span>
+                </div>
+                <div className="ai-target-metrics">
+                  <div>
+                    <span>Scene</span>
+                    <strong>{promptPackScene?.id ?? "none"}</strong>
+                  </div>
+                  <div>
+                    <span>Target</span>
+                    <strong>{selectedEffectiveGenerationTarget?.intendedUse ?? "none"}</strong>
+                  </div>
+                  <div>
+                    <span>Workflow</span>
+                    <strong>{selectedWorkflowTemplate?.id ?? (comfyUiWorkflowPath.trim() ? "legacy path" : "missing")}</strong>
+                  </div>
+                  <div>
+                    <span>Output</span>
+                    <strong>{selectedGenerationDimensions.width} x {selectedGenerationDimensions.height}</strong>
+                  </div>
+                </div>
+                <div className="ai-target-cockpit-actions">
+                  <button
+                    className="secondary-action compact-action"
+                    disabled={!selectedPromptPack || !selectedEffectiveGenerationTarget || !selectedWorkflowTemplate}
+                    type="button"
+                    onClick={saveSelectedGenerationRecipe}
+                  >
+                    Save Recipe
+                  </button>
+                  <button
+                    className="play-action compact-action"
+                    disabled={!activeImagePromptPack || !selectedEffectiveGenerationTarget || imageGenerationState === "running"}
+                    type="button"
+                    onClick={generateImageAsset}
+                  >
+                    {imageGenerationState === "running" ? "Generating..." : "Generate"}
+                  </button>
+                </div>
+                {selectedImageInputWorkflowWarning ? (
+                  <p className="ai-target-cockpit-warning">{selectedImageInputWorkflowWarning}</p>
+                ) : null}
+              </section>
               <section className="overview-card prompt-studio-card">
                 <span className="overview-label">Brief & Context</span>
                 <strong>{promptPackScene ? `${promptPackScene.name} target brief` : "No layered scene"}</strong>

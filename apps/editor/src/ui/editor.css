@@ -2151,6 +2151,16 @@ button {
 }
 
 @media (max-width: 900px) {
+  .ai-target-cockpit-header,
+  .ai-target-cockpit-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ai-target-metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .target-customization-heading {
     align-items: stretch;
     flex-direction: column;
@@ -2372,6 +2382,81 @@ button {
 
 .ai-workspace .prompt-studio-card {
   border-color: #4a6471;
+}
+
+.ai-target-cockpit {
+  display: grid;
+  gap: 12px;
+  border-color: #4e6f75;
+  background:
+    linear-gradient(135deg, rgba(32, 49, 57, 0.95), rgba(15, 25, 32, 0.96)),
+    #18252d;
+}
+
+.ai-target-cockpit-header,
+.ai-target-cockpit-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-target-cockpit-header strong {
+  display: block;
+  margin-top: 4px;
+  color: #f3d9a1;
+  font-family: "Courier New", monospace;
+  font-size: 1rem;
+}
+
+.ai-target-cockpit-header p,
+.ai-target-cockpit-warning {
+  margin: 6px 0 0;
+  color: #c1d2d8;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.ai-target-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ai-target-metrics div {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid #314a53;
+  border-radius: 3px 8px 3px 8px;
+  background: rgba(8, 15, 22, 0.46);
+}
+
+.ai-target-metrics span {
+  display: block;
+  color: #7f98a2;
+  font-family: "Courier New", monospace;
+  font-size: 0.56rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.ai-target-metrics strong {
+  display: block;
+  overflow: hidden;
+  margin-top: 5px;
+  color: #dce7eb;
+  font-family: "Courier New", monospace;
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-target-cockpit-warning {
+  padding: 9px;
+  border: 1px solid #604b2d;
+  border-radius: 4px;
+  background: rgba(217, 165, 97, 0.1);
+  color: #f3d9a1;
 }
 
 .prompt-studio-field textarea {
