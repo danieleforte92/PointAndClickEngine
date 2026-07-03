@@ -415,24 +415,32 @@ function sceneBackgroundStyle(background: string, assetUrl?: string) {
   };
 }
 
+type AssetUsageReference = {
+  detail: string;
+  entityId?: string;
+  sceneId?: string;
+  sceneName?: string;
+  type: string;
+};
+
 function assetUsage(asset: AssetDocument, snapshot: EditorProjectSnapshot | null) {
   if (!snapshot) return [];
-  const usage: Array<{ detail: string; sceneId?: string; sceneName?: string; type: string }> = [];
+  const usage: AssetUsageReference[] = [];
   for (const scene of sceneItems(snapshot.scenes)) {
     if (scene.background === asset.path) {
       usage.push({ detail: "Scene background", sceneId: scene.id, sceneName: scene.name, type: "scene" });
     }
     if (scene.player?.assetId === asset.id) {
-      usage.push({ detail: "Player asset", sceneId: scene.id, sceneName: scene.name, type: "player" });
+      usage.push({ detail: "Player asset", entityId: "player", sceneId: scene.id, sceneName: scene.name, type: "player" });
     }
     for (const actor of scene.actors) {
       if (actor.assetId === asset.id) {
-        usage.push({ detail: `Actor ${actor.id}`, sceneId: scene.id, sceneName: scene.name, type: "actor" });
+        usage.push({ detail: `Actor ${actor.id}`, entityId: actor.id, sceneId: scene.id, sceneName: scene.name, type: "actor" });
       }
     }
     for (const pickup of scene.pickups) {
       if (pickup.assetId === asset.id) {
-        usage.push({ detail: `Pickup ${pickup.id}`, sceneId: scene.id, sceneName: scene.name, type: "pickup" });
+        usage.push({ detail: `Pickup ${pickup.id}`, entityId: pickup.id, sceneId: scene.id, sceneName: scene.name, type: "pickup" });
       }
     }
   }
@@ -462,6 +470,20 @@ function assetHealth(asset: AssetDocument, snapshot: EditorProjectSnapshot | nul
   )
     ? "missing"
     : "available";
+}
+
+function promptPackTargetLookup(
+  snapshot: EditorProjectSnapshot | null,
+  sceneId: string,
+  targetId: string
+): { promptPack: PromptPackDocument; target: PromptPackGenerationTarget } | null {
+  if (!snapshot) return null;
+  for (const promptPack of snapshot.promptPacks) {
+    if (promptPack.sceneId !== sceneId) continue;
+    const target = promptPack.outputs.generationTargets.find((entry) => entry.id === targetId);
+    if (target) return { promptPack, target };
+  }
+  return null;
 }
 
 function parseWalkAreaDraft(
@@ -6405,12 +6427,51 @@ export function EditorApp() {
     }
   };
 
+  const openAiStudioForGenerationTarget = (sceneId: string, targetId: string) => {
+    const lookup = promptPackTargetLookup(project, sceneId, targetId);
+    setPromptPackSceneId(sceneId);
+    if (lookup) {
+      setSelectedPromptPackId(lookup.promptPack.id);
+    }
+    setSelectedGenerationTargetId(lookup?.target.id ?? targetId);
+    setWorkspace("ai");
+    setStatus(
+      lookup
+        ? `Prepared AI generation target ${lookup.target.id} from ${lookup.promptPack.id}.`
+        : `Opened AI Studio for ${targetId}. Generate or save a prompt pack for this scene to create the target.`
+    );
+  };
+
   const openImageGenerationForSceneTarget = (targetId: string) => {
     if (!selectedScene) return;
-    setPromptPackSceneId(selectedScene.id);
-    setSelectedGenerationTargetId(targetId);
-    setWorkspace("ai");
-    setStatus(`Prepared AI generation target ${targetId}.`);
+    openAiStudioForGenerationTarget(selectedScene.id, targetId);
+  };
+
+  const openAiStudioForAssetUsage = () => {
+    if (!selectedAsset) return;
+    const usageTarget = selectedAssetUsage.find(
+      (usage) => usage.sceneId && (usage.type === "scene" || usage.type === "actor" || usage.type === "pickup" || usage.type === "player")
+    );
+    if (!usageTarget?.sceneId) {
+      if (selectedScene) {
+        setPromptPackSceneId(selectedScene.id);
+      }
+      setWorkspace("ai");
+      setStatus(
+        selectedScene
+          ? `Opened AI Studio for ${selectedScene.name}. This asset is not linked to a generation target yet.`
+          : "Opened AI Studio. Select a layered scene or save a prompt pack before choosing a generation target."
+      );
+      return;
+    }
+
+    const targetId =
+      usageTarget.type === "scene"
+        ? `${usageTarget.sceneId}-background`
+        : usageTarget.type === "player"
+          ? "player"
+          : usageTarget.entityId ?? selectedAsset.id;
+    openAiStudioForGenerationTarget(usageTarget.sceneId, targetId);
   };
 
   const assignGeneratedAssetToBackgroundDraft = () => {
@@ -8664,6 +8725,14 @@ export function EditorApp() {
                               onClick={assignAssetBackground}
                             >
                               <Image size={iconSize} /> Set Background
+                            </button>
+                            <button
+                              className="secondary-action compact-action"
+                              disabled={selectedAsset.kind !== "image"}
+                              type="button"
+                              onClick={openAiStudioForAssetUsage}
+                            >
+                              <WandSparkles size={iconSize} /> AI Target
                             </button>
                             <button
                               className="secondary-action compact-action"
@@ -11421,6 +11490,11 @@ export function EditorApp() {
                     setWorkspace("assets");
                   }}
                 />
+                <div className="context-action-row">
+                  <button type="button" onClick={() => openImageGenerationForSceneTarget(`${selectedScene.id}-background`)}>
+                    Generate background
+                  </button>
+                </div>
                 <div className="field-group">
                   <span>Visual layers</span>
                   <div className="layer-stack-header">
