@@ -9,12 +9,13 @@ comfortable with local developer tools.
 1. Run `pnpm install --force` and `pnpm dev`.
 2. Open `apps/sample-game/project`.
 3. Move a scene hotspot, pickup, player start, or walk-area point.
-4. Generate a mock prompt pack in **AI**.
+4. Generate a mock prompt pack in **AI Studio**, or open AI Studio from a scene
+   background, actor, pickup, or used image asset to keep the target selected.
 5. Import or drop an image asset in an inspector.
 6. Use **Remove Background** on a flat blue/green chroma image and save the
    result as a new PNG asset.
-7. Run validation in **Build**, then preview with **Play from here** and
-   **Browser**.
+7. Run validation in **Build**, open any actionable diagnostic to jump to its
+   source object, then preview with **Play from here** and **Browser**.
 
 ## Included
 
@@ -39,6 +40,9 @@ comfortable with local developer tools.
   dimensions, warnings, model, and seed.
 - Inspector asset import/drop, pickup image assets, and chroma cleanup for flat
   blue/green backgrounds.
+- Project, Scenes, Narrative, AI Studio, Assets, and Build now share direct
+  navigation: summaries, scene selections, narrative triggers, AI targets, and
+  build diagnostics open the relevant object instead of acting as passive lists.
 
 ## Known Limitations
 

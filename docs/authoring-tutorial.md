@@ -28,15 +28,19 @@ validated project that can be previewed in the editor or web player.
 5. In **Scenes**, add an optional visual layer from an imported image when you
    need foreground props, fog, overlays, or depth polish.
 
-6. Use the Narrative workspace to create or edit a flow. For a second scene,
-   add a `change-scene` node and choose the target scene.
+6. Use the Narrative workspace to create or edit a flow. Scene-linked flows show
+   their triggering entity, so you can jump back to the hotspot, actor, or pickup
+   that invokes the selected flow. For a second scene, add a `change-scene` node
+   and choose the target scene.
 
 7. Use Asset Studio to import image files. Assign an imported asset as a
    background or actor asset from the Scene inspector.
 
-8. Optional: use AI Studio to generate a deterministic mock prompt pack.
-   If LM Studio or ComfyUI are running locally, configure those providers to
-   draft prompts or generate an imported image asset.
+8. Optional: use AI Studio to generate a deterministic mock prompt pack. From a
+   scene background, actor, pickup, or used image asset, use the AI target action
+   to open AI Studio with the matching scene target selected. If LM Studio or
+   ComfyUI are running locally, configure those providers to draft prompts or
+   generate an imported image asset.
 
 9. Preview with **Play from here**. The preview uses unsaved drafts when launched
    from the editor.
@@ -49,3 +53,6 @@ validated project that can be previewed in the editor or web player.
 
 The expected result is a valid project with no errors. Warnings identify missing
 locale text or optional polish, but errors block preview and release checks.
+When the Build workspace lists an actionable issue, open it from the issue row
+to land on the related scene entity, narrative flow, asset, prompt target, recipe,
+or workflow template.
