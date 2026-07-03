@@ -9,7 +9,11 @@ export type BuildReadinessTarget =
   | { kind: "flow"; flowId: string }
   | { kind: "item"; itemId: string }
   | { kind: "asset"; assetId: string }
-  | { kind: "animation-pack"; animationPackId: string };
+  | { kind: "animation-pack"; animationPackId: string }
+  | { kind: "prompt-pack"; promptPackId: string; targetId?: string }
+  | { kind: "generation-recipe"; generationRecipeId: string }
+  | { kind: "workflow-template"; workflowTemplateId: string }
+  | { kind: "style-bible"; styleBibleId: string };
 
 export interface BuildReadinessIssue {
   actionLabel?: string;
@@ -126,6 +130,31 @@ function readinessTargetFromDiagnostic(diagnostic: ProjectDiagnostic): BuildRead
     return { kind: "animation-pack", animationPackId: animationPackMatch[1]! };
   }
 
+  const promptPackTargetMatch = matchPath(diagnostic.path, /^prompt-packs\/([^/]+)\/generationTargets\/([^/]+)/);
+  if (promptPackTargetMatch) {
+    return { kind: "prompt-pack", promptPackId: promptPackTargetMatch[1]!, targetId: promptPackTargetMatch[2]! };
+  }
+
+  const promptPackMatch = matchPath(diagnostic.path, /^prompt-packs\/([^/]+)/);
+  if (promptPackMatch) {
+    return { kind: "prompt-pack", promptPackId: promptPackMatch[1]! };
+  }
+
+  const generationRecipeMatch = matchPath(diagnostic.path, /^generation-recipes\/([^/]+)/);
+  if (generationRecipeMatch) {
+    return { kind: "generation-recipe", generationRecipeId: generationRecipeMatch[1]! };
+  }
+
+  const workflowTemplateMatch = matchPath(diagnostic.path, /^workflow-templates\/([^/]+)/);
+  if (workflowTemplateMatch) {
+    return { kind: "workflow-template", workflowTemplateId: workflowTemplateMatch[1]! };
+  }
+
+  const styleBibleMatch = matchPath(diagnostic.path, /^style-bibles\/([^/]+)/);
+  if (styleBibleMatch) {
+    return { kind: "style-bible", styleBibleId: styleBibleMatch[1]! };
+  }
+
   if (diagnostic.code === "flow.invalid-references" && diagnostic.documentId) {
     return { kind: "flow", flowId: diagnostic.documentId };
   }
@@ -157,6 +186,14 @@ function actionLabelForTarget(target: BuildReadinessTarget | undefined): string 
       return "Open asset";
     case "animation-pack":
       return "Open animation pack";
+    case "prompt-pack":
+      return target.targetId ? "Open prompt target" : "Open prompt pack";
+    case "generation-recipe":
+      return "Open generation recipe";
+    case "workflow-template":
+      return "Open workflow template";
+    case "style-bible":
+      return "Open style bible";
   }
 }
 

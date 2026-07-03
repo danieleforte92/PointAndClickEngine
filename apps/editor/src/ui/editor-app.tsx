@@ -5888,6 +5888,14 @@ export function EditorApp() {
         return project.assets.some((asset) => asset.id === target.assetId);
       case "animation-pack":
         return project.animationPacks.some((animationPack) => animationPack.id === target.animationPackId);
+      case "prompt-pack":
+        return project.promptPacks.some((promptPack) => promptPack.id === target.promptPackId);
+      case "generation-recipe":
+        return project.generationRecipes.some((recipe) => recipe.id === target.generationRecipeId);
+      case "workflow-template":
+        return project.workflowTemplates.some((template) => template.id === target.workflowTemplateId);
+      case "style-bible":
+        return project.styleBibles.some((styleBible) => styleBible.id === target.styleBibleId);
     }
   };
 
@@ -5905,7 +5913,57 @@ export function EditorApp() {
     if (target.kind === "animation-pack") {
       setWorkspace("assets");
       setSelectedAnimationPackId(target.animationPackId);
+      setActiveAssetTool("animation");
       setStatus(`Opened animation pack ${target.animationPackId} from build readiness.`);
+      return;
+    }
+
+    if (target.kind === "prompt-pack") {
+      const promptPack = project.promptPacks.find((entry) => entry.id === target.promptPackId);
+      setWorkspace("ai");
+      setSelectedPromptPackId(target.promptPackId);
+      if (promptPack) {
+        setPromptPackSceneId(promptPack.sceneId);
+      }
+      if (target.targetId) {
+        setSelectedGenerationTargetId(target.targetId);
+      }
+      setStatus(
+        target.targetId
+          ? `Opened prompt target ${target.promptPackId}/${target.targetId} from build readiness.`
+          : `Opened prompt pack ${target.promptPackId} from build readiness.`
+      );
+      return;
+    }
+
+    if (target.kind === "generation-recipe") {
+      const recipe = project.generationRecipes.find((entry) => entry.id === target.generationRecipeId);
+      const promptPack = recipe ? project.promptPacks.find((entry) => entry.id === recipe.promptPackId) : null;
+      setWorkspace("ai");
+      if (recipe) {
+        setSelectedPromptPackId(recipe.promptPackId ?? null);
+        if (recipe.targetId) {
+          setSelectedGenerationTargetId(recipe.targetId);
+        }
+        setSelectedWorkflowTemplateId(recipe.workflowId);
+        if (recipe.sceneId ?? promptPack?.sceneId) {
+          setPromptPackSceneId(recipe.sceneId ?? promptPack!.sceneId);
+        }
+      }
+      setStatus(`Opened generation recipe ${target.generationRecipeId} from build readiness.`);
+      return;
+    }
+
+    if (target.kind === "workflow-template") {
+      setWorkspace("ai");
+      setSelectedWorkflowTemplateId(target.workflowTemplateId);
+      setStatus(`Opened workflow template ${target.workflowTemplateId} from build readiness.`);
+      return;
+    }
+
+    if (target.kind === "style-bible") {
+      setWorkspace("ai");
+      setStatus(`Opened style bible ${target.styleBibleId} context from build readiness.`);
       return;
     }
 

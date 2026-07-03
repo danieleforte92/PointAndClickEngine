@@ -83,6 +83,34 @@ describe("validation-report helpers", () => {
         message: "Asset file is missing",
         path: "assets/hero-sheet/path",
         severity: "error"
+      },
+      {
+        code: "prompt-pack.generation-guide-missing",
+        documentId: "mock-intro-art",
+        message: "Prompt target guide is missing",
+        path: "prompt-packs/mock-intro-art/generationTargets/door/guideIds/door-mask",
+        severity: "error"
+      },
+      {
+        code: "generation-recipe.workflow-missing",
+        documentId: "door-sdxl",
+        message: "Recipe workflow is missing",
+        path: "generation-recipes/door-sdxl/workflowId",
+        severity: "error"
+      },
+      {
+        code: "workflow-template.file-missing",
+        documentId: "sdxl-background",
+        message: "Workflow file is missing",
+        path: "workflow-templates/sdxl-background/workflowPath",
+        severity: "error"
+      },
+      {
+        code: "style-bible.reference-asset-missing",
+        documentId: "main-style",
+        message: "Style bible reference is missing",
+        path: "style-bibles/main-style/referenceAssetIds/missing-ref",
+        severity: "error"
       }
     ]);
 
@@ -90,13 +118,21 @@ describe("validation-report helpers", () => {
       { kind: "player", sceneId: "intro" },
       { kind: "hotspot", sceneId: "intro", hotspotId: "door" },
       { kind: "actor", sceneId: "intro", actorId: "captain" },
-      { kind: "asset", assetId: "hero-sheet" }
+      { kind: "asset", assetId: "hero-sheet" },
+      { kind: "prompt-pack", promptPackId: "mock-intro-art", targetId: "door" },
+      { kind: "generation-recipe", generationRecipeId: "door-sdxl" },
+      { kind: "workflow-template", workflowTemplateId: "sdxl-background" },
+      { kind: "style-bible", styleBibleId: "main-style" }
     ]);
     expect(issues.map((issue) => issue.actionLabel)).toEqual([
       "Open player setup",
       "Open hotspot",
       "Open actor",
-      "Open asset"
+      "Open asset",
+      "Open prompt target",
+      "Open generation recipe",
+      "Open workflow template",
+      "Open style bible"
     ]);
   });
 });
