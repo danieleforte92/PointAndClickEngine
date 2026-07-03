@@ -488,6 +488,38 @@ button {
   scrollbar-width: thin;
 }
 
+.scene-selection-summary {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-bottom: 1px solid var(--pc-border);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.scene-selection-summary strong {
+  color: var(--pc-paper-100);
+  font-size: 0.82rem;
+}
+
+.scene-selection-summary p {
+  margin: 0;
+  color: var(--pc-text-muted);
+  font-family: var(--pc-font-mono);
+  font-size: 0.66rem;
+}
+
+.scene-selection-pill {
+  width: fit-content;
+  padding: 3px 7px;
+  color: var(--pc-amber-400);
+  border: 1px solid rgba(215, 167, 101, 0.32);
+  border-radius: var(--pc-radius-sm);
+  background: rgba(215, 167, 101, 0.08);
+  font-size: 0.58rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
 .tree::-webkit-scrollbar,
 .canvas-panel > :not(.canvas-toolbar):not(.timeline-strip)::-webkit-scrollbar,
 .inspector-content::-webkit-scrollbar {

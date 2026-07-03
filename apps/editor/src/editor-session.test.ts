@@ -22,6 +22,7 @@ import {
   resizeSceneRectFromBottomRight,
   restoreSessionFromRecovery,
   sceneItems,
+  sceneSelectionTargetFor,
   undoHistory,
   workspaceForNavigationTarget
 } from "./editor-session";
@@ -144,6 +145,60 @@ describe("editor-session navigation targets", () => {
       })
     ).toBe("scene");
     expect(workspaceForNavigationTarget({ workspace: "build", diagnosticId: "asset.file-missing" })).toBe("build");
+  });
+});
+
+describe("editor-session scene selection targets", () => {
+  const baseSelection = {
+    activeActorId: null,
+    activeHotspotId: null,
+    activePickupId: null,
+    activeSceneId: "moonlit-dock",
+    activeSceneTool: "select" as const,
+    playerSelected: false,
+    selectedGenerationGuideId: null,
+    selectedSceneLayerId: null
+  };
+
+  it("derives the selected scene object from editor state", () => {
+    expect(sceneSelectionTargetFor(baseSelection)).toEqual({
+      kind: "scene",
+      sceneId: "moonlit-dock"
+    });
+    expect(sceneSelectionTargetFor({ ...baseSelection, activeActorId: "radio" })).toEqual({
+      entityId: "radio",
+      kind: "actor",
+      sceneId: "moonlit-dock"
+    });
+    expect(sceneSelectionTargetFor({ ...baseSelection, activeSceneTool: "walk-area" })).toEqual({
+      kind: "walk-area",
+      sceneId: "moonlit-dock"
+    });
+  });
+
+  it("prioritizes local layer and guide selections over entity selections", () => {
+    expect(
+      sceneSelectionTargetFor({
+        ...baseSelection,
+        activeActorId: "radio",
+        selectedSceneLayerId: "foreground-fog"
+      })
+    ).toEqual({
+      entityId: "foreground-fog",
+      kind: "layer",
+      sceneId: "moonlit-dock"
+    });
+    expect(
+      sceneSelectionTargetFor({
+        ...baseSelection,
+        activeHotspotId: "door",
+        selectedGenerationGuideId: "door-mask"
+      })
+    ).toEqual({
+      entityId: "door-mask",
+      kind: "guide",
+      sceneId: "moonlit-dock"
+    });
   });
 });
 

@@ -124,6 +124,7 @@ import {
   redoHistory,
   resizeSceneRectFromBottomRight,
   restoreSessionFromRecovery,
+  sceneSelectionTargetFor,
   sceneItems,
   type DraftNodeType,
   type ActorDraft,
@@ -134,6 +135,7 @@ import {
   type FlowDraftNode,
   type SceneDraft,
   type SceneLayerDraft,
+  type SceneSelectionTarget,
   type ScenePointDraftValue,
   type SceneRectDraftValue,
   sessionEquals,
@@ -532,6 +534,7 @@ interface InspectorDetailState {
   hasSelectedPickup: boolean;
   hasSelectedScene: boolean;
   isPlayerInspectorSelected: boolean;
+  sceneSelectionTarget: SceneSelectionTarget | null;
   workspace: Workspace;
 }
 
@@ -563,12 +566,14 @@ function inspectorDetailFor({
   hasSelectedPickup,
   hasSelectedScene,
   isPlayerInspectorSelected,
+  sceneSelectionTarget,
   workspace
 }: InspectorDetailState): string {
   if (workspace === "overview") return "Project";
   if (workspace === "assets") return "Library";
   if (workspace === "ai") return "AI";
   if (workspace === "build") return "Validation";
+  if (workspace === "scene" && sceneSelectionTarget) return sceneSelectionKindLabel(sceneSelectionTarget.kind);
   if (hasSelectedFlow) return "Flow";
   if (hasSelectedLocale) return "Locale";
   if (isPlayerInspectorSelected) return "Player";
@@ -577,6 +582,65 @@ function inspectorDetailFor({
   if (hasSelectedItem) return "Item";
   if (hasSelectedScene) return "Scene";
   return "";
+}
+
+function sceneSelectionKindLabel(kind: SceneSelectionTarget["kind"]): string {
+  switch (kind) {
+    case "scene":
+      return "Scene";
+    case "background":
+      return "Background";
+    case "layer":
+      return "Layer";
+    case "walk-area":
+      return "Walk Area";
+    case "player-start":
+      return "Player";
+    case "actor":
+      return "Actor";
+    case "pickup":
+      return "Pickup";
+    case "hotspot":
+      return "Hotspot";
+    case "guide":
+      return "Guide";
+  }
+}
+
+function sceneSelectionSummary({
+  selectedActor,
+  selectedGenerationGuide,
+  selectedHotspot,
+  selectedPickup,
+  selectedScene,
+  selectedSceneLayer,
+  target
+}: {
+  selectedActor: SceneActor | null;
+  selectedGenerationGuide: SceneGenerationGuide | null;
+  selectedHotspot: Hotspot | null;
+  selectedPickup: ScenePickup | null;
+  selectedScene: Layered2DScene | null;
+  selectedSceneLayer: SceneLayerDraft | null;
+  target: SceneSelectionTarget | null;
+}) {
+  if (!target || !selectedScene) {
+    return {
+      detail: "Open a scene to select scene-local objects.",
+      title: "No scene selection"
+    };
+  }
+
+  const label = sceneSelectionKindLabel(target.kind);
+  if (target.kind === "scene") return { detail: selectedScene.id, title: selectedScene.name };
+  if (target.kind === "walk-area") return { detail: selectedScene.id, title: "Walk area polygon" };
+  if (target.kind === "player-start") return { detail: selectedScene.id, title: "Player start and movement" };
+  if (target.kind === "layer") return { detail: target.entityId ?? "layer", title: selectedSceneLayer?.name || target.entityId || label };
+  if (target.kind === "guide") return { detail: target.entityId ?? "guide", title: selectedGenerationGuide?.name || target.entityId || label };
+  if (target.kind === "actor") return { detail: target.entityId ?? "actor", title: selectedActor?.labelKey || target.entityId || label };
+  if (target.kind === "pickup") return { detail: target.entityId ?? "pickup", title: selectedPickup?.labelKey || target.entityId || label };
+  if (target.kind === "hotspot") return { detail: target.entityId ?? "hotspot", title: selectedHotspot?.labelKey || target.entityId || label };
+  return { detail: selectedScene.id, title: label };
 }
 
 function stageToolbarModelFor({
@@ -2100,6 +2164,27 @@ export function EditorApp() {
     currentGenerationGuides.find((guide) => guide.id === selectedGenerationGuideId) ??
     currentGenerationGuides[0] ??
     null;
+  const selectedSceneLayer =
+    selectedSceneLayerId ? currentSceneDraft.layers.find((layer) => layer.id === selectedSceneLayerId) ?? null : null;
+  const sceneSelectionTarget = sceneSelectionTargetFor({
+    activeActorId: session.activeActorId,
+    activeHotspotId: session.activeHotspotId,
+    activePickupId: session.activePickupId,
+    activeSceneId: selectedScene?.id ?? session.activeSceneId,
+    activeSceneTool,
+    playerSelected: sceneInspectorTarget === "player",
+    selectedGenerationGuideId,
+    selectedSceneLayerId: selectedSceneLayer?.id ?? null
+  });
+  const sceneSelection = sceneSelectionSummary({
+    selectedActor,
+    selectedGenerationGuide,
+    selectedHotspot,
+    selectedPickup,
+    selectedScene: selectedScene?.type === "layered-2d" ? selectedScene : null,
+    selectedSceneLayer,
+    target: sceneSelectionTarget
+  });
   const savedPromptPackTargets = selectedPromptPack?.outputs.generationTargets ?? [];
   const selectedSavedGenerationTarget =
     savedPromptPackTargets.find((target) => target.id === selectedGenerationTargetId) ??
@@ -9545,9 +9630,20 @@ export function EditorApp() {
             hasSelectedPickup: !!selectedPickup,
             hasSelectedScene: !!selectedScene,
             isPlayerInspectorSelected,
+            sceneSelectionTarget,
             workspace
           })}
         >
+            {workspace === "scene" ? (
+              <div className="scene-selection-summary">
+                <span className="overview-label">Scene selection</span>
+                <strong>{sceneSelection.title}</strong>
+                <p>{sceneSelection.detail}</p>
+                {sceneSelectionTarget ? (
+                  <span className="scene-selection-pill">{sceneSelectionKindLabel(sceneSelectionTarget.kind)}</span>
+                ) : null}
+              </div>
+            ) : null}
             {workspace === "overview" ? (
               <>
                 <div className="flow-link">

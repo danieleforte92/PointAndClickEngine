@@ -28,6 +28,12 @@ export type SceneNavigationEntityKind =
   | "pickup"
   | "hotspot"
   | "guide";
+export type SceneSelectionTool = "select" | "actor" | "hotspot" | "pickup" | "player-start" | "walk-area";
+export type SceneSelectionTarget = {
+  entityId?: string;
+  kind: SceneNavigationEntityKind;
+  sceneId: string | null;
+};
 export type ProjectNavigationSection = "health" | "settings" | "entrypoints" | "structure" | "diagnostics";
 
 export type EditorNavigationTarget =
@@ -40,6 +46,36 @@ export type EditorNavigationTarget =
 
 export function workspaceForNavigationTarget(target: EditorNavigationTarget): Workspace {
   return target.workspace;
+}
+
+export function sceneSelectionTargetFor({
+  activeActorId,
+  activeHotspotId,
+  activePickupId,
+  activeSceneId,
+  activeSceneTool,
+  playerSelected,
+  selectedGenerationGuideId,
+  selectedSceneLayerId
+}: {
+  activeActorId: string | null;
+  activeHotspotId: string | null;
+  activePickupId: string | null;
+  activeSceneId: string | null;
+  activeSceneTool: SceneSelectionTool;
+  playerSelected: boolean;
+  selectedGenerationGuideId: string | null;
+  selectedSceneLayerId: string | null;
+}): SceneSelectionTarget | null {
+  if (!activeSceneId) return null;
+  if (selectedSceneLayerId) return { entityId: selectedSceneLayerId, kind: "layer", sceneId: activeSceneId };
+  if (selectedGenerationGuideId) return { entityId: selectedGenerationGuideId, kind: "guide", sceneId: activeSceneId };
+  if (playerSelected || activeSceneTool === "player-start") return { kind: "player-start", sceneId: activeSceneId };
+  if (activeActorId) return { entityId: activeActorId, kind: "actor", sceneId: activeSceneId };
+  if (activePickupId) return { entityId: activePickupId, kind: "pickup", sceneId: activeSceneId };
+  if (activeHotspotId) return { entityId: activeHotspotId, kind: "hotspot", sceneId: activeSceneId };
+  if (activeSceneTool === "walk-area") return { kind: "walk-area", sceneId: activeSceneId };
+  return { kind: "scene", sceneId: activeSceneId };
 }
 
 export type FlagValueKind = "string" | "number" | "boolean";
