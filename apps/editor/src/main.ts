@@ -21,14 +21,17 @@ import type {
 } from "@pointclick/contracts";
 import type { EditorRecoverySnapshot } from "./editor-session";
 import { generateComfyUIImage } from "./comfyui-image-provider";
+import { GoogleImageProvider } from "./google-image-provider";
 import {
   bitmapHasAlphaPixels,
   generatedImageParentAssetIds,
   generatedImageOutputWarning,
+  type ImageGenerationProviderResult,
   type GenerateImageAssetRequest
 } from "./image-generation";
 import { generateLMStudioPromptPack } from "./lmstudio-prompt-provider";
 import { generateOpenAIPromptPack } from "./openai-prompt-provider";
+import { OpenAIImageProvider } from "./openai-image-provider";
 import type { EditorPreviewRequest } from "./preload";
 import { mockPromptPackProvider, type GeneratePromptPackRequest, type PromptProviderId } from "./prompt-pack-studio";
 import { createValidationReport } from "./validation-report";
@@ -728,7 +731,8 @@ async function readAssetUploadInput(projectDirectory: string, bundle: ProjectBun
 }
 
 async function generateImageAsset(request: GenerateImageAssetRequest) {
-  if (request.providerId !== "comfyui") {
+  const providerId = request.providerId === "comfyui" ? "comfyui-local" : request.providerId;
+  if (!["comfyui-local", "openai-image", "google-image"].includes(providerId)) {
     throw new Error(`Unsupported image provider "${request.providerId}"`);
   }
 
@@ -746,8 +750,6 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
   if (workflowTemplate && request.maskAssetId && !workflowTemplate.supportedInputs.includes("mask-image")) {
     throw new Error(`Workflow template "${workflowTemplate.id}" does not support mask-image input.`);
   }
-  const workflowPath = workflowTemplate?.workflowPath ?? request.workflowPath;
-  const workflowJson = workflowPath ? await readComfyWorkflowJson(projectDirectory, workflowPath) : undefined;
   const referenceImages = await Promise.all(
     (request.referenceAssetIds ?? []).map((assetId) =>
       readAssetUploadInput(projectDirectory, projectBeforeGeneration.bundle, assetId)
@@ -756,35 +758,120 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
   const maskImage = request.maskAssetId
     ? await readAssetUploadInput(projectDirectory, projectBeforeGeneration.bundle, request.maskAssetId)
     : undefined;
-  console.info(
-    `[ComfyUI] Queueing ${request.targetId} at ${request.baseUrl ?? "http://127.0.0.1:8188"} using ${
-      workflowTemplate
-        ? `workflow template ${workflowTemplate.id}`
-        : request.workflowPath
-          ? `legacy workflow ${request.workflowPath}`
-          : `checkpoint ${request.checkpointName}`
-    }`
-  );
-  const result = await generateComfyUIImage(
-    {
+
+  let result: ImageGenerationProviderResult;
+  if (providerId === "comfyui-local") {
+    const workflowPath = workflowTemplate?.workflowPath ?? request.workflowPath;
+    const workflowJson = workflowPath ? await readComfyWorkflowJson(projectDirectory, workflowPath) : undefined;
+    console.info(
+      `[ComfyUI] Queueing ${request.targetId} at ${request.baseUrl ?? "http://127.0.0.1:8188"} using ${
+        workflowTemplate
+          ? `workflow template ${workflowTemplate.id}`
+          : request.workflowPath
+            ? `legacy workflow ${request.workflowPath}`
+            : `checkpoint ${request.checkpointName}`
+      }`
+    );
+    const comfyResult = await generateComfyUIImage(
+      {
+        height: request.height,
+        prompt: request.prompt,
+        targetId: request.targetId,
+        width: request.width,
+        ...(request.negativePrompt ? { negativePrompt: request.negativePrompt } : {}),
+        ...(request.seed !== undefined ? { seed: request.seed } : {})
+      },
+      {
+        ...(request.baseUrl ? { baseUrl: request.baseUrl } : {}),
+        ...(request.checkpointName ? { checkpointName: request.checkpointName } : {}),
+        ...(referenceImages.length ? { referenceImages } : {}),
+        ...(maskImage ? { maskImage } : {}),
+        ...(workflowTemplate ? { outputNodeId: request.outputNodeId ?? workflowTemplate.output.nodeId } : {}),
+        ...(request.timeoutMs ? { timeoutMs: request.timeoutMs } : {}),
+        ...(workflowTemplate ? { workflowBindings: workflowTemplate.bindings } : {}),
+        ...(workflowJson ? { workflowJson } : {})
+      }
+    );
+    result = {
+      bytes: comfyResult.bytes,
+      filename: comfyResult.filename,
+      height: comfyResult.height,
+      mimeType: comfyResult.mimeType,
+      model: comfyResult.model,
+      providerId,
+      providerJobId: comfyResult.promptId,
+      seed: comfyResult.seed,
+      targetId: comfyResult.targetId,
+      width: comfyResult.width
+    };
+  } else if (providerId === "openai-image") {
+    result = await new OpenAIImageProvider({
+      ...(request.openAiApiKey ? { apiKey: request.openAiApiKey } : {}),
+      ...(request.openAiBaseUrl ? { baseUrl: request.openAiBaseUrl } : {}),
+      ...(request.openAiMode ? { mode: request.openAiMode } : {}),
+      ...(request.openAiModel ? { model: request.openAiModel } : {})
+    }).generate({
       height: request.height,
-      prompt: request.prompt,
-      targetId: request.targetId,
-      width: request.width,
       ...(request.negativePrompt ? { negativePrompt: request.negativePrompt } : {}),
-      ...(request.seed !== undefined ? { seed: request.seed } : {})
-    },
-    {
-      ...(request.baseUrl ? { baseUrl: request.baseUrl } : {}),
-      ...(request.checkpointName ? { checkpointName: request.checkpointName } : {}),
-      ...(referenceImages.length ? { referenceImages } : {}),
-      ...(maskImage ? { maskImage } : {}),
-      ...(workflowTemplate ? { outputNodeId: request.outputNodeId ?? workflowTemplate.output.nodeId } : {}),
+      output: {
+        expectedAlpha: request.expectedAlpha ?? false,
+        mode: request.backgroundMode
+      },
+      prompt: request.prompt,
+      providerConfig: {},
+      ...(request.recipeId ? { recipeId: request.recipeId } : {}),
+      ...(maskImage ? { maskAsset: { ...maskImage, id: request.maskAssetId! } } : {}),
+      ...(referenceImages.length
+        ? {
+            referenceAssets: referenceImages.map((referenceImage, index) => ({
+              ...referenceImage,
+              id: request.referenceAssetIds![index]!
+            }))
+          }
+        : {}),
+      ...(request.seed !== undefined ? { seed: request.seed } : {}),
+      targetId: request.targetId,
       ...(request.timeoutMs ? { timeoutMs: request.timeoutMs } : {}),
-      ...(workflowTemplate ? { workflowBindings: workflowTemplate.bindings } : {}),
-      ...(workflowJson ? { workflowJson } : {})
-    }
-  );
+      width: request.width,
+      ...(request.workflowFamily ? { workflowFamily: request.workflowFamily } : {}),
+      ...(workflowId ? { workflowId } : {})
+    });
+  } else {
+    result = await new GoogleImageProvider({
+      ...(request.googleAccessToken ? { accessToken: request.googleAccessToken } : {}),
+      ...(request.googleApiKey ? { apiKey: request.googleApiKey } : {}),
+      ...(request.googleBaseUrl ? { baseUrl: request.googleBaseUrl } : {}),
+      ...(request.googleLocation ? { location: request.googleLocation } : {}),
+      ...(request.googleModel ? { model: request.googleModel } : {}),
+      ...(request.googleProjectId ? { projectId: request.googleProjectId } : {}),
+      ...(request.googleProvider ? { provider: request.googleProvider } : {})
+    }).generate({
+      height: request.height,
+      ...(request.negativePrompt ? { negativePrompt: request.negativePrompt } : {}),
+      output: {
+        expectedAlpha: request.expectedAlpha ?? false,
+        mode: request.backgroundMode
+      },
+      prompt: request.prompt,
+      providerConfig: {},
+      ...(request.recipeId ? { recipeId: request.recipeId } : {}),
+      ...(maskImage ? { maskAsset: { ...maskImage, id: request.maskAssetId! } } : {}),
+      ...(referenceImages.length
+        ? {
+            referenceAssets: referenceImages.map((referenceImage, index) => ({
+              ...referenceImage,
+              id: request.referenceAssetIds![index]!
+            }))
+          }
+        : {}),
+      ...(request.seed !== undefined ? { seed: request.seed } : {}),
+      targetId: request.targetId,
+      ...(request.timeoutMs ? { timeoutMs: request.timeoutMs } : {}),
+      width: request.width,
+      ...(request.workflowFamily ? { workflowFamily: request.workflowFamily } : {}),
+      ...(workflowId ? { workflowId } : {})
+    });
+  }
   const image = nativeImage.createFromBuffer(Buffer.from(result.bytes));
   const hasAlphaPixels = bitmapHasAlphaPixels(image.toBitmap());
   const expectedAlpha = request.expectedAlpha ?? false;
@@ -797,7 +884,7 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
   const importedAssetsDirectory = path.join(projectDirectory, "assets", "imported");
   await mkdir(importedAssetsDirectory, { recursive: true });
 
-  const safeFilename = `${slugifyAssetId(request.targetId)}-${result.promptId.slice(0, 8)}.png`;
+  const safeFilename = `${slugifyAssetId(request.targetId)}-${result.providerJobId.slice(0, 8)}.png`;
   const targetPath = await uniquePath(path.join(importedAssetsDirectory, safeFilename));
   await writeFile(targetPath, Buffer.from(result.bytes));
 
@@ -830,9 +917,12 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
         kind: "image",
         source: "generated",
         generation: {
-          provider: "comfyui",
-          model: result.model,
-          seed: result.seed,
+          provider: result.providerId,
+          providerJobId: result.providerJobId,
+          ...(result.model ? { model: result.model } : {}),
+          ...(result.seed !== undefined ? { seed: result.seed } : {}),
+          ...(result.latencyMs !== undefined ? { latencyMs: result.latencyMs } : {}),
+          ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
           ...(workflowTemplate ? { workflowId: workflowTemplate.id } : {}),
           ...(request.recipeId ? { recipeId: request.recipeId } : {}),
           ...(provenanceWorkflowFamily ? { workflowFamily: provenanceWorkflowFamily } : {}),
@@ -850,7 +940,7 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
           ...(request.referenceAssetIds?.length ? { referenceAssetIds: request.referenceAssetIds } : {}),
           ...(request.maskAssetId ? { maskAssetId: request.maskAssetId } : {}),
           ...(request.guideIds?.length ? { guideIds: request.guideIds } : {}),
-          ...(outputWarning ? { warnings: [outputWarning] } : {})
+          ...(outputWarning || result.warnings?.length ? { warnings: [...(result.warnings ?? []), ...(outputWarning ? [outputWarning] : [])] } : {})
         }
       }
     ]
@@ -862,12 +952,12 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
     assetPath: relativeFilePath,
     expectedAlpha,
     hasAlphaPixels,
-    model: result.model,
+    model: result.model ?? result.providerId,
     ...(request.backgroundMode ? { backgroundMode: request.backgroundMode } : {}),
     ...(outputWarning ? { outputWarning } : {}),
-    promptId: result.promptId,
-    provider: "comfyui" as const,
-    seed: result.seed,
+    promptId: result.providerJobId,
+    provider: result.providerId,
+    seed: result.seed ?? request.seed ?? 0,
     snapshot: await summarizeProject(loaded.directory, loaded.bundle),
     status: "completed" as const,
     targetId: result.targetId

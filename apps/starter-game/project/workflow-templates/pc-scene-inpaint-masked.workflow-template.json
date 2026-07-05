@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "id": "pc-scene-inpaint-masked",
+  "name": "PointClick Scene Inpaint Masked SD 1.5 8GB",
+  "family": "scene_inpaint_masked",
+  "workflowPath": "workflows/pc-scene-inpaint-masked.workflow.json",
+  "outputMode": "opaque-image",
+  "hardwareProfile": "8GB VRAM, SD 1.5 inpainting checkpoint",
+  "supportedInputs": [
+    "prompt",
+    "negative-prompt",
+    "seed",
+    "dimensions",
+    "checkpoint",
+    "reference-image",
+    "mask-image",
+    "output-prefix"
+  ],
+  "bindings": [
+    {
+      "input": "prompt",
+      "nodeId": "6",
+      "inputKey": "text",
+      "required": true
+    },
+    {
+      "input": "negative-prompt",
+      "nodeId": "7",
+      "inputKey": "text"
+    },
+    {
+      "input": "seed",
+      "nodeId": "3",
+      "inputKey": "seed"
+    },
+    {
+      "input": "dimensions",
+      "nodeId": "5",
+      "inputKey": "width",
+      "required": true
+    },
+    {
+      "input": "checkpoint",
+      "nodeId": "4",
+      "inputKey": "ckpt_name"
+    },
+    {
+      "input": "reference-image",
+      "nodeId": "10",
+      "inputKey": "image",
+      "required": true
+    },
+    {
+      "input": "mask-image",
+      "nodeId": "11",
+      "inputKey": "image",
+      "required": true
+    },
+    {
+      "input": "output-prefix",
+      "nodeId": "9",
+      "inputKey": "filename_prefix"
+    }
+  ],
+  "output": {
+    "nodeId": "9",
+    "kind": "opaque-image"
+  },
+  "notes": [
+    "Recommended checkpoint: SD 1.5 inpainting-compatible checkpoint in ComfyUI/models/checkpoints.",
+    "Uses only core ComfyUI LoadImage, LoadImageMask, VAEEncodeForInpaint, KSampler, and SaveImage nodes.",
+    "Use compiled reference and mask assets from a scene guide before queueing."
+  ]
+}

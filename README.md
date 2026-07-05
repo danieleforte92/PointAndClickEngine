@@ -90,14 +90,23 @@ Creator Alpha does not require paid provider keys.
 - **ComfyUI local** can generate image assets from installed 8GB-oriented
   workflow presets and reviewable recipes. Legacy exported API workflows remain
   available for advanced users.
-- **OpenAI** is optional and requires an API platform key; ChatGPT subscriptions
-  do not replace API billing.
+- **Free target prompts** let creators generate a selected scene background,
+  layer, player, hotspot, pickup, or actor directly from Scene with a shared art
+  style preset and chroma/alpha output contract, without drafting a full prompt
+  pack first.
+- **OpenAI image** and **Google image** providers are optional beta paths for
+  text-to-image generation. API keys, access tokens, cloud project ids, base
+  URLs, and model choices stay in the editor session and are not written to
+  project JSON.
+- **OpenAI prompt packs** are optional and require an API platform key; ChatGPT
+  subscriptions do not replace API billing.
 
 AI output is treated as draft authoring material. Prompt packs are saved only
 after approval, image generation imports normal asset documents, and provider
-provenance stays visible. Generated image assets record prompt, seed, model,
-workflow id, recipe id, workflow family, references, masks, parent asset
-lineage, warnings, and prompt pack target links when available.
+provenance stays visible. Generated image assets record provider id, provider
+job id, prompt, seed, model, workflow id, recipe id, workflow family,
+references, masks, parent asset lineage, warnings, latency/cost when available,
+and prompt pack target links when available.
 
 ## Verify
 

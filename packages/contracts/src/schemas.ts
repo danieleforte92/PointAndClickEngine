@@ -430,6 +430,7 @@ export const AssetGenerationMetadataSchema = Type.Object(
   {
     provider: Type.String({ minLength: 1 }),
     generatedAt: Type.Optional(Type.String({ format: "date-time" })),
+    providerJobId: Type.Optional(Type.String({ minLength: 1 })),
     model: Type.Optional(Type.String({ minLength: 1 })),
     workflowId: Type.Optional(Id),
     workflowFamily: Type.Optional(WorkflowFamilySchema),
@@ -459,6 +460,8 @@ export const AssetGenerationMetadataSchema = Type.Object(
     referenceAssetIds: Type.Optional(Type.Array(Id)),
     maskAssetId: Type.Optional(Id),
     guideIds: Type.Optional(Type.Array(Id)),
+    costUsd: Type.Optional(Type.Number({ minimum: 0 })),
+    latencyMs: Type.Optional(Type.Integer({ minimum: 0 })),
     warnings: Type.Optional(Type.Array(Type.String({ minLength: 1 })))
   },
   { additionalProperties: false }
@@ -713,9 +716,11 @@ export const PromptPackGenerationTargetSchema = Type.Object(
     sourceEntityKind: Type.Optional(
       Type.Union([
         Type.Literal("scene"),
+        Type.Literal("layer"),
         Type.Literal("actor"),
         Type.Literal("pickup"),
         Type.Literal("player"),
+        Type.Literal("hotspot"),
         Type.Literal("item")
       ])
     ),

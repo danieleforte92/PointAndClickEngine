@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "id": "pc-background-16x9-t2i",
+  "name": "PointClick Background 16:9 SDXL Lightning 8GB",
+  "family": "background_t2i_fast",
+  "workflowPath": "workflows/pc-background-16x9-t2i.workflow.json",
+  "outputMode": "opaque-image",
+  "hardwareProfile": "8GB VRAM draft, SDXL-Lightning 4-step",
+  "supportedInputs": [
+    "prompt",
+    "negative-prompt",
+    "seed",
+    "dimensions",
+    "checkpoint",
+    "output-prefix"
+  ],
+  "bindings": [
+    {
+      "input": "prompt",
+      "nodeId": "6",
+      "inputKey": "text",
+      "required": true
+    },
+    {
+      "input": "negative-prompt",
+      "nodeId": "7",
+      "inputKey": "text"
+    },
+    {
+      "input": "seed",
+      "nodeId": "3",
+      "inputKey": "seed"
+    },
+    {
+      "input": "dimensions",
+      "nodeId": "5",
+      "inputKey": "width",
+      "required": true
+    },
+    {
+      "input": "checkpoint",
+      "nodeId": "4",
+      "inputKey": "ckpt_name"
+    },
+    {
+      "input": "output-prefix",
+      "nodeId": "9",
+      "inputKey": "filename_prefix"
+    }
+  ],
+  "output": {
+    "nodeId": "9",
+    "kind": "opaque-image"
+  },
+  "notes": [
+    "Recommended checkpoint: ByteDance SDXL-Lightning 4-step all-in-one checkpoint in ComfyUI/models/checkpoints.",
+    "Uses Euler sampler, sgm_uniform scheduler, 4 steps, and CFG 1 for 8GB-friendly 16:9 drafts.",
+    "Negative prompt binding is kept for recipe provenance, but distilled Lightning checkpoints respond weakly to negatives."
+  ]
+}

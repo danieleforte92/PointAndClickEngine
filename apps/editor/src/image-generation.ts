@@ -1,18 +1,81 @@
 import type { EditorProjectSnapshot } from "./preload";
 import type { PromptPackGenerationTarget, WorkflowFamily } from "@pointclick/contracts";
 
+export type ImageGenerationProviderId = "comfyui-local" | "openai-image" | "google-image";
+export type ImageGenerationJobStatus = "queued" | "running" | "completed" | "failed" | "timedOut" | "cancelled";
+
+export interface ImageGenerationReferenceAsset {
+  bytes: Uint8Array | Buffer;
+  filename: string;
+  id: string;
+  mimeType: string;
+}
+
+export interface ImageGenerationProviderRequest {
+  height: number;
+  maskAsset?: ImageGenerationReferenceAsset;
+  negativePrompt?: string;
+  output: {
+    expectedAlpha: boolean;
+    mode?: GenerateImageAssetRequest["backgroundMode"];
+    nodeId?: string;
+  };
+  prompt: string;
+  providerConfig: Record<string, unknown>;
+  recipeId?: string;
+  referenceAssets?: ImageGenerationReferenceAsset[];
+  seed?: number;
+  targetId: string;
+  timeoutMs?: number;
+  width: number;
+  workflowFamily?: WorkflowFamily;
+  workflowId?: string;
+}
+
+export interface ImageGenerationProviderResult {
+  bytes: Uint8Array;
+  costUsd?: number;
+  filename: string;
+  height: number;
+  latencyMs?: number;
+  mimeType: string;
+  model?: string;
+  providerId: ImageGenerationProviderId;
+  providerJobId: string;
+  seed?: number;
+  targetId: string;
+  warnings?: string[];
+  width: number;
+}
+
+export interface ImageGenerationProvider {
+  id: ImageGenerationProviderId;
+  generate(request: ImageGenerationProviderRequest): Promise<ImageGenerationProviderResult>;
+}
+
 export interface GenerateImageAssetRequest {
   baseUrl?: string;
   backgroundMode?: "opaque-scene" | "transparent-alpha" | "chroma-blue" | "chroma-green" | "reference-only";
   checkpointName?: string;
   expectedAlpha?: boolean;
+  googleAccessToken?: string;
+  googleApiKey?: string;
+  googleBaseUrl?: string;
+  googleLocation?: string;
+  googleModel?: string;
+  googleProjectId?: string;
+  googleProvider?: "gemini-api" | "vertex-ai";
   guideIds?: string[];
   height: number;
   maskAssetId?: string;
   negativePrompt?: string;
+  openAiApiKey?: string;
+  openAiBaseUrl?: string;
+  openAiModel?: string;
+  openAiMode?: "images-api" | "responses-api";
   promptPackId?: string;
   prompt: string;
-  providerId: "comfyui";
+  providerId: ImageGenerationProviderId | "comfyui";
   referenceAssetIds?: string[];
   seed?: number;
   targetId: string;
@@ -34,7 +97,7 @@ export interface GeneratedImageAssetJob {
   model: string;
   outputWarning?: string;
   promptId: string;
-  provider: "comfyui";
+  provider: ImageGenerationProviderId;
   seed: number;
   snapshot: EditorProjectSnapshot;
   status: "completed";

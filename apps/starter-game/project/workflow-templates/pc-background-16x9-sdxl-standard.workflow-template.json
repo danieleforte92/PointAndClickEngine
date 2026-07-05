@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "id": "pc-background-16x9-sdxl-standard",
+  "name": "PointClick Background 16:9 SDXL Standard 8GB",
+  "family": "background_t2i_fast",
+  "workflowPath": "workflows/pc-background-16x9-sdxl-standard.workflow.json",
+  "outputMode": "opaque-image",
+  "hardwareProfile": "8GB VRAM recommended, standard SDXL checkpoint, slower but prompt-faithful",
+  "supportedInputs": [
+    "prompt",
+    "negative-prompt",
+    "seed",
+    "dimensions",
+    "checkpoint",
+    "output-prefix"
+  ],
+  "bindings": [
+    {
+      "input": "prompt",
+      "nodeId": "6",
+      "inputKey": "text",
+      "required": true
+    },
+    {
+      "input": "negative-prompt",
+      "nodeId": "7",
+      "inputKey": "text"
+    },
+    {
+      "input": "seed",
+      "nodeId": "3",
+      "inputKey": "seed"
+    },
+    {
+      "input": "dimensions",
+      "nodeId": "5",
+      "inputKey": "width",
+      "required": true
+    },
+    {
+      "input": "checkpoint",
+      "nodeId": "4",
+      "inputKey": "ckpt_name"
+    },
+    {
+      "input": "output-prefix",
+      "nodeId": "9",
+      "inputKey": "filename_prefix"
+    }
+  ],
+  "output": {
+    "nodeId": "9",
+    "kind": "opaque-image"
+  },
+  "notes": [
+    "Recommended for usable scene backgrounds. Install an SDXL base-compatible checkpoint in ComfyUI/models/checkpoints or use Checkpoint filename / override.",
+    "Uses DPM++ 2M, karras scheduler, 24 steps, and CFG 6 so both positive and negative prompts matter.",
+    "Slower than Lightning/Turbo, but substantially more reliable for background composition on 8GB VRAM."
+  ]
+}

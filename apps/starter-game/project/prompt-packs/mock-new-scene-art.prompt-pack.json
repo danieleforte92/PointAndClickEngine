@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "id": "mock-new-scene-art",
+  "name": "Starter Scene Art Direction",
+  "sceneId": "new-scene",
+  "artBrief": "A readable starter 2D adventure background with clear walkable space and room for future hotspots.",
+  "context": {
+    "projectTitle": "Clean Adventure",
+    "sceneId": "new-scene",
+    "sceneName": "Cave",
+    "sceneSize": {
+      "width": 1280,
+      "height": 720
+    },
+    "artBrief": "A readable starter 2D adventure background with clear walkable space and room for future hotspots.",
+    "locale": "en",
+    "labels": {},
+    "hotspots": [],
+    "actors": [],
+    "pickups": [],
+    "items": []
+  },
+  "outputs": {
+    "sceneBackgroundPrompt": "Wide layered 2D adventure background for Cave at 1280x720. Keep the lower scene readable as a walkable area, use clear foreground/midground/background depth, and leave obvious open spaces for future hotspots.",
+    "propPrompts": [],
+    "characterReferencePrompts": [],
+    "animationNotes": [
+      "Keep the lower half readable for player movement.",
+      "Avoid embedding UI text or characters in the background."
+    ],
+    "negativePrompt": "characters, people, UI, text, logo, watermark, unreadable silhouettes, cluttered walkable area, photorealism",
+    "styleNotes": [
+      "Readable point-and-click layout",
+      "Clear hotspot staging",
+      "Painterly 2D scene depth"
+    ],
+    "generationTargets": [
+      {
+        "id": "new-scene-background",
+        "sourceEntityKind": "scene",
+        "sourceEntityId": "new-scene",
+        "backgroundMode": "opaque-scene",
+        "expectedAlpha": false,
+        "intendedUse": "scene-background",
+        "width": 1280,
+        "height": 720,
+        "aspectRatio": "16:9",
+        "marginPercent": 0,
+        "safetyNegativePrompt": "transparent background, floating isolated props, UI, text, logo, watermark"
+      }
+    ]
+  },
+  "suggestedActors": [],
+  "provenance": {
+    "provider": "mock",
+    "model": "mock-prompt-pack-v1",
+    "generatedAt": "2026-06-30T20:59:00.000Z",
+    "inputHash": "starter-new-scene-art-v1"
+  }
+}

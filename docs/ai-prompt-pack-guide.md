@@ -72,6 +72,14 @@ The API key field is optional; LM Studio commonly accepts any bearer value.
 ComfyUI is used after a prompt pack exists. The editor can generate one target at
 a time and import the resulting PNG into the project asset library.
 
+AI Studio can also start from a **free target prompt** opened from Scene. Use
+the Generate action on a background, layer, player, hotspot, pickup, or actor to
+create a temporary target without generating a full prompt pack first. The
+target keeps a common art style preset, optional extra style note, free positive
+and negative prompts, and an output contract such as opaque scene/layer,
+transparent alpha, chroma blue, or chroma green. The generated asset still goes
+through the normal Review & Apply and provenance flow.
+
 1. Start ComfyUI locally.
 2. In AI Studio, use **ComfyUI Image Generation**.
 3. Set the base URL to `http://127.0.0.1:8188`.
@@ -132,6 +140,24 @@ instead of trying to solve it with more prompt text.
 ComfyUI checkpoint names include subfolders. If queueing fails with
 `ckpt_name not in list`, copy one of the listed names into **Checkpoint filename
 / override** or install the matching preset.
+
+### Optional Cloud Image Providers
+
+AI Studio also exposes optional text-to-image beta providers behind the same
+asset import and provenance path:
+
+- **OpenAI image** can call either the Images API (`/images/generations`) or the
+  Responses API image-generation tool. The editor reads base64 image output and
+  imports it as a normal generated asset.
+- **Google image** can call the Gemini API image path or Vertex AI Imagen
+  `:predict` endpoint. Gemini API uses an API key; Vertex AI uses a Google Cloud
+  project, location, and OAuth access token.
+
+These providers are optional and do not replace the local-first ComfyUI path.
+In this beta they are text-to-image only inside AI Studio; targets with compiled
+reference or mask assets should use ComfyUI local. API keys, access tokens,
+cloud project ids, model ids, base URLs, and timeouts are editor-session
+configuration and are not saved into project JSON.
 
 Before queueing, the editor compacts guided prompt-pack text into a visual image
 prompt. It removes `Negative guidance` and `IP safety` bookkeeping lines from

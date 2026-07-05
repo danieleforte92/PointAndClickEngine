@@ -1,0 +1,123 @@
+{
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 7,
+      "denoise": 1,
+      "latent_image": [
+        "12",
+        0
+      ],
+      "model": [
+        "4",
+        0
+      ],
+      "negative": [
+        "7",
+        0
+      ],
+      "positive": [
+        "6",
+        0
+      ],
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "seed": 1,
+      "steps": 24
+    }
+  },
+  "4": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "sd-v1-5-inpainting.safetensors"
+    }
+  },
+  "5": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "batch_size": 1,
+      "height": 720,
+      "width": 1280
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "4",
+        1
+      ],
+      "text": "PointClick positive prompt"
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "4",
+        1
+      ],
+      "text": "PointClick negative prompt"
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "3",
+        0
+      ],
+      "vae": [
+        "4",
+        2
+      ]
+    }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "pointclick",
+      "images": [
+        "8",
+        0
+      ]
+    }
+  },
+  "10": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "reference.png"
+    },
+    "_meta": {
+      "title": "PointClick Reference Image"
+    }
+  },
+  "11": {
+    "class_type": "LoadImageMask",
+    "inputs": {
+      "channel": "alpha",
+      "image": "mask.png"
+    },
+    "_meta": {
+      "title": "PointClick Inpaint Mask"
+    }
+  },
+  "12": {
+    "class_type": "VAEEncodeForInpaint",
+    "inputs": {
+      "grow_mask_by": 6,
+      "mask": [
+        "11",
+        0
+      ],
+      "pixels": [
+        "10",
+        0
+      ],
+      "vae": [
+        "4",
+        2
+      ]
+    }
+  }
+}

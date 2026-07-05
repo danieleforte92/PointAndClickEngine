@@ -42,6 +42,7 @@ import {
   Scissors,
   Trash2,
   UserRound,
+  X,
   WandSparkles
 } from "lucide-react";
 import {
@@ -178,7 +179,7 @@ import {
   composeTargetPositivePrompt,
   resolvePromptForGenerationTarget
 } from "../prompt-pack-targets";
-import { estimateImageWorkflowFamily } from "../image-generation";
+import { estimateImageWorkflowFamily, type ImageGenerationProviderId } from "../image-generation";
 import { workflowPresets } from "../workflow-presets";
 import type { EditorProjectSnapshot } from "../preload";
 import type {
@@ -232,9 +233,10 @@ interface AnimationPackDraft {
   clips: AnimationClipDraft[];
 }
 
-type ImageGenerationEntityKind = "scene-background" | "actor" | "pickup" | "player" | "asset";
-type EntityAssetTargetKind = "scene-background" | "player" | "actor" | "pickup";
+type ImageGenerationEntityKind = "scene-background" | "layer" | "actor" | "pickup" | "player" | "hotspot" | "asset";
+type EntityAssetTargetKind = "scene-background" | "layer" | "player" | "actor" | "pickup";
 type TargetBackgroundMode = NonNullable<PromptPackGenerationTarget["backgroundMode"]>;
+type FreePromptTargetKind = "scene-background" | "layer" | "player" | "hotspot" | "pickup" | "actor";
 
 const targetBackgroundModeOptions: Array<{ label: string; value: TargetBackgroundMode }> = [
   { label: "Opaque scene", value: "opaque-scene" },
@@ -244,11 +246,62 @@ const targetBackgroundModeOptions: Array<{ label: string; value: TargetBackgroun
   { label: "Reference only", value: "reference-only" }
 ];
 
+const freePromptOutputPresets: Array<{
+  detail: string;
+  label: string;
+  value: TargetBackgroundMode;
+}> = [
+  {
+    detail: "Full scene or layer artwork with no alpha requirement.",
+    label: "Opaque scene/layer",
+    value: "opaque-scene"
+  },
+  {
+    detail: "Transparent PNG contract for providers or workflows that can emit alpha.",
+    label: "Transparent alpha",
+    value: "transparent-alpha"
+  },
+  {
+    detail: "Flat #00A2FF background for Asset Studio chroma cleanup.",
+    label: "Chroma blue",
+    value: "chroma-blue"
+  },
+  {
+    detail: "Flat #00FF00 background for green-screen cleanup.",
+    label: "Chroma green",
+    value: "chroma-green"
+  }
+];
+
+const imageProviderOptions: Array<{ detail: string; label: string; value: ImageGenerationProviderId }> = [
+  {
+    detail: "Local ComfyUI queue with workflow templates, reference uploads, masks, and 8GB presets.",
+    label: "ComfyUI local",
+    value: "comfyui-local"
+  },
+  {
+    detail: "Optional OpenAI Image API or Responses image tool. Keys stay outside project JSON.",
+    label: "OpenAI image",
+    value: "openai-image"
+  },
+  {
+    detail: "Optional Gemini API or Vertex AI Imagen path. Keys and cloud project settings stay outside project JSON.",
+    label: "Google image",
+    value: "google-image"
+  }
+];
+
 interface TargetPromptDraft {
   backgroundMode?: TargetBackgroundMode;
   customNegativePrompt?: string;
   customPositivePrompt?: string;
   safetyNegativePrompt?: string;
+}
+
+interface FreePromptTarget {
+  entityId?: string;
+  kind: FreePromptTargetKind;
+  sceneId: string;
 }
 
 type AssetTool = "info" | "chroma" | "crop" | "guide" | "animation";
@@ -1411,6 +1464,26 @@ function imageGenerationContextForTarget(
   }
 
   const pickup = scene.pickups.find((entry) => entry.id === target.id);
+  if (target.sourceEntityKind === "layer" && target.sourceEntityId) {
+    return {
+      entityId: target.sourceEntityId,
+      entityKind: "layer",
+      intendedUse: target.intendedUse,
+      sceneId: scene.id,
+      targetId: target.id
+    };
+  }
+
+  if (target.sourceEntityKind === "hotspot" && target.sourceEntityId) {
+    return {
+      entityId: target.sourceEntityId,
+      entityKind: "hotspot",
+      intendedUse: target.intendedUse,
+      sceneId: scene.id,
+      targetId: target.id
+    };
+  }
+
   if (pickup) {
     return {
       entityId: pickup.id,
@@ -1464,6 +1537,90 @@ function assetTypeForGenerationTarget(
   if (target.intendedUse === "sprite-sheet") return "sprite-sheet";
   if (target.intendedUse === "animation-reference") return "animation";
   return "prop";
+}
+
+function freePromptTargetId(target: FreePromptTarget): string {
+  if (target.kind === "scene-background") return `${target.sceneId}-background`;
+  if (target.kind === "player") return "player";
+  return `${target.entityId ?? target.kind}-${target.kind}`;
+}
+
+function freePromptLabel(target: FreePromptTarget, scene: Layered2DScene): string {
+  if (target.kind === "scene-background") return `${scene.name} background`;
+  if (target.kind === "player") return "Player";
+  const entityId = target.entityId ?? target.kind;
+  if (target.kind === "layer") {
+    const layer = (scene.layers ?? []).find((entry) => entry.id === entityId);
+    return layer?.name || entityId;
+  }
+  return entityId;
+}
+
+function freePromptTargetBounds(target: FreePromptTarget, scene: Layered2DScene): Rect {
+  if (target.kind === "scene-background") {
+    return { x: 0, y: 0, width: scene.size.width, height: scene.size.height };
+  }
+  if (target.kind === "player") {
+    return { x: scene.playerStart.x - 48, y: scene.playerStart.y - 128, width: 96, height: 128 };
+  }
+  const entityId = target.entityId ?? "";
+  if (target.kind === "layer") {
+    const layer = (scene.layers ?? []).find((entry) => entry.id === entityId);
+    return layer?.bounds ?? { x: 0, y: 0, width: scene.size.width, height: scene.size.height };
+  }
+  if (target.kind === "actor") {
+    return scene.actors.find((entry) => entry.id === entityId)?.bounds ?? { x: 0, y: 0, width: 256, height: 256 };
+  }
+  if (target.kind === "pickup") {
+    return scene.pickups.find((entry) => entry.id === entityId)?.bounds ?? { x: 0, y: 0, width: 256, height: 256 };
+  }
+  if (target.kind === "hotspot") {
+    return scene.hotspots.find((entry) => entry.id === entityId)?.bounds ?? { x: 0, y: 0, width: 256, height: 256 };
+  }
+  return { x: 0, y: 0, width: 256, height: 256 };
+}
+
+function freePromptIntendedUse(target: FreePromptTarget, scene: Layered2DScene): PromptPackGenerationTarget["intendedUse"] {
+  if (target.kind === "scene-background" || target.kind === "layer") return "scene-background";
+  if (target.kind === "player") return "character-reference";
+  if (target.kind === "actor") {
+    const actor = scene.actors.find((entry) => entry.id === target.entityId);
+    return actor?.role === "npc" ? "character-reference" : "prop";
+  }
+  return "prop";
+}
+
+function freePromptSourceKind(target: FreePromptTarget): NonNullable<PromptPackGenerationTarget["sourceEntityKind"]> {
+  if (target.kind === "scene-background") return "scene";
+  return target.kind;
+}
+
+function buildFreeGenerationTarget(
+  target: FreePromptTarget,
+  scene: Layered2DScene,
+  backgroundMode: TargetBackgroundMode
+): PromptPackGenerationTarget {
+  const bounds = freePromptTargetBounds(target, scene);
+  const intendedUse = freePromptIntendedUse(target, scene);
+  const expectedAlpha = backgroundMode === "transparent-alpha";
+  return {
+    id: freePromptTargetId(target),
+    backgroundMode,
+    ...(backgroundMode === "chroma-blue" ? { chromaColor: "#00A2FF" as const } : {}),
+    ...(backgroundMode === "chroma-green" ? { chromaColor: "#00FF00" as const } : {}),
+    expectedAlpha,
+    intendedUse,
+    marginPercent: intendedUse === "scene-background" ? 0 : 8,
+    safetyNegativePrompt:
+      intendedUse === "scene-background"
+        ? "characters, people, portraits, UI text, watermark, logo"
+        : "scene background, floor plane, cast shadow, contact shadow, multiple subjects, cropped subject",
+    ...(target.kind === "scene-background" || target.entityId ? { sourceEntityId: target.kind === "scene-background" ? scene.id : target.entityId } : {}),
+    sourceEntityKind: freePromptSourceKind(target),
+    width: Math.max(64, Math.round(bounds.width)),
+    height: Math.max(64, Math.round(bounds.height)),
+    transparent: expectedAlpha
+  };
 }
 
 function recipeIdForTarget(targetId: string, workflowId: string) {
@@ -1546,6 +1703,75 @@ function promptPackWithUpdatedTarget(
       generationTargets: promptPack.outputs.generationTargets.map((target) =>
         target.id === targetId ? nextTarget : target
       )
+    }
+  };
+}
+
+function buildFreePromptPack(options: {
+  artStyle: string;
+  backgroundMode: TargetBackgroundMode;
+  negativePrompt: string;
+  prompt: string;
+  scene: Layered2DScene;
+  target: FreePromptTarget;
+}): PromptPackDocument {
+  const generationTarget = buildFreeGenerationTarget(options.target, options.scene, options.backgroundMode);
+  const label = freePromptLabel(options.target, options.scene);
+  const artStyle = options.artStyle.trim();
+  const prompt = [
+    options.prompt.trim() || `Create game-ready point-and-click artwork for ${label}.`,
+    artStyle ? `Shared art style: ${artStyle}` : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const negativePrompt = [
+    options.negativePrompt.trim(),
+    "watermark, logo, unreadable text, low contrast, blurry details"
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const promptEntry = { id: generationTarget.id, prompt };
+  const sceneBackgroundPrompt =
+    generationTarget.intendedUse === "scene-background"
+      ? prompt
+      : `Scene context for ${options.scene.name}. Keep style consistent with: ${artStyle || "the project art direction"}.`;
+
+  return {
+    schemaVersion: 1,
+    id: `free-${generationTarget.id}-prompt-pack`,
+    name: `${label} Free Prompt`,
+    sceneId: options.scene.id,
+    artBrief: artStyle || "Free per-target prompt",
+    context: {
+      projectTitle: "Current project",
+      sceneId: options.scene.id,
+      sceneName: options.scene.name,
+      sceneSize: options.scene.size,
+      artBrief: artStyle || "Free per-target prompt",
+      locale: "editor",
+      labels: {},
+      hotspots: options.scene.hotspots.map((hotspot) => ({ id: hotspot.id, labelKey: hotspot.labelKey })),
+      actors: options.scene.actors.map((actor) => ({ id: actor.id, role: actor.role, labelKey: actor.labelKey })),
+      pickups: options.scene.pickups.map((pickup) => ({ id: pickup.id, itemId: pickup.itemId, labelKey: pickup.labelKey })),
+      items: []
+    },
+    outputs: {
+      sceneBackgroundPrompt,
+      propPrompts: generationTarget.intendedUse === "prop" ? [promptEntry] : [],
+      characterReferencePrompts: generationTarget.intendedUse === "character-reference" ? [promptEntry] : [],
+      animationNotes: [],
+      negativePrompt,
+      styleNotes: artStyle ? [artStyle] : [],
+      generationTargets: [generationTarget]
+    },
+    suggestedActors: [],
+    provenance: {
+      provider: "mock",
+      model: "free-prompt",
+      generatedAt: new Date().toISOString(),
+      inputHash: generationTarget.id,
+      jobId: `free-${generationTarget.id}`,
+      seed: "free"
     }
   };
 }
@@ -1738,6 +1964,18 @@ export function EditorApp() {
   const [comfyUiCheckpoint, setComfyUiCheckpoint] = useState("");
   const [comfyUiWorkflowPath, setComfyUiWorkflowPath] = useState("");
   const [comfyUiSeed, setComfyUiSeed] = useState("");
+  const [imageProviderId, setImageProviderId] = useState<ImageGenerationProviderId>("comfyui-local");
+  const [openAiImageApiKey, setOpenAiImageApiKey] = useState("");
+  const [openAiImageBaseUrl, setOpenAiImageBaseUrl] = useState("https://api.openai.com/v1");
+  const [openAiImageModel, setOpenAiImageModel] = useState("gpt-image-2");
+  const [openAiImageMode, setOpenAiImageMode] = useState<"images-api" | "responses-api">("images-api");
+  const [googleImageApiKey, setGoogleImageApiKey] = useState("");
+  const [googleImageAccessToken, setGoogleImageAccessToken] = useState("");
+  const [googleImageBaseUrl, setGoogleImageBaseUrl] = useState("");
+  const [googleImageLocation, setGoogleImageLocation] = useState("us-central1");
+  const [googleImageModel, setGoogleImageModel] = useState("gemini-2.5-flash-image");
+  const [googleImageProjectId, setGoogleImageProjectId] = useState("");
+  const [googleImageProvider, setGoogleImageProvider] = useState<"gemini-api" | "vertex-ai">("gemini-api");
   const [comfyUiOutputPresetId, setComfyUiOutputPresetId] = useState(defaultPromptPresetSelection.comfyOutputPreset);
   const [selectedWorkflowPresetId, setSelectedWorkflowPresetId] = useState(workflowPresets[0]?.id ?? "");
   const [selectedWorkflowTemplateId, setSelectedWorkflowTemplateId] = useState("");
@@ -1753,6 +1991,13 @@ export function EditorApp() {
     useState<ImageGenerationSceneContext | null>(null);
   const [lastGeneratedImageAsset, setLastGeneratedImageAsset] = useState<GeneratedAssetHandoff | null>(null);
   const [targetPromptDrafts, setTargetPromptDrafts] = useState<Record<string, TargetPromptDraft>>({});
+  const [freePromptTarget, setFreePromptTarget] = useState<FreePromptTarget | null>(null);
+  const [freePromptText, setFreePromptText] = useState("");
+  const [freePromptNegative, setFreePromptNegative] = useState("");
+  const [freePromptStylePresetId, setFreePromptStylePresetId] = useState(defaultPromptPresetSelection.visualStylePreset);
+  const [freePromptCustomStyle, setFreePromptCustomStyle] = useState("");
+  const [freePromptOutputPreset, setFreePromptOutputPreset] = useState<TargetBackgroundMode>("chroma-blue");
+  const [contextualGenerationModalOpen, setContextualGenerationModalOpen] = useState(false);
   const [backgroundCleanupTarget, setBackgroundCleanupTarget] = useState<BackgroundCleanupTarget | null>(null);
   const [cleanupKeyColor, setCleanupKeyColor] = useState("#00A2FF");
   const [cleanupTolerance, setCleanupTolerance] = useState("28");
@@ -1857,10 +2102,16 @@ export function EditorApp() {
     project?.promptPacks[0] ??
     null;
   const promptPackCandidate = promptPackJob?.candidates[0] ?? null;
-  const activeImagePromptPack = promptPackCandidate?.promptPack ?? selectedPromptPack;
   const activeStyleBible = project?.styleBibles[0] ?? null;
   const selectedPromptProvider =
     promptProviderDescriptors.find((provider) => provider.id === promptProviderId) ?? promptProviderDescriptors[0]!;
+  const selectedImageProvider =
+    imageProviderOptions.find((provider) => provider.value === imageProviderId) ?? imageProviderOptions[0]!;
+  const freePromptStylePreset =
+    visualStylePresets.find((preset) => preset.id === freePromptStylePresetId) ??
+    visualStylePresets.find((preset) => preset.id === defaultPromptPresetSelection.visualStylePreset) ??
+    visualStylePresets[0] ??
+    null;
 
   const currentSceneDraft = selectedScene
     ? session.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene)
@@ -2068,6 +2319,29 @@ export function EditorApp() {
       return null;
     }
   }, [guidedPromptPackBrief, history.present, project, promptPackScene?.id]);
+  const freePromptPack = useMemo(() => {
+    if (!freePromptTarget || !promptPackScene || freePromptTarget.sceneId !== promptPackScene.id) return null;
+    return buildFreePromptPack({
+      artStyle: [freePromptStylePreset?.value ?? freePromptStylePreset?.label ?? "", freePromptCustomStyle]
+        .filter(Boolean)
+        .join(". "),
+      backgroundMode: freePromptOutputPreset,
+      negativePrompt: freePromptNegative,
+      prompt: freePromptText,
+      scene: promptPackScene,
+      target: freePromptTarget
+    });
+  }, [
+    freePromptCustomStyle,
+    freePromptNegative,
+    freePromptOutputPreset,
+    freePromptStylePreset?.label,
+    freePromptStylePreset?.value,
+    freePromptTarget,
+    freePromptText,
+    promptPackScene
+  ]);
+  const activeImagePromptPack = freePromptPack ?? promptPackCandidate?.promptPack ?? selectedPromptPack;
   const imageGenerationTargets = activeImagePromptPack?.outputs.generationTargets ?? [];
   const selectedGenerationTarget =
     imageGenerationTargets.find((target) => target.id === selectedGenerationTargetId) ??
@@ -2132,10 +2406,13 @@ export function EditorApp() {
     ? project?.generationRecipes.find((recipe) => recipe.id === selectedRecipeId) ?? null
     : null;
   const selectedImageInputWorkflowWarning =
-    selectedEffectiveGenerationTarget?.referenceAssetId || selectedEffectiveGenerationTarget?.maskAssetId
-      ? selectedWorkflowTemplate || comfyUiWorkflowPath.trim()
-        ? null
-        : "Linked reference or mask assets require an installed compatible workflow template or a legacy workflow API JSON path."
+    imageProviderId !== "comfyui-local" &&
+    (selectedEffectiveGenerationTarget?.referenceAssetId || selectedEffectiveGenerationTarget?.maskAssetId)
+      ? "Cloud image providers currently support text-to-image only in this beta path. Use ComfyUI local for reference or mask targets."
+      : selectedEffectiveGenerationTarget?.referenceAssetId || selectedEffectiveGenerationTarget?.maskAssetId
+        ? selectedWorkflowTemplate || comfyUiWorkflowPath.trim()
+          ? null
+          : "Linked reference or mask assets require an installed compatible workflow template or a legacy workflow API JSON path."
       : null;
   const selectedImageTargetWorkflowTone =
     selectedImageInputWorkflowWarning || selectedImageTargetWorkflow.mode === "inpaint"
@@ -2145,10 +2422,11 @@ export function EditorApp() {
       : selectedImageTargetWorkflow.mode === "transparent"
         ? "warn"
         : "good";
-  const aiWorkflowReady = !!selectedWorkflowTemplate || !!comfyUiWorkflowPath.trim();
-  const aiRecipeReady = !!selectedGenerationRecipe;
+  const aiWorkflowReady =
+    imageProviderId === "comfyui-local" ? !!selectedWorkflowTemplate || !!comfyUiWorkflowPath.trim() : true;
+  const aiRecipeReady = imageProviderId === "comfyui-local" ? !!selectedGenerationRecipe : !!selectedEffectiveGenerationTarget;
   const aiNextAction = !activeImagePromptPack
-    ? "Generate or save a prompt pack."
+    ? "Generate a prompt pack or open a free target prompt from the scene."
     : !selectedEffectiveGenerationTarget
       ? "Select a generation target."
       : selectedImageInputWorkflowWarning
@@ -4297,6 +4575,13 @@ export function EditorApp() {
       setStatus(`Assigned ${asset.id} to the player draft. Apply Scene Changes to save.`);
       return;
     }
+    if (targetKind === "layer") {
+      const layerId = target?.entityId ?? selectedSceneLayer?.id;
+      if (!layerId) return;
+      updateSceneLayerDraft(layerId, "assetId", asset.id);
+      setStatus(`Assigned ${asset.id} to layer ${layerId}. Apply Scene Changes to save.`);
+      return;
+    }
     if (targetKind === "actor") {
       const sceneId = target?.sceneId ?? selectedScene?.id;
       const actorId = target?.entityId ?? selectedActor?.id;
@@ -5134,8 +5419,8 @@ export function EditorApp() {
   };
 
   const saveSelectedGenerationRecipe = async () => {
-    if (!project || !selectedPromptPack || !selectedEffectiveGenerationTarget || !selectedWorkflowTemplate) {
-      setStatus("Save a prompt pack and install a compatible workflow template before saving a recipe.");
+    if (!project || !activeImagePromptPack || !selectedEffectiveGenerationTarget || !selectedWorkflowTemplate) {
+      setStatus("Choose a target prompt and install a compatible workflow template before saving a recipe.");
       return;
     }
 
@@ -5160,8 +5445,8 @@ export function EditorApp() {
     const generationRecipe: AssetGenerationRecipeDocument = {
       schemaVersion: 1,
       id: recipeIdForTarget(selectedEffectiveGenerationTarget.id, selectedWorkflowTemplate.id),
-      sceneId: selectedPromptPack.sceneId,
-      promptPackId: selectedPromptPack.id,
+      sceneId: activeImagePromptPack.sceneId,
+      ...(freePromptPack ? {} : { promptPackId: activeImagePromptPack.id }),
       targetId: selectedEffectiveGenerationTarget.id,
       assetType: assetTypeForGenerationTarget(selectedEffectiveGenerationTarget),
       workflowFamily: selectedWorkflowTemplate.family,
@@ -5199,8 +5484,8 @@ export function EditorApp() {
       return;
     }
     if (!activeImagePromptPack) {
-      setComfyUiGenerationStatus("Generate or select a prompt pack before queueing ComfyUI.");
-      setStatus("Generate or select a prompt pack before queueing ComfyUI.");
+      setComfyUiGenerationStatus("Generate or select a prompt pack, or open a free target prompt from the scene.");
+      setStatus("Generate or select a prompt pack, or open a free target prompt from the scene.");
       return;
     }
     if (!selectedGenerationTarget) {
@@ -5216,12 +5501,13 @@ export function EditorApp() {
 
     const checkpointName = comfyUiCheckpoint.trim();
     const workflowPath = comfyUiWorkflowPath.trim();
-    if (!checkpointName && !workflowPath && !selectedWorkflowTemplate) {
+    if (imageProviderId === "comfyui-local" && !checkpointName && !workflowPath && !selectedWorkflowTemplate) {
       setComfyUiGenerationStatus("ComfyUI needs a checkpoint filename, an installed workflow template, or a legacy workflow API JSON path.");
       setStatus("ComfyUI needs a checkpoint filename, an installed workflow template, or a legacy workflow API JSON path.");
       return;
     }
     if (
+      imageProviderId === "comfyui-local" &&
       !workflowPath &&
       !selectedWorkflowTemplate &&
       (selectedEffectiveGenerationTarget.referenceAssetId || selectedEffectiveGenerationTarget.maskAssetId)
@@ -5230,6 +5516,16 @@ export function EditorApp() {
         "Linked reference or mask assets require a compatible workflow template or legacy workflow API JSON path before queueing.";
       setComfyUiGenerationStatus(workflowInputStatus);
       setStatus(workflowInputStatus);
+      return;
+    }
+    if (
+      imageProviderId !== "comfyui-local" &&
+      (selectedEffectiveGenerationTarget.referenceAssetId || selectedEffectiveGenerationTarget.maskAssetId)
+    ) {
+      const imageInputStatus =
+        "Cloud image providers currently support text-to-image only in this beta path. Use ComfyUI local for reference or mask targets.";
+      setComfyUiGenerationStatus(imageInputStatus);
+      setStatus(imageInputStatus);
       return;
     }
 
@@ -5251,7 +5547,10 @@ export function EditorApp() {
     setImageGenerationState("running");
     setActiveImageGenerationContext(selectedImageGenerationContext);
     setLastGeneratedImageAsset(null);
-    const queuedStatus = `Queueing ${selectedGenerationTarget.id} with ComfyUI (${selectedImageTargetWorkflow.label}). Krea workflows can take several minutes.`;
+    const queuedStatus =
+      imageProviderId === "comfyui-local"
+        ? `Queueing ${selectedGenerationTarget.id} with ComfyUI (${selectedImageTargetWorkflow.label}). Krea workflows can take several minutes.`
+        : `Generating ${selectedGenerationTarget.id} with ${selectedImageProvider.label} (${selectedImageTargetWorkflow.label}).`;
     setComfyUiGenerationStatus(queuedStatus);
     setStatus(queuedStatus);
     try {
@@ -5266,7 +5565,7 @@ export function EditorApp() {
         negativePrompt: selectedGenerationNegativePrompt,
         prompt: selectedGenerationPrompt,
         ...(selectedPromptPack?.id === activeImagePromptPack.id ? { promptPackId: selectedPromptPack.id } : {}),
-        providerId: "comfyui" as const,
+        providerId: imageProviderId,
         ...(selectedEffectiveGenerationTarget.referenceAssetId
           ? { referenceAssetIds: [selectedEffectiveGenerationTarget.referenceAssetId] }
           : {}),
@@ -5276,14 +5575,43 @@ export function EditorApp() {
         ...(selectedEffectiveGenerationTarget.backgroundMode
           ? { backgroundMode: selectedEffectiveGenerationTarget.backgroundMode }
           : {}),
-        ...(comfyUiBaseUrl.trim() ? { baseUrl: comfyUiBaseUrl.trim() } : {}),
-        ...(checkpointName ? { checkpointName } : {}),
+        ...(imageProviderId === "comfyui-local" && comfyUiBaseUrl.trim() ? { baseUrl: comfyUiBaseUrl.trim() } : {}),
+        ...(imageProviderId === "comfyui-local" && checkpointName ? { checkpointName } : {}),
+        ...(imageProviderId === "openai-image" && openAiImageApiKey.trim()
+          ? { openAiApiKey: openAiImageApiKey.trim() }
+          : {}),
+        ...(imageProviderId === "openai-image" && openAiImageBaseUrl.trim()
+          ? { openAiBaseUrl: openAiImageBaseUrl.trim() }
+          : {}),
+        ...(imageProviderId === "openai-image" ? { openAiMode: openAiImageMode } : {}),
+        ...(imageProviderId === "openai-image" && openAiImageModel.trim()
+          ? { openAiModel: openAiImageModel.trim() }
+          : {}),
+        ...(imageProviderId === "google-image" && googleImageAccessToken.trim()
+          ? { googleAccessToken: googleImageAccessToken.trim() }
+          : {}),
+        ...(imageProviderId === "google-image" && googleImageApiKey.trim()
+          ? { googleApiKey: googleImageApiKey.trim() }
+          : {}),
+        ...(imageProviderId === "google-image" && googleImageBaseUrl.trim()
+          ? { googleBaseUrl: googleImageBaseUrl.trim() }
+          : {}),
+        ...(imageProviderId === "google-image" && googleImageLocation.trim()
+          ? { googleLocation: googleImageLocation.trim() }
+          : {}),
+        ...(imageProviderId === "google-image" && googleImageModel.trim()
+          ? { googleModel: googleImageModel.trim() }
+          : {}),
+        ...(imageProviderId === "google-image" && googleImageProjectId.trim()
+          ? { googleProjectId: googleImageProjectId.trim() }
+          : {}),
+        ...(imageProviderId === "google-image" ? { googleProvider: googleImageProvider } : {}),
         ...(parsedSeed !== null ? { seed: parsedSeed } : {}),
         timeoutMs: Math.round(timeoutMinutes * 60_000),
-        ...(selectedWorkflowTemplate ? { workflowId: selectedWorkflowTemplate.id } : {}),
+        ...(imageProviderId === "comfyui-local" && selectedWorkflowTemplate ? { workflowId: selectedWorkflowTemplate.id } : {}),
         ...(selectedGenerationRecipe ? { recipeId: selectedGenerationRecipe.id } : {}),
-        ...(selectedWorkflowTemplate ? { outputNodeId: selectedWorkflowTemplate.output.nodeId } : {}),
-        ...(workflowPath ? { workflowPath } : {})
+        ...(imageProviderId === "comfyui-local" && selectedWorkflowTemplate ? { outputNodeId: selectedWorkflowTemplate.output.nodeId } : {}),
+        ...(imageProviderId === "comfyui-local" && workflowPath ? { workflowPath } : {})
       };
       const job = await window.pointClick.generateImageAsset(imageRequest);
       setProject(job.snapshot);
@@ -5304,7 +5632,7 @@ export function EditorApp() {
       );
       const completedStatus = job.outputWarning
         ? `Generated ${job.assetId}, but alpha contract needs review.`
-        : `Generated ${job.assetId} from ${job.targetId} with ComfyUI seed ${job.seed}`;
+        : `Generated ${job.assetId} from ${job.targetId} with ${selectedImageProvider.label} seed ${job.seed}`;
       setComfyUiGenerationStatus(completedStatus);
       setStatus(completedStatus);
     } catch (error) {
@@ -6535,6 +6863,7 @@ export function EditorApp() {
 
   const openAiStudioForGenerationTarget = (sceneId: string, targetId: string) => {
     const lookup = promptPackTargetLookup(project, sceneId, targetId);
+    setFreePromptTarget(null);
     setPromptPackSceneId(sceneId);
     if (lookup) {
       setSelectedPromptPackId(lookup.promptPack.id);
@@ -6546,6 +6875,53 @@ export function EditorApp() {
         ? `Prepared AI generation target ${lookup.target.id} from ${lookup.promptPack.id}.`
         : `Opened AI Studio for ${targetId}. Generate or save a prompt pack for this scene to create the target.`
     );
+  };
+
+  const openFreeImageGenerationForSceneTarget = (
+    scene: Layered2DScene,
+    target: Omit<FreePromptTarget, "sceneId">,
+    promptHint?: string,
+    outputPreset?: TargetBackgroundMode
+  ) => {
+    const nextTarget = { ...target, sceneId: scene.id };
+    const targetId = freePromptTargetId(nextTarget);
+    const label = freePromptLabel(nextTarget, scene);
+    setPromptPackSceneId(scene.id);
+    setFreePromptTarget(nextTarget);
+    setSelectedGenerationTargetId(targetId);
+    setPromptPackJob(null);
+    setFreePromptText(promptHint ?? `Create game-ready point-and-click artwork for ${label}.`);
+    setFreePromptNegative("");
+    setFreePromptOutputPreset(outputPreset ?? (target.kind === "scene-background" || target.kind === "layer" ? "opaque-scene" : "chroma-blue"));
+    setWorkspace("ai");
+    setStatus(`Opened free AI prompt for ${label}. Edit the prompt, choose style/chroma, then generate.`);
+  };
+
+  const openContextualGenerationModal = (
+    scene: Layered2DScene,
+    target: Omit<FreePromptTarget, "sceneId">,
+    promptHint?: string,
+    outputPreset?: TargetBackgroundMode
+  ) => {
+    const nextTarget = { ...target, sceneId: scene.id };
+    const targetId = freePromptTargetId(nextTarget);
+    const label = freePromptLabel(nextTarget, scene);
+    setPromptPackSceneId(scene.id);
+    setFreePromptTarget(nextTarget);
+    setSelectedGenerationTargetId(targetId);
+    setPromptPackJob(null);
+    setFreePromptText(promptHint ?? `Create game-ready point-and-click artwork for ${label}.`);
+    setFreePromptNegative("");
+    setFreePromptOutputPreset(outputPreset ?? (target.kind === "scene-background" || target.kind === "layer" ? "opaque-scene" : "chroma-blue"));
+    setContextualGenerationModalOpen(true);
+    setStatus(`Prepared contextual generation for ${label}.`);
+  };
+
+  const openAdvancedAiForContextualGeneration = () => {
+    if (!freePromptTarget || !promptPackScene) return;
+    setContextualGenerationModalOpen(false);
+    setWorkspace("ai");
+    setStatus(`Opened AI Studio for ${freePromptLabel(freePromptTarget, promptPackScene)}.`);
   };
 
   const openImageGenerationForSceneTarget = (targetId: string) => {
@@ -6600,6 +6976,39 @@ export function EditorApp() {
     setStatus(`Assigned ${lastGeneratedImageAsset.assetId} to the player draft. Apply player changes to save.`);
   };
 
+  const assignGeneratedAssetToLayerDraft = () => {
+    if (!lastGeneratedImageAsset || lastGeneratedImageAsset.entityKind !== "layer" || !lastGeneratedImageAsset.entityId) {
+      setStatus("Generate a layer target before assigning the asset to a layer draft.");
+      return;
+    }
+    const scene = project?.scenes.find((entry) => entry.id === lastGeneratedImageAsset.sceneId);
+    if (!scene || scene.type !== "layered-2d") {
+      setStatus("Generated asset could not be assigned because the target scene is unavailable.");
+      return;
+    }
+    updateDraftWithHistory((current) => {
+      const sceneDraft = current.sceneDrafts[scene.id] ?? createSceneDraft(scene);
+      return {
+        ...current,
+        sceneDrafts: {
+          ...current.sceneDrafts,
+          [scene.id]: {
+            ...sceneDraft,
+            layers: sceneDraft.layers.map((layer) =>
+              layer.id === lastGeneratedImageAsset.entityId ? { ...layer, assetId: lastGeneratedImageAsset.assetId } : layer
+            )
+          }
+        }
+      };
+    });
+    setWorkspace("scene");
+    setSelectedSceneLayerId(lastGeneratedImageAsset.entityId);
+    selectSceneEntityFromHandoff(lastGeneratedImageAsset.sceneId);
+    setStatus(
+      `Assigned ${lastGeneratedImageAsset.assetId} to layer ${lastGeneratedImageAsset.entityId}. Apply Scene Changes to save.`
+    );
+  };
+
   const assignGeneratedAssetToActorDraft = () => {
     if (!lastGeneratedImageAsset || lastGeneratedImageAsset.entityKind !== "actor" || !lastGeneratedImageAsset.entityId) {
       setStatus("Generate an actor target before assigning the asset to an actor draft.");
@@ -6616,6 +7025,25 @@ export function EditorApp() {
     selectSceneEntityFromHandoff(lastGeneratedImageAsset.sceneId, { actorId: lastGeneratedImageAsset.entityId });
     setStatus(
       `Assigned ${lastGeneratedImageAsset.assetId} to actor ${lastGeneratedImageAsset.entityId}. Apply Actor Changes to save.`
+    );
+  };
+
+  const assignGeneratedAssetToPickupDraft = () => {
+    if (!lastGeneratedImageAsset || lastGeneratedImageAsset.entityKind !== "pickup" || !lastGeneratedImageAsset.entityId) {
+      setStatus("Generate a pickup target before assigning the asset to a pickup draft.");
+      return;
+    }
+    if (
+      !updatePickupDraftById(lastGeneratedImageAsset.sceneId, lastGeneratedImageAsset.entityId, {
+        assetId: lastGeneratedImageAsset.assetId
+      })
+    ) {
+      setStatus("Generated asset could not be assigned to the pickup draft.");
+      return;
+    }
+    selectSceneEntityFromHandoff(lastGeneratedImageAsset.sceneId, { pickupId: lastGeneratedImageAsset.entityId });
+    setStatus(
+      `Assigned ${lastGeneratedImageAsset.assetId} to pickup ${lastGeneratedImageAsset.entityId}. Apply Pickup Changes to save.`
     );
   };
 
@@ -8107,7 +8535,7 @@ export function EditorApp() {
                 <div className="ai-target-cockpit-actions">
                   <button
                     className="secondary-action compact-action"
-                    disabled={!selectedPromptPack || !selectedEffectiveGenerationTarget || !selectedWorkflowTemplate}
+                    disabled={!activeImagePromptPack || !selectedEffectiveGenerationTarget || !selectedWorkflowTemplate}
                     type="button"
                     onClick={saveSelectedGenerationRecipe}
                   >
@@ -8397,13 +8825,201 @@ export function EditorApp() {
                     : "Generate or save a prompt pack first"}
                 </strong>
                 <p>
-                  Choose a game target, save a recipe, generate through ComfyUI, then review and
+                  Choose a game target, save a recipe, generate through the selected provider, then review and
                   import the output as a normal project asset.
                 </p>
                 <div className="prompt-studio-controls">
                   <label className="prompt-studio-field">
+                    Image provider
+                    <select
+                      value={imageProviderId}
+                      onChange={(event) => setImageProviderId(event.target.value as ImageGenerationProviderId)}
+                    >
+                      {imageProviderOptions.map((provider) => (
+                        <option key={`image-provider-${provider.value}`} value={provider.value}>
+                          {provider.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="target-customization-note image-provider-note">
+                    {selectedImageProvider.detail}
+                  </div>
+                  {imageProviderId === "openai-image" ? (
+                    <>
+                      <label className="prompt-studio-field">
+                        OpenAI image API key
+                        <input
+                          placeholder="Uses OPENAI_API_KEY if empty"
+                          type="password"
+                          value={openAiImageApiKey}
+                          onChange={(event) => setOpenAiImageApiKey(event.target.value)}
+                        />
+                      </label>
+                      <label className="prompt-studio-field">
+                        OpenAI image model
+                        <input value={openAiImageModel} onChange={(event) => setOpenAiImageModel(event.target.value)} />
+                      </label>
+                      <label className="prompt-studio-field">
+                        OpenAI path
+                        <select
+                          value={openAiImageMode}
+                          onChange={(event) => setOpenAiImageMode(event.target.value as "images-api" | "responses-api")}
+                        >
+                          <option value="images-api">Images API</option>
+                          <option value="responses-api">Responses image tool</option>
+                        </select>
+                      </label>
+                      <label className="prompt-studio-field">
+                        OpenAI base URL
+                        <input
+                          value={openAiImageBaseUrl}
+                          onChange={(event) => setOpenAiImageBaseUrl(event.target.value)}
+                        />
+                      </label>
+                    </>
+                  ) : null}
+                  {imageProviderId === "google-image" ? (
+                    <>
+                      <label className="prompt-studio-field">
+                        Google path
+                        <select
+                          value={googleImageProvider}
+                          onChange={(event) => {
+                            const provider = event.target.value as "gemini-api" | "vertex-ai";
+                            setGoogleImageProvider(provider);
+                            setGoogleImageModel(
+                              provider === "vertex-ai" ? "imagen-4.0-generate-preview" : "gemini-2.5-flash-image"
+                            );
+                          }}
+                        >
+                          <option value="gemini-api">Gemini API</option>
+                          <option value="vertex-ai">Vertex AI Imagen</option>
+                        </select>
+                      </label>
+                      {googleImageProvider === "gemini-api" ? (
+                        <label className="prompt-studio-field">
+                          Gemini API key
+                          <input
+                            placeholder="Uses GEMINI_API_KEY if empty"
+                            type="password"
+                            value={googleImageApiKey}
+                            onChange={(event) => setGoogleImageApiKey(event.target.value)}
+                          />
+                        </label>
+                      ) : (
+                        <>
+                          <label className="prompt-studio-field">
+                            Vertex access token
+                            <input
+                              placeholder="Uses GOOGLE_VERTEX_ACCESS_TOKEN if empty"
+                              type="password"
+                              value={googleImageAccessToken}
+                              onChange={(event) => setGoogleImageAccessToken(event.target.value)}
+                            />
+                          </label>
+                          <label className="prompt-studio-field">
+                            Google Cloud project
+                            <input
+                              value={googleImageProjectId}
+                              onChange={(event) => setGoogleImageProjectId(event.target.value)}
+                            />
+                          </label>
+                        </>
+                      )}
+                      <label className="prompt-studio-field">
+                        Google image model
+                        <input value={googleImageModel} onChange={(event) => setGoogleImageModel(event.target.value)} />
+                      </label>
+                      <label className="prompt-studio-field">
+                        Location
+                        <input value={googleImageLocation} onChange={(event) => setGoogleImageLocation(event.target.value)} />
+                      </label>
+                      <label className="prompt-studio-field">
+                        Base URL override
+                        <input
+                          placeholder={googleImageProvider === "vertex-ai" ? "Optional Vertex API root" : "Optional Gemini API root"}
+                          value={googleImageBaseUrl}
+                          onChange={(event) => setGoogleImageBaseUrl(event.target.value)}
+                        />
+                      </label>
+                    </>
+                  ) : null}
+                  <div className="target-customization-panel free-prompt-panel">
+                    <div className="target-customization-heading">
+                      <div>
+                        <span className="overview-label">Free target prompt</span>
+                        <strong>
+                          {freePromptTarget && promptPackScene
+                            ? freePromptLabel(freePromptTarget, promptPackScene)
+                            : "No manual target"}
+                        </strong>
+                      </div>
+                      <span className={`target-mode-pill ${freePromptPack ? "good" : "muted"}`}>
+                        {freePromptPack ? "Manual target active" : "Use a scene Generate action"}
+                      </span>
+                    </div>
+                    <div className="target-customization-grid">
+                      <label className="prompt-studio-field">
+                        Common art style
+                        <select
+                          value={freePromptStylePresetId}
+                          onChange={(event) => setFreePromptStylePresetId(event.target.value)}
+                        >
+                          {visualStylePresets.map((preset) => (
+                            <option key={`free-style-${preset.id}`} value={preset.id}>
+                              {preset.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="prompt-studio-field">
+                        Output / chroma preset
+                        <select
+                          value={freePromptOutputPreset}
+                          onChange={(event) => setFreePromptOutputPreset(event.target.value as TargetBackgroundMode)}
+                        >
+                          {freePromptOutputPresets.map((preset) => (
+                            <option key={`free-output-${preset.value}`} value={preset.value}>
+                              {preset.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="prompt-studio-field">
+                        Extra style note
+                        <input
+                          placeholder="Optional shared style override for this piece"
+                          value={freePromptCustomStyle}
+                          onChange={(event) => setFreePromptCustomStyle(event.target.value)}
+                        />
+                      </label>
+                      <label className="prompt-studio-field">
+                        Free prompt
+                        <textarea
+                          placeholder="Describe exactly what to generate for the selected scene entity."
+                          value={freePromptText}
+                          onChange={(event) => setFreePromptText(event.target.value)}
+                        />
+                      </label>
+                      <label className="prompt-studio-field">
+                        Free negative prompt
+                        <textarea
+                          placeholder="Optional exclusions for this target."
+                          value={freePromptNegative}
+                          onChange={(event) => setFreePromptNegative(event.target.value)}
+                        />
+                      </label>
+                    </div>
+                    <p className="target-customization-note">
+                      {freePromptOutputPresets.find((preset) => preset.value === freePromptOutputPreset)?.detail ??
+                        "Choose an output contract before generating."}
+                    </p>
+                  </div>
+                  <label className="prompt-studio-field">
                     ComfyUI base URL
                     <input
+                      disabled={imageProviderId !== "comfyui-local"}
                       value={comfyUiBaseUrl}
                       onChange={(event) => setComfyUiBaseUrl(event.target.value)}
                     />
@@ -8424,6 +9040,7 @@ export function EditorApp() {
                   <label className="prompt-studio-field">
                     Install preset
                     <select
+                      disabled={imageProviderId !== "comfyui-local"}
                       value={selectedWorkflowPresetId}
                       onChange={(event) => setSelectedWorkflowPresetId(event.target.value)}
                     >
@@ -8437,7 +9054,7 @@ export function EditorApp() {
                   <div className="build-actions inline-actions">
                     <button
                       className="secondary-action compact-action"
-                      disabled={!project || !selectedWorkflowPresetId}
+                      disabled={imageProviderId !== "comfyui-local" || !project || !selectedWorkflowPresetId}
                       type="button"
                       onClick={installSelectedWorkflowPreset}
                     >
@@ -8447,7 +9064,7 @@ export function EditorApp() {
                   <label className="prompt-studio-field">
                     Installed workflow template
                     <select
-                      disabled={compatibleWorkflowTemplates.length === 0}
+                      disabled={imageProviderId !== "comfyui-local" || compatibleWorkflowTemplates.length === 0}
                       value={selectedWorkflowTemplate?.id ?? ""}
                       onChange={(event) => setSelectedWorkflowTemplateId(event.target.value)}
                     >
@@ -8476,6 +9093,7 @@ export function EditorApp() {
                   <label className="prompt-studio-field">
                     Workflow API JSON path (legacy/advanced)
                     <input
+                      disabled={imageProviderId !== "comfyui-local"}
                       placeholder="Optional project-relative path, e.g. workflows/image_krea2_turbo_t2i.json"
                       value={comfyUiWorkflowPath}
                       onChange={(event) => setComfyUiWorkflowPath(event.target.value)}
@@ -8484,6 +9102,7 @@ export function EditorApp() {
                   <label className="prompt-studio-field">
                     Checkpoint filename / override
                     <input
+                      disabled={imageProviderId !== "comfyui-local"}
                       placeholder="Required without workflow path; optional override with workflow path"
                       value={comfyUiCheckpoint}
                       onChange={(event) => setComfyUiCheckpoint(event.target.value)}
@@ -8658,7 +9277,7 @@ export function EditorApp() {
                       </div>
                       <button
                         className="secondary-action compact-action"
-                        disabled={!selectedPromptPack || !selectedEffectiveGenerationTarget || !selectedWorkflowTemplate}
+                        disabled={!activeImagePromptPack || !selectedEffectiveGenerationTarget || !selectedWorkflowTemplate}
                         type="button"
                         onClick={saveSelectedGenerationRecipe}
                       >
@@ -8704,7 +9323,7 @@ export function EditorApp() {
                 <div className="diagnostic-list">
                   <div className={`diagnostic-item ${imageGenerationState === "running" ? "warning" : ""}`}>
                     <div>
-                      <strong>ComfyUI status</strong>
+                      <strong>Image generation status</strong>
                       <p>{comfyUiGenerationStatus}</p>
                     </div>
                   </div>
@@ -8715,7 +9334,7 @@ export function EditorApp() {
                       <span className="overview-label">Generated asset handoff</span>
                       <strong>{lastGeneratedImageAsset.assetId}</strong>
                       <p>
-                        Target {lastGeneratedImageAsset.targetId} imported from ComfyUI seed{" "}
+                        Target {lastGeneratedImageAsset.targetId} imported from {selectedImageProvider.label} seed{" "}
                         {lastGeneratedImageAsset.seed}. Assign it now, inspect it in Asset Studio, or send
                         animation targets to Character Gym.
                       </p>
@@ -8726,7 +9345,7 @@ export function EditorApp() {
                       >
                         <span className="alpha-checkerboard" aria-hidden="true" />
                         <span>
-                          {lastGeneratedImageAsset.backgroundMode ?? "legacy target"} ·{" "}
+                          {lastGeneratedImageAsset.backgroundMode ?? "legacy target"} -{" "}
                           {lastGeneratedImageAsset.hasAlphaPixels ? "alpha pixels detected" : "opaque bitmap"}
                         </span>
                       </div>
@@ -8750,6 +9369,15 @@ export function EditorApp() {
                           Set Background Draft
                         </button>
                       ) : null}
+                      {lastGeneratedImageAsset.entityKind === "layer" ? (
+                        <button
+                          className="secondary-action compact-action"
+                          type="button"
+                          onClick={assignGeneratedAssetToLayerDraft}
+                        >
+                          Assign To Layer
+                        </button>
+                      ) : null}
                       <button
                         className="secondary-action compact-action"
                         type="button"
@@ -8764,6 +9392,15 @@ export function EditorApp() {
                           onClick={assignGeneratedAssetToActorDraft}
                         >
                           Assign To Actor
+                        </button>
+                      ) : null}
+                      {lastGeneratedImageAsset.entityKind === "pickup" ? (
+                        <button
+                          className="secondary-action compact-action"
+                          type="button"
+                          onClick={assignGeneratedAssetToPickupDraft}
+                        >
+                          Assign To Pickup
                         </button>
                       ) : null}
                       {lastGeneratedImageAsset.intendedUse === "animation-reference" ||
@@ -10084,6 +10721,21 @@ export function EditorApp() {
                     <button type="button" onClick={() => setActiveSceneTool("player-start")}>
                       Edit start in viewport
                     </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        selectedScene
+                          ? openContextualGenerationModal(
+                              selectedScene,
+                              { kind: "player" },
+                              "Create a full-body playable character sprite reference with clear silhouette, visible feet, neutral pose, and game-ready proportions.",
+                              "chroma-blue"
+                            )
+                          : undefined
+                      }
+                    >
+                      Generate player
+                    </button>
                     <button type="button" onClick={createAnimationPackDraftFromSelection}>
                       Create player pack
                     </button>
@@ -10609,13 +11261,34 @@ export function EditorApp() {
                     <button type="button" onClick={createAnimationPackDraftFromSelection}>
                       Create actor pack
                     </button>
-                    <button type="button" onClick={() => openImageGenerationForSceneTarget(selectedActor.id)}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        selectedScene
+                          ? openContextualGenerationModal(
+                              selectedScene,
+                              { entityId: selectedActor.id, kind: "actor" },
+                              `Create a game-ready actor asset for ${selectedActor.id}. Keep the silhouette readable and the full subject visible.`,
+                              "chroma-blue"
+                            )
+                          : undefined
+                      }
+                    >
                       Generate asset
                     </button>
                     {selectedActor.role === "npc" ? (
                       <button
                         type="button"
-                        onClick={() => openImageGenerationForSceneTarget(`${selectedActor.id}-sprite-sheet`)}
+                        onClick={() =>
+                          selectedScene
+                            ? openContextualGenerationModal(
+                                selectedScene,
+                                { entityId: selectedActor.id, kind: "actor" },
+                                `Create a clean sprite sheet reference for NPC ${selectedActor.id}, with idle, walk, and talk poses in a consistent grid.`,
+                                "chroma-blue"
+                              )
+                            : undefined
+                        }
                       >
                         Generate sheet ref
                       </button>
@@ -10885,6 +11558,21 @@ export function EditorApp() {
                   <div className="context-action-row">
                     <button type="button" onClick={() => setActiveSceneTool("hotspot")}>
                       Edit bounds
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        selectedScene
+                          ? openContextualGenerationModal(
+                              selectedScene,
+                              { entityId: selectedHotspot.id, kind: "hotspot" },
+                              `Create a readable interactive hotspot visual for ${selectedHotspot.id}. Make the affordance clear without UI text.`,
+                              "chroma-blue"
+                            )
+                          : undefined
+                      }
+                    >
+                      Generate hotspot art
                     </button>
                     {firstHotspotIssueTarget ? (
                       <button type="button" onClick={focusFirstHotspotIssue}>
@@ -11189,7 +11877,19 @@ export function EditorApp() {
                     <button type="button" onClick={() => setActiveSceneTool("pickup")}>
                       Edit pickup bounds
                     </button>
-                    <button type="button" onClick={() => openImageGenerationForSceneTarget(selectedPickup.id)}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        selectedScene
+                          ? openContextualGenerationModal(
+                              selectedScene,
+                              { entityId: selectedPickup.id, kind: "pickup" },
+                              `Create a single isolated prop for pickup ${selectedPickup.id}. Keep the full object visible with clean margins for game use.`,
+                              "chroma-blue"
+                            )
+                          : undefined
+                      }
+                    >
                       Generate prop
                     </button>
                     {firstPickupIssueTarget ? (
@@ -11407,6 +12107,19 @@ export function EditorApp() {
                   <div className="context-action-row">
                     <button type="button" onClick={() => setSelectedSceneLayerId(null)}>
                       Back to scene
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openContextualGenerationModal(
+                          selectedScene,
+                          { entityId: selectedSceneLayer.id, kind: "layer" },
+                          `Create a scene layer asset for ${selectedSceneLayer.name || selectedSceneLayer.id}. Match the scene perspective and leave composition-ready edges.`,
+                          "opaque-scene"
+                        )
+                      }
+                    >
+                      Generate layer
                     </button>
                     <button type="button" onClick={createSceneLayer} disabled={imageAssets.length === 0}>
                       Add layer
@@ -11785,7 +12498,17 @@ export function EditorApp() {
                   }}
                 />
                 <div className="context-action-row">
-                  <button type="button" onClick={() => openImageGenerationForSceneTarget(`${selectedScene.id}-background`)}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openContextualGenerationModal(
+                        selectedScene,
+                        { kind: "scene-background" },
+                        `Create a playable 2D point-and-click background for ${selectedScene.name}. Preserve clear walkable space, readable exits, and room for hotspots.`,
+                        "opaque-scene"
+                      )
+                    }
+                  >
                     Generate background
                   </button>
                 </div>
@@ -12410,6 +13133,176 @@ export function EditorApp() {
       </div>
       </>
       )}
+      {contextualGenerationModalOpen && freePromptTarget && promptPackScene ? (
+        <div className="contextual-generation-backdrop" role="presentation">
+          <section
+            aria-modal="true"
+            className="contextual-generation-modal"
+            role="dialog"
+            aria-labelledby="contextual-generation-title"
+          >
+            <div className="contextual-generation-header">
+              <div>
+                <span className="overview-label">Contextual Generate</span>
+                <strong id="contextual-generation-title">
+                  {freePromptLabel(freePromptTarget, promptPackScene)}
+                </strong>
+                <p>{freePromptTarget.kind} / {freePromptTarget.sceneId}</p>
+              </div>
+              <button
+                className="icon-action"
+                type="button"
+                aria-label="Close contextual generation"
+                onClick={() => setContextualGenerationModalOpen(false)}
+              >
+                <X size={iconSize} />
+              </button>
+            </div>
+            <div className="contextual-generation-body">
+              <label className="prompt-studio-field">
+                Provider
+                <select
+                  value={imageProviderId}
+                  onChange={(event) => setImageProviderId(event.target.value as ImageGenerationProviderId)}
+                >
+                  {imageProviderOptions.map((provider) => (
+                    <option key={`context-image-provider-${provider.value}`} value={provider.value}>
+                      {provider.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="prompt-studio-field">
+                Art style
+                <select
+                  value={freePromptStylePresetId}
+                  onChange={(event) => setFreePromptStylePresetId(event.target.value)}
+                >
+                  {visualStylePresets.map((preset) => (
+                    <option key={`context-style-${preset.id}`} value={preset.id}>
+                      {preset.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="prompt-studio-field">
+                Output
+                <select
+                  value={freePromptOutputPreset}
+                  onChange={(event) => setFreePromptOutputPreset(event.target.value as TargetBackgroundMode)}
+                >
+                  {freePromptOutputPresets.map((preset) => (
+                    <option key={`context-output-${preset.value}`} value={preset.value}>
+                      {preset.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="prompt-studio-field">
+                Seed
+                <input
+                  placeholder="Empty for random"
+                  value={comfyUiSeed}
+                  onChange={(event) => setComfyUiSeed(event.target.value)}
+                />
+              </label>
+              <label className="prompt-studio-field span-2">
+                Extra style
+                <input
+                  placeholder="Optional art direction for this generated piece"
+                  value={freePromptCustomStyle}
+                  onChange={(event) => setFreePromptCustomStyle(event.target.value)}
+                />
+              </label>
+              <label className="prompt-studio-field span-2">
+                Prompt
+                <textarea
+                  value={freePromptText}
+                  onChange={(event) => setFreePromptText(event.target.value)}
+                />
+              </label>
+              <label className="prompt-studio-field span-2">
+                Negative prompt
+                <textarea
+                  value={freePromptNegative}
+                  onChange={(event) => setFreePromptNegative(event.target.value)}
+                />
+              </label>
+            </div>
+            <div className="contextual-generation-contract">
+              <span className={`target-mode-pill ${selectedImageTargetWorkflowTone}`}>
+                {selectedImageTargetWorkflow.label}
+              </span>
+              <span className="prompt-chip">{selectedImageWorkflowFamily}</span>
+              <span className="prompt-chip">
+                {selectedGenerationDimensions.width} x {selectedGenerationDimensions.height}
+              </span>
+              {selectedImageInputWorkflowWarning ? (
+                <p className="target-customization-note">{selectedImageInputWorkflowWarning}</p>
+              ) : (
+                <p className="target-customization-note">
+                  {freePromptOutputPresets.find((preset) => preset.value === freePromptOutputPreset)?.detail}
+                </p>
+              )}
+            </div>
+            {lastGeneratedImageAsset && lastGeneratedImageAsset.targetId === selectedEffectiveGenerationTarget?.id ? (
+              <div className="contextual-generation-result">
+                <div>
+                  <span className="overview-label">Generated</span>
+                  <strong>{lastGeneratedImageAsset.assetId}</strong>
+                  <p>{lastGeneratedImageAsset.hasAlphaPixels ? "Alpha pixels detected" : "Opaque bitmap"}</p>
+                </div>
+                <div className="generation-handoff-actions">
+                  <button className="secondary-action compact-action" type="button" onClick={openGeneratedAsset}>
+                    Open Asset
+                  </button>
+                  {lastGeneratedImageAsset.entityKind === "scene-background" ? (
+                    <button className="secondary-action compact-action" type="button" onClick={assignGeneratedAssetToBackgroundDraft}>
+                      Set Background
+                    </button>
+                  ) : null}
+                  {lastGeneratedImageAsset.entityKind === "layer" ? (
+                    <button className="secondary-action compact-action" type="button" onClick={assignGeneratedAssetToLayerDraft}>
+                      Assign Layer
+                    </button>
+                  ) : null}
+                  {lastGeneratedImageAsset.entityKind === "player" ? (
+                    <button className="secondary-action compact-action" type="button" onClick={assignGeneratedAssetToPlayerDraft}>
+                      Assign Player
+                    </button>
+                  ) : null}
+                  {lastGeneratedImageAsset.entityKind === "actor" ? (
+                    <button className="secondary-action compact-action" type="button" onClick={assignGeneratedAssetToActorDraft}>
+                      Assign Actor
+                    </button>
+                  ) : null}
+                  {lastGeneratedImageAsset.entityKind === "pickup" ? (
+                    <button className="secondary-action compact-action" type="button" onClick={assignGeneratedAssetToPickupDraft}>
+                      Assign Pickup
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+            <div className="contextual-generation-footer">
+              <p>{comfyUiGenerationStatus}</p>
+              <div>
+                <button className="secondary-action compact-action" type="button" onClick={openAdvancedAiForContextualGeneration}>
+                  Advanced
+                </button>
+                <button
+                  className="play-action compact-action"
+                  disabled={!activeImagePromptPack || !selectedEffectiveGenerationTarget || imageGenerationState === "running"}
+                  type="button"
+                  onClick={generateImageAsset}
+                >
+                  {imageGenerationState === "running" ? "Generating..." : "Generate"}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

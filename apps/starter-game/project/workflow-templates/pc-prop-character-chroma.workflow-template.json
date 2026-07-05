@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "id": "pc-prop-character-chroma",
+  "name": "PointClick Prop/Character Chroma SDXL Lightning 8GB",
+  "family": "prop_isolated_alpha_or_chroma",
+  "workflowPath": "workflows/pc-prop-character-chroma.workflow.json",
+  "outputMode": "chroma-image",
+  "hardwareProfile": "8GB VRAM draft, SDXL-Lightning 4-step",
+  "supportedInputs": [
+    "prompt",
+    "negative-prompt",
+    "seed",
+    "dimensions",
+    "checkpoint",
+    "output-prefix"
+  ],
+  "bindings": [
+    {
+      "input": "prompt",
+      "nodeId": "6",
+      "inputKey": "text",
+      "required": true
+    },
+    {
+      "input": "negative-prompt",
+      "nodeId": "7",
+      "inputKey": "text"
+    },
+    {
+      "input": "seed",
+      "nodeId": "3",
+      "inputKey": "seed"
+    },
+    {
+      "input": "dimensions",
+      "nodeId": "5",
+      "inputKey": "width",
+      "required": true
+    },
+    {
+      "input": "checkpoint",
+      "nodeId": "4",
+      "inputKey": "ckpt_name"
+    },
+    {
+      "input": "output-prefix",
+      "nodeId": "9",
+      "inputKey": "filename_prefix"
+    }
+  ],
+  "output": {
+    "nodeId": "9",
+    "kind": "chroma-image"
+  },
+  "notes": [
+    "Recommended checkpoint: ByteDance SDXL-Lightning 4-step all-in-one checkpoint in ComfyUI/models/checkpoints.",
+    "Prompt should request a flat blue or green background, then clean up in Asset Studio Chroma Key or Bezier Cutout.",
+    "Uses the same 4-step SDXL-Lightning core workflow as background generation."
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "id": "pc-background-16x9-sdxl-turbo",
+  "name": "PointClick Background 16:9 SDXL Turbo 8GB Fast Draft",
+  "family": "background_t2i_fast",
+  "workflowPath": "workflows/pc-background-16x9-sdxl-turbo.workflow.json",
+  "outputMode": "opaque-image",
+  "hardwareProfile": "8GB VRAM draft, SDXL Turbo 1-step",
+  "supportedInputs": [
+    "prompt",
+    "negative-prompt",
+    "seed",
+    "dimensions",
+    "checkpoint",
+    "output-prefix"
+  ],
+  "bindings": [
+    {
+      "input": "prompt",
+      "nodeId": "6",
+      "inputKey": "text",
+      "required": true
+    },
+    {
+      "input": "negative-prompt",
+      "nodeId": "7",
+      "inputKey": "text"
+    },
+    {
+      "input": "seed",
+      "nodeId": "3",
+      "inputKey": "seed"
+    },
+    {
+      "input": "dimensions",
+      "nodeId": "5",
+      "inputKey": "width",
+      "required": true
+    },
+    {
+      "input": "checkpoint",
+      "nodeId": "4",
+      "inputKey": "ckpt_name"
+    },
+    {
+      "input": "output-prefix",
+      "nodeId": "9",
+      "inputKey": "filename_prefix"
+    }
+  ],
+  "output": {
+    "nodeId": "9",
+    "kind": "opaque-image"
+  },
+  "notes": [
+    "Recommended checkpoint: Stability AI SDXL Turbo checkpoint in ComfyUI/models/checkpoints.",
+    "Default checkpoint name matches ComfyUI subfolder installs like SDXL-TURBO/sd_xl_turbo_1.0_fp16.safetensors.",
+    "Use this as a smoke-test or ideation preset only. Turbo is fastest at 1 step, but scene composition and negative guidance are not reliable enough for the default background path."
+  ]
+}
