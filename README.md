@@ -123,6 +123,8 @@ The release gate runs unit tests, typecheck, sample validation, starter
 validation, package builds, release hygiene, and development-mode provenance
 coverage. A separate strict provenance gate intentionally blocks public
 redistribution until every review-required item has a recorded rights decision.
+CI also blocks high and critical dependency advisories across runtime and
+packaging dependencies.
 
 Useful focused commands:
 
@@ -164,8 +166,9 @@ packages/cli           Project validation commands
 
 - Creator Alpha focuses on 2D layered scenes; hybrid 3D is schema-planned only.
 - Flow authoring is structured but not a full graph editor yet.
-- Character Gym has runtime and document support, but the full sprite editor UX
-  is still being completed.
+- Character Gym has an MVP editor workflow for spritesheet slicing, clip
+  preview, pack editing, and player/actor assignment; generated animation-sheet
+  consistency still needs stronger presets.
 - Transparent PNG generation depends on the selected ComfyUI workflow or
   in-editor chroma cleanup from a flat blue/green background.
 - Reference and mask inputs require a project-relative custom ComfyUI workflow

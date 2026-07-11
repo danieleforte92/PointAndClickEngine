@@ -52,8 +52,9 @@ promise of full puzzle AI.
 ## Known Limitations
 
 - Windows is the primary packaged target.
-- Character Gym runtime and document support exist, but the full sprite editor
-  UX is still being completed.
+- Character Gym is an MVP editor workflow for spritesheet slicing, clip preview,
+  pack editing, and player/actor assignment. Generated animation-sheet
+  consistency still needs stronger presets.
 - Transparent PNG quality depends on the selected ComfyUI workflow or a clean
   flat chroma source for editor cleanup.
 - Reference and mask inputs require an installed ComfyUI template or legacy API
@@ -72,6 +73,7 @@ Before tagging, run:
 
 ```powershell
 pnpm check
+pnpm audit --audit-level high
 pnpm check:release:candidate
 pnpm test:e2e
 pnpm validate:sample

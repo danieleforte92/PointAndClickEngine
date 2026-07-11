@@ -53,6 +53,7 @@ for redistribution.
 Before proposing a public release, also run:
 
 ```powershell
+pnpm audit --audit-level high
 pnpm test:e2e
 pnpm check:release:candidate
 pnpm validate:provenance:strict

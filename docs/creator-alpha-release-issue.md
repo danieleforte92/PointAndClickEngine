@@ -16,6 +16,7 @@ export, SDK publishing, and a full puzzle-AI promise are out of scope.
 - `pnpm install --frozen-lockfile` succeeds from a clean checkout.
 - `pnpm check` passes with network access available for Electron Forge
   packaging.
+- `pnpm audit --audit-level high` passes for runtime and packaging dependencies.
 - `pnpm test:e2e` passes or any failure is explicitly documented before
   tagging.
 - `pnpm validate:provenance:strict` passes after a human records actual asset,
@@ -93,6 +94,9 @@ Record the result here before tagging:
 
 - **Packaging fetch failure**: Electron Forge may need HTTPS access. Re-run
   `pnpm check` outside restricted sandboxes before blocking the release.
+- **Dependency advisories**: high or critical findings in runtime or packaging
+  dependencies block the candidate; update the lockfile and rerun the full
+  audit instead of suppressing the finding.
 - **Provider confusion**: local AI tools are optional. Keep mock provider paths
   working and call out that models/weights are user-installed.
 - **Workflow mismatch**: custom ComfyUI exports vary. State that only installed

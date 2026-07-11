@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const strict = process.argv.includes("--strict");
@@ -80,6 +80,11 @@ for (const entry of entries) {
 const trackedFiles = execFileSync("git", ["ls-files"], { encoding: "utf8" })
   .split(/\r?\n/)
   .filter(Boolean)
+  // A release candidate is built from the files present in the checkout. Git
+  // still reports a deliberately deleted path until the deletion is committed;
+  // do not treat that absent path as a redistributable release input during
+  // development validation.
+  .filter((file) => existsSync(resolve(file)))
   .map((file) => file.replace(/\\/g, "/"));
 // A GitHub source archive contains every tracked path. The Windows package is a
 // second distribution surface, but it does not make tracked screenshots,

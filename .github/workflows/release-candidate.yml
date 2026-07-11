@@ -37,6 +37,7 @@ jobs:
           pnpm typecheck
           pnpm validate:sample
           pnpm validate:starter
+          pnpm audit --audit-level high
           pnpm validate:provenance
           pnpm check:release:candidate
 

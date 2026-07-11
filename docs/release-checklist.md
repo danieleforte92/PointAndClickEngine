@@ -12,6 +12,7 @@ git status --short
 corepack enable
 pnpm install --frozen-lockfile
 pnpm check
+pnpm audit --audit-level high
 pnpm check:release:candidate
 pnpm test:e2e
 pnpm validate:provenance:strict
@@ -42,6 +43,8 @@ Notes:
   `pnpm check` deliberately permits review-required starter/sample assets. Do
   not mark an item approved without its source, permitted redistribution basis,
   and evidence recorded in `provenance/inventory.json`.
+- `pnpm audit --audit-level high` covers runtime and packaging dependencies; a
+  high or critical finding is a release blocker.
 - `pnpm check:release:candidate` verifies that the committed checkout is clean,
   that every required release control is tracked, and that all workspace package
   metadata uses the release version while remaining private. Run it after the
@@ -90,6 +93,10 @@ For provider smoke tests:
 ```powershell
 pnpm build
 ```
+
+Run the package step from a clean checkout or CI runner. Do not use a
+pre-existing ignored `apps/editor/out` directory as evidence for a new
+candidate.
 
 The Windows editor should be available at:
 
