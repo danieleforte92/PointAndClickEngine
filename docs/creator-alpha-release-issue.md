@@ -5,9 +5,11 @@ Use this as the body for the GitHub tracking issue before tagging
 
 ## Goal
 
-Ship the first public technical alpha of Point & Click Engine: a local-first,
-Git-friendly 2D point-and-click editor/runtime that a technical creator can
-clone, run, inspect, modify, validate, and package without paid provider keys.
+Ship the first public Windows-first technical alpha of Point & Click Engine: a
+local-first, Git-friendly 2D point-and-click editor/runtime that a technical
+creator can clone, run, inspect, modify, validate, and package without paid
+provider keys. The 0.1.x line keeps schema-v1 compatibility; generic web
+export, SDK publishing, and a full puzzle-AI promise are out of scope.
 
 ## Exit Criteria
 
@@ -16,6 +18,10 @@ clone, run, inspect, modify, validate, and package without paid provider keys.
   packaging.
 - `pnpm test:e2e` passes or any failure is explicitly documented before
   tagging.
+- `pnpm validate:provenance:strict` passes after a human records actual asset,
+  workflow, and third-party redistribution decisions.
+- Candidate evidence records the exact commit, Node.js 22.17.0, pnpm 9.6.0,
+  clean status, SHA-256 checksums, signing status, and packaged-preview result.
 - `apps/starter-game/project` validates as the minimal clean gameplay project
   with curated ComfyUI workflow preset fixtures.
 - `apps/sample-game/project` validates as the public demo project.
@@ -50,6 +56,9 @@ Record the result here before tagging:
 - [ ] Build validation run from the editor.
 - [ ] Browser preview opened.
 - [ ] Packaged editor preview opened.
+- [ ] Keyboard, narrow-viewport, and preview-reopen reliability smoke completed.
+- [ ] Strict provenance gate passed with evidence; no review-required release input remains.
+- [ ] Candidate checksum and release-evidence artifacts reviewed.
 
 ## Known Limitations To Mention
 
@@ -66,6 +75,8 @@ Record the result here before tagging:
   cover API calls.
 - Hosted demo, public website, web export, and SDK publishing are later
   milestones.
+- Cloud providers are experimental and opt-in; no provider account is required
+  for the local-first authoring loop.
 
 ## Release Artifacts
 
@@ -74,6 +85,9 @@ Record the result here before tagging:
 - Screenshot or GIF from `docs/assets`.
 - Link to `docs/release-notes-creator-alpha.md`.
 - Link to `docs/release-checklist.md`.
+- SHA-256 checksum file and release-evidence JSON from the release-candidate
+  workflow. Candidate artifacts are unsigned unless a separate authorized
+  signing decision says otherwise.
 
 ## Risks
 

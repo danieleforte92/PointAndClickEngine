@@ -2,6 +2,30 @@ import { describe, expect, it } from "vitest";
 import { validateDocument } from "./validate";
 
 describe("project contracts", () => {
+  it("accepts a committed project change record", () => {
+    expect(
+      validateDocument("projectChange", {
+        schemaVersion: 1,
+        id: "history-000001",
+        sequence: 1,
+        createdAt: "2026-07-11T12:00:00.000Z",
+        source: "editor",
+        operation: "scene/update",
+        summary: "scene/update (moonlit-dock)",
+        scope: "scene",
+        affectedDocuments: [
+          {
+            kind: "scene",
+            id: "moonlit-dock",
+            path: "scenes/moonlit-dock.scene.json",
+            beforeSha256: "a".repeat(64),
+            afterSha256: "b".repeat(64)
+          }
+        ]
+      })
+    ).toEqual({ valid: true, errors: [] });
+  });
+
   it("accepts a minimal project manifest", () => {
     const result = validateDocument("project", {
       schemaVersion: 1,

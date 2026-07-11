@@ -1,0 +1,81 @@
+name: Release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit, branch, or tag to build
+        required: false
+        default: develop
+
+jobs:
+  windows-candidate:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.17.0"
+          cache: pnpm
+
+      - name: Install frozen dependency graph
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate candidate
+        run: |
+          pnpm test
+          pnpm typecheck
+          pnpm validate:sample
+          pnpm validate:starter
+          pnpm validate:provenance
+          pnpm check:release:candidate
+
+      - name: Install Chromium for Playwright
+        run: pnpm exec playwright install chromium
+
+      - name: Browser end-to-end smoke
+        run: pnpm test:e2e
+
+      - name: Build Windows editor package
+        run: pnpm --filter @pointclick/editor build
+
+      - name: Smoke-check package contents
+        run: pnpm verify:windows-package
+
+      - name: Generate candidate checksums
+        run: node scripts/create-checksums.mjs apps/editor/out release-artifacts/SHA256SUMS.txt
+
+      - name: Evaluate strict provenance gate
+        id: provenance
+        continue-on-error: true
+        run: node scripts/validate-provenance.mjs --strict --format=json > release-artifacts/provenance-release-gate.json
+
+      - name: Record release evidence
+        run: node scripts/release-record.mjs --output release-artifacts/release-evidence.json --checksums release-artifacts/SHA256SUMS.txt
+
+      - name: Upload unsigned candidate artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-creator-alpha-candidate
+          path: |
+            apps/editor/out/PointClickStudio-win32-x64/
+            release-artifacts/
+          if-no-files-found: warn
+
+      - name: Require cleared provenance before release approval
+        if: steps.provenance.outcome != 'success'
+        shell: pwsh
+        run: |
+          Write-Error "Candidate artifacts were uploaded, but the strict provenance gate remains blocked. This workflow does not publish a release."
+          exit 1

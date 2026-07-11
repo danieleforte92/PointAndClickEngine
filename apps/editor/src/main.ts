@@ -22,6 +22,7 @@ import type {
 import type { EditorRecoverySnapshot } from "./editor-session";
 import { generateComfyUIImage } from "./comfyui-image-provider";
 import { GoogleImageProvider } from "./google-image-provider";
+import { mockAuthoringProvider } from "@pointclick/authoring";
 import {
   bitmapHasAlphaPixels,
   generatedImageParentAssetIds,
@@ -32,22 +33,28 @@ import {
 import { generateLMStudioPromptPack } from "./lmstudio-prompt-provider";
 import { generateOpenAIPromptPack } from "./openai-prompt-provider";
 import { OpenAIImageProvider } from "./openai-image-provider";
+import { isTrustedEditorIpcSender } from "./ipc-security";
+import { assertProviderEndpointConsent } from "./provider-security";
 import type { EditorPreviewRequest } from "./preload";
 import { mockPromptPackProvider, type GeneratePromptPackRequest, type PromptProviderId } from "./prompt-pack-studio";
 import { createValidationReport } from "./validation-report";
 import { workflowPresetById } from "./workflow-presets";
 import {
   applyProjectCommand,
+  atomicWriteFile,
   createBlankProject,
   createProjectFromTemplate,
+  loadProjectHistory,
   loadProjectFromDirectory,
   safeProjectPath,
+  serializeJsonDocument,
   type EditorProjectCommand,
   validateProjectBundle,
   validateProjectFiles
 } from "@pointclick/project-io";
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell, type IpcMainInvokeEvent } from "electron";
 
+let editorWindow: BrowserWindow | null = null;
 let previewWindow: BrowserWindow | null = null;
 let playerServer: Server | null = null;
 let previewBundleServer: Server | null = null;
@@ -228,7 +235,26 @@ function createEditorWindow(): BrowserWindow {
     );
   }
 
+  editorWindow = window;
+  window.on("closed", () => {
+    if (editorWindow === window) editorWindow = null;
+  });
+
   return window;
+}
+
+function requireTrustedEditorWindow(event: IpcMainInvokeEvent): BrowserWindow {
+  if (!isTrustedEditorIpcSender(event.sender, editorWindow)) {
+    throw new Error("Blocked privileged IPC from an untrusted renderer.");
+  }
+  return editorWindow!;
+}
+
+function handleTrustedIpc<Args extends unknown[], Result>(
+  channel: string,
+  handler: (window: BrowserWindow, ...args: Args) => Result | Promise<Result>
+): void {
+  ipcMain.handle(channel, (event, ...args: Args) => handler(requireTrustedEditorWindow(event), ...args));
 }
 
 async function buildPreviewUrl(request?: EditorPreviewRequest): Promise<string> {
@@ -330,12 +356,7 @@ async function loadRecoverySnapshot(projectDirectory: string): Promise<EditorRec
 }
 
 async function saveRecoverySnapshot(snapshot: EditorRecoverySnapshot): Promise<void> {
-  await mkdir(recoveryDirectory(), { recursive: true });
-  await writeFile(
-    recoveryFilePath(snapshot.projectDirectory),
-    `${JSON.stringify(snapshot, null, 2)}\n`,
-    "utf8"
-  );
+  await atomicWriteFile(recoveryFilePath(snapshot.projectDirectory), serializeJsonDocument(snapshot));
 }
 
 async function clearRecoverySnapshot(projectDirectory: string): Promise<void> {
@@ -494,6 +515,7 @@ async function saveProcessedImageAsset(requestValue: unknown) {
 }
 
 async function summarizeProject(projectDirectory: string, bundle: ProjectBundle) {
+  const history = await loadProjectHistory(projectDirectory);
   const diagnostics = [
     ...validateProjectBundle(bundle),
     ...(await validateProjectFiles({ directory: projectDirectory, bundle }))
@@ -562,7 +584,9 @@ async function summarizeProject(projectDirectory: string, bundle: ProjectBundle)
     workflowTemplateCount: workflowTemplates.length,
     workflowTemplates,
     generationRecipeCount: generationRecipes.length,
-    generationRecipes
+    generationRecipes,
+    historyRecords: history.records.slice(-12).reverse(),
+    historyRecordCount: history.records.length
   };
 }
 
@@ -586,8 +610,7 @@ async function installWorkflowPreset(presetId: string) {
 
   const projectDirectory = currentProjectPath();
   const workflowPath = safeProjectPath(projectDirectory, preset.template.workflowPath, "Workflow preset path");
-  await mkdir(path.dirname(workflowPath), { recursive: true });
-  await writeFile(workflowPath, `${JSON.stringify(preset.workflowJson, null, 2)}\n`, "utf8");
+  await atomicWriteFile(workflowPath, serializeJsonDocument(preset.workflowJson));
 
   const loaded = await applyProjectCommand(projectDirectory, {
     type: "workflow-template/upsert",
@@ -668,6 +691,7 @@ async function createEditorProjectFromStarter(browserWindow: BrowserWindow) {
 async function generatePromptPack(
   request: GeneratePromptPackRequest & {
     providerId: PromptProviderId;
+    allowRemoteProvider?: boolean;
     lmStudioApiKey?: string;
     lmStudioBaseUrl?: string;
     lmStudioModel?: string;
@@ -681,6 +705,12 @@ async function generatePromptPack(
   }
 
   if (request.providerId === "lmstudio") {
+    assertProviderEndpointConsent({
+      allowRemoteProvider: request.allowRemoteProvider,
+      baseUrl: request.lmStudioBaseUrl,
+      defaultBaseUrl: "http://localhost:1234/v1",
+      providerLabel: "LM Studio"
+    });
     return generateLMStudioPromptPack(request, {
       ...(request.lmStudioApiKey ? { apiKey: request.lmStudioApiKey } : {}),
       ...(request.lmStudioBaseUrl ? { baseUrl: request.lmStudioBaseUrl } : {}),
@@ -688,6 +718,12 @@ async function generatePromptPack(
     });
   }
 
+  assertProviderEndpointConsent({
+    allowRemoteProvider: request.allowRemoteProvider,
+    baseUrl: request.openAiBaseUrl,
+    defaultBaseUrl: "https://api.openai.com/v1",
+    providerLabel: "OpenAI"
+  });
   return generateOpenAIPromptPack(request, {
     ...(request.openAiApiKey ? { apiKey: request.openAiApiKey } : {}),
     ...(request.openAiBaseUrl ? { baseUrl: request.openAiBaseUrl } : {}),
@@ -734,6 +770,33 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
   const providerId = request.providerId === "comfyui" ? "comfyui-local" : request.providerId;
   if (!["comfyui-local", "openai-image", "google-image"].includes(providerId)) {
     throw new Error(`Unsupported image provider "${request.providerId}"`);
+  }
+
+  if (providerId === "comfyui-local") {
+    assertProviderEndpointConsent({
+      allowRemoteProvider: request.allowRemoteProvider,
+      baseUrl: request.baseUrl,
+      defaultBaseUrl: "http://127.0.0.1:8188",
+      providerLabel: "ComfyUI"
+    });
+  } else if (providerId === "openai-image") {
+    assertProviderEndpointConsent({
+      allowRemoteProvider: request.allowRemoteProvider,
+      baseUrl: request.openAiBaseUrl,
+      defaultBaseUrl: "https://api.openai.com/v1",
+      providerLabel: "OpenAI image"
+    });
+  } else {
+    const googleDefaultBaseUrl =
+      request.googleProvider === "vertex-ai"
+        ? `https://${request.googleLocation?.trim() || "us-central1"}-aiplatform.googleapis.com/v1`
+        : "https://generativelanguage.googleapis.com/v1beta";
+    assertProviderEndpointConsent({
+      allowRemoteProvider: request.allowRemoteProvider,
+      baseUrl: request.googleBaseUrl,
+      defaultBaseUrl: googleDefaultBaseUrl,
+      providerLabel: request.googleProvider === "vertex-ai" ? "Vertex AI image" : "Gemini image"
+    });
   }
 
   const projectDirectory = currentProjectPath();
@@ -971,75 +1034,63 @@ app.whenReady().then(() => {
   return playerUrl;
 }).then((resolvedPlayerUrl) => {
   playerUrl = resolvedPlayerUrl;
-  ipcMain.handle("preview:open", async (_event, request?: EditorPreviewRequest) => openPreview(request));
-  ipcMain.handle("preview:browser", async (_event, request?: EditorPreviewRequest) => {
+  handleTrustedIpc("preview:open", async (_window, request?: EditorPreviewRequest) => openPreview(request));
+  handleTrustedIpc("preview:browser", async (_window, request?: EditorPreviewRequest) => {
     await openPreviewInBrowser(request);
   });
-  ipcMain.handle("project:load", async (_event, projectDirectory?: string) => {
+  handleTrustedIpc("project:load", async (_window, projectDirectory?: string) => {
     return readEditorProject(projectDirectory);
   });
-  ipcMain.handle("project:pick", async (event) => {
-    const browserWindow = BrowserWindow.fromWebContents(event.sender);
-    if (!browserWindow) {
-      throw new Error("Unable to resolve editor window");
-    }
-    return promptForProjectDirectory(browserWindow);
+  handleTrustedIpc("project:pick", async (window) => {
+    return promptForProjectDirectory(window);
   });
-  ipcMain.handle("project:create-blank", async (event) => {
-    const browserWindow = BrowserWindow.fromWebContents(event.sender);
-    if (!browserWindow) {
-      throw new Error("Unable to resolve editor window");
-    }
-    return createBlankEditorProject(browserWindow);
+  handleTrustedIpc("project:create-blank", async (window) => {
+    return createBlankEditorProject(window);
   });
-  ipcMain.handle("project:create-from-starter", async (event) => {
-    const browserWindow = BrowserWindow.fromWebContents(event.sender);
-    if (!browserWindow) {
-      throw new Error("Unable to resolve editor window");
-    }
-    return createEditorProjectFromStarter(browserWindow);
+  handleTrustedIpc("project:create-from-starter", async (window) => {
+    return createEditorProjectFromStarter(window);
   });
-  ipcMain.handle("project:import-assets", async (event) => {
-    const browserWindow = BrowserWindow.fromWebContents(event.sender);
-    if (!browserWindow) {
-      throw new Error("Unable to resolve editor window");
-    }
-    return importProjectAssets(browserWindow);
+  handleTrustedIpc("project:import-assets", async (window) => {
+    return importProjectAssets(window);
   });
-  ipcMain.handle("project:import-asset-files", async (_event, filePaths: unknown) => {
+  handleTrustedIpc("project:import-asset-files", async (_window, filePaths: unknown) => {
     return importProjectAssetFiles(filePaths);
   });
-  ipcMain.handle(
+  handleTrustedIpc(
     "project:save-processed-image-asset",
-    async (_event, request: unknown) => {
+    async (_window, request: unknown) => {
       return saveProcessedImageAsset(request);
     }
   );
-  ipcMain.handle("ai:prompt-pack", async (_event, request) => {
+  handleTrustedIpc("ai:prompt-pack", async (_window, request: Parameters<typeof generatePromptPack>[0]) => {
     return generatePromptPack(request);
   });
-  ipcMain.handle("ai:image-asset", async (_event, request) => {
+  handleTrustedIpc("ai:authoring-suggestions", async (_window, request?: { sceneId?: string }) => {
+    const loaded = await loadProjectFromDirectory(currentProjectPath());
+    return mockAuthoringProvider.suggest({ bundle: loaded.bundle, ...(request?.sceneId ? { sceneId: request.sceneId } : {}) });
+  });
+  handleTrustedIpc("ai:image-asset", async (_window, request: GenerateImageAssetRequest) => {
     return generateImageAsset(request);
   });
-  ipcMain.handle("workflow-preset:install", async (_event, presetId: string) => {
+  handleTrustedIpc("workflow-preset:install", async (_window, presetId: string) => {
     return installWorkflowPreset(presetId);
   });
-  ipcMain.handle("project:command", async (_event, command: EditorProjectCommand) => {
+  handleTrustedIpc("project:command", async (_window, command: EditorProjectCommand) => {
     return applyEditorCommand(command);
   });
-  ipcMain.handle("project:validate", async () => {
+  handleTrustedIpc("project:validate", async () => {
     return runEditorValidation();
   });
-  ipcMain.handle("project:asset-url", async (_event, assetPath: string) => {
+  handleTrustedIpc("project:asset-url", async (_window, assetPath: string) => {
     return resolveProjectAssetUrl(assetPath);
   });
-  ipcMain.handle("recovery:load", async (_event, projectDirectory: string) => {
+  handleTrustedIpc("recovery:load", async (_window, projectDirectory: string) => {
     return loadRecoverySnapshot(projectDirectory);
   });
-  ipcMain.handle("recovery:save", async (_event, snapshot: EditorRecoverySnapshot) => {
+  handleTrustedIpc("recovery:save", async (_window, snapshot: EditorRecoverySnapshot) => {
     await saveRecoverySnapshot(snapshot);
   });
-  ipcMain.handle("recovery:clear", async (_event, projectDirectory: string) => {
+  handleTrustedIpc("recovery:clear", async (_window, projectDirectory: string) => {
     await clearRecoverySnapshot(projectDirectory);
   });
 

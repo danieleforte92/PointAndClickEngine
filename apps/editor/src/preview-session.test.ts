@@ -162,7 +162,9 @@ const snapshot: EditorProjectSnapshot = {
   workflowTemplateCount: 0,
   workflowTemplates: [],
   generationRecipeCount: 0,
-  generationRecipes: []
+  generationRecipes: [],
+  historyRecordCount: 0,
+  historyRecords: []
 };
 
 describe("buildDraftProjectBundle", () => {

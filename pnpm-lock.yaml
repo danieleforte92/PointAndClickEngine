@@ -50,6 +50,9 @@ importers:
       '@electron-forge/shared-types':
         specifier: ^7.8.1
         version: 7.11.2
+      '@pointclick/authoring':
+        specifier: workspace:*
+        version: link:../../packages/authoring
       '@pointclick/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -139,6 +142,16 @@ importers:
       '@pointclick/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+    devDependencies:
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
+  packages/authoring:
+    dependencies:
+      '@pointclick/contracts':
+        specifier: workspace:*
+        version: link:../contracts
     devDependencies:
       typescript:
         specifier: ^5.8.3

@@ -1,13 +1,18 @@
-import { cp, mkdtemp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, readFile, readdir, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   applyProjectCommand,
+  atomicWriteFile,
   createBlankProject,
   createProjectFromTemplate,
+  diffProjectDirectories,
+  initializeProjectHistory,
+  loadProjectHistory,
   loadProjectFromDirectory,
   safeProjectPath,
+  serializeJsonDocument,
   validateProjectBundle,
   validateProjectFiles
 } from "./index";
@@ -53,6 +58,122 @@ describe("project creation", () => {
     await writeFile(path.join(projectRoot, "notes.txt"), "keep me", "utf8");
 
     await expect(createBlankProject(projectRoot)).rejects.toThrow("must be empty");
+  });
+});
+
+describe("project document persistence", () => {
+  it("serializes the same document deterministically and atomically replaces it", async () => {
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const documentPath = path.join(tempRoot, "document.json");
+    const document = { id: "stable", nested: { enabled: true }, schemaVersion: 1 };
+
+    const firstSerialization = serializeJsonDocument(document);
+    const secondSerialization = serializeJsonDocument(document);
+    expect(secondSerialization).toBe(firstSerialization);
+
+    await atomicWriteFile(documentPath, firstSerialization);
+    expect(await readFile(documentPath, "utf8")).toBe(firstSerialization);
+    expect((await readdir(tempRoot)).filter((entry) => entry.startsWith("document.json.tmp-"))).toEqual([]);
+  });
+
+  it("preserves the prior document and removes its temporary file when replacement fails", async () => {
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const documentPath = path.join(tempRoot, "document.json");
+    const temporaryPath = path.join(tempRoot, "document.json.test-tmp");
+    await writeFile(documentPath, "before\n", "utf8");
+
+    await expect(
+      atomicWriteFile(documentPath, "after\n", {
+        temporaryPath,
+        operations: {
+          ensureDirectory: async (directory) => {
+            await mkdir(directory, { recursive: true });
+          },
+          removeFile: async (filePath) => {
+            await unlink(filePath);
+          },
+          replaceFile: async () => {
+            throw new Error("simulated replacement failure");
+          },
+          writeFile: async (filePath, contents) => {
+            await writeFile(filePath, contents, "utf8");
+          }
+        }
+      })
+    ).rejects.toThrow("simulated replacement failure");
+
+    expect(await readFile(documentPath, "utf8")).toBe("before\n");
+    await expect(stat(temporaryPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("ignores an unreferenced document left before a manifest update", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+    await writeFile(
+      path.join(projectRoot, "scenes", "interrupted.scene.json"),
+      serializeJsonDocument({ id: "interrupted", schemaVersion: 1, type: "placeholder" }),
+      "utf8"
+    );
+
+    const loaded = await loadProjectFromDirectory(projectRoot);
+    expect(loaded.bundle.scenes.interrupted).toBeUndefined();
+  });
+});
+
+describe("project history", () => {
+  it("creates a baseline and records the semantic documents changed by an edit", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-history-"));
+    const projectRoot = path.join(tempRoot, "project");
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+
+    await initializeProjectHistory(projectRoot, "cli");
+    await applyProjectCommand(projectRoot, {
+      type: "project/update-settings",
+      patch: {
+        defaultLocale: "en",
+        initialSceneId: "new-scene",
+        title: "History Updated Adventure",
+        viewport: { height: 720, width: 1280 }
+      }
+    });
+
+    const history = await loadProjectHistory(projectRoot);
+    expect(history.records).toHaveLength(2);
+    const change = history.records[1];
+    expect(change).toMatchObject({
+      operation: "project/update-settings",
+      scope: "project",
+      source: "editor"
+    });
+    expect(change?.affectedDocuments).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "project", path: "adventure.project.json" })])
+    );
+  });
+
+  it("reports semantic document differences between project directories", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-diff-"));
+    const left = path.join(tempRoot, "left");
+    const right = path.join(tempRoot, "right");
+    await cp(fixtureRoot, left, { recursive: true });
+    await cp(fixtureRoot, right, { recursive: true });
+    await applyProjectCommand(right, {
+      type: "project/update-settings",
+      patch: {
+        defaultLocale: "en",
+        initialSceneId: "moonlit-dock",
+        title: "Right Side",
+        viewport: { height: 720, width: 1280 }
+      }
+    });
+
+    const diff = await diffProjectDirectories(left, right);
+    expect(diff.changedDocuments).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "project", path: "adventure.project.json" })])
+    );
   });
 });
 
@@ -200,6 +321,29 @@ describe("loadProjectFromDirectory", () => {
     ).toThrow("must be relative");
     expect(() => safeProjectPath(projectRoot, "../workflow.json", "ComfyUI workflow path")).toThrow(
       "outside the project"
+    );
+  });
+
+  it("rejects existing paths that escape through a symbolic link while allowing new in-project paths", async () => {
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+    const outsideRoot = path.join(tempRoot, "outside");
+    await mkdir(projectRoot, { recursive: true });
+    await mkdir(outsideRoot, { recursive: true });
+
+    try {
+      await symlink(outsideRoot, path.join(projectRoot, "linked"), "junction");
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EPERM" || code === "EACCES") return;
+      throw error;
+    }
+
+    expect(() => safeProjectPath(projectRoot, "linked/secret.json", "Asset path")).toThrow(
+      "resolves outside the project through a symbolic link"
+    );
+    expect(safeProjectPath(projectRoot, "new/nested/document.json", "Asset path")).toBe(
+      path.join(projectRoot, "new", "nested", "document.json")
     );
   });
 

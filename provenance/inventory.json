@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Creator Alpha provenance inventory for redistribution decisions. It records evidence, not legal conclusions.",
+  "releasePolicy": {
+    "normalValidation": "Inventory structure and coverage are required for development and CI.",
+    "strictReleaseValidation": "Every tracked file is a source-archive release input. Every redistributable asset, workflow, screenshot, planning document, and third-party notice entry must be approved before a public release.",
+    "unresolvedStatus": "review-required"
+  },
+  "entries": [
+    {
+      "id": "repository-source-and-release-controls",
+      "kind": "repository-source",
+      "paths": [
+        ".editorconfig",
+        ".github/**",
+        ".gitignore",
+        ".npmrc",
+        "*.md",
+        "docs/**/*.md",
+        "docs/assets/.gitkeep",
+        "playwright.config.ts",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "scripts/**/*.mjs",
+        "tests/**/*.ts",
+        "tsconfig.base.json",
+        "vitest.config.ts",
+        "package.json",
+        "apps/**/package.json",
+        "apps/**/tsconfig.json",
+        "apps/**/vite.*.ts",
+        "apps/**/index.html",
+        "apps/editor/forge.config.ts",
+        "apps/**/src/**",
+        "packages/**/package.json",
+        "packages/**/tsconfig.json",
+        "packages/**/src/**",
+        "provenance/**/*.json",
+        "LICENSE"
+      ],
+      "status": "approved",
+      "license": "Apache-2.0",
+      "evidence": "LICENSE",
+      "releaseAction": "Keep copyright and license notices with source distributions."
+    },
+    {
+      "id": "sample-project-assets-and-workflows",
+      "kind": "asset-and-workflow",
+      "paths": ["apps/sample-game/project/**"],
+      "status": "review-required",
+      "license": null,
+      "evidence": "No repository-local chain of title has been recorded for all sample assets, prompts, and workflow material.",
+      "releaseAction": "Before public redistribution, review each included asset/workflow, record its source and permitted license, then change this status to approved."
+    },
+    {
+      "id": "starter-project-assets-and-workflows",
+      "kind": "asset-and-workflow",
+      "paths": ["apps/starter-game/project/**"],
+      "status": "review-required",
+      "license": null,
+      "evidence": "Starter content may include local or generated material whose redistribution rights have not been reviewed.",
+      "releaseAction": "Do not treat starter assets, generated assets, prompt packs, recipes, or workflow files as cleared until their source and redistribution terms are recorded."
+    },
+    {
+      "id": "documentation-media",
+      "kind": "asset",
+      "paths": ["docs/assets/**"],
+      "status": "review-required",
+      "license": null,
+      "evidence": "The checked-in screenshot has no recorded source and redistribution decision.",
+      "releaseAction": "Replace with a repository-owned capture or document approval before publication."
+    },
+    {
+      "id": "documentation-planning-documents",
+      "kind": "document",
+      "paths": ["docs/brainstorming/**/*.docx"],
+      "status": "review-required",
+      "license": null,
+      "evidence": "The tracked planning documents have no repository-local source or redistribution record.",
+      "releaseAction": "Before public source distribution, record the author/source and permitted redistribution basis for each document, or remove it from the release commit."
+    },
+    {
+      "id": "third-party-node-dependencies",
+      "kind": "third-party-software",
+      "paths": ["package.json", "pnpm-lock.yaml"],
+      "status": "review-required",
+      "license": null,
+      "evidence": "The lockfile identifies dependencies but is not a complete redistributed-notice record.",
+      "releaseAction": "Before shipping a packaged editor, review the resolved production dependency notices and update THIRD_PARTY_NOTICES.md with the required attributions and license texts or references."
+    }
+  ]
+}

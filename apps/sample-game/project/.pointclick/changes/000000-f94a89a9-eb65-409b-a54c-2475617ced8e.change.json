@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "id": "f94a89a9-eb65-409b-a54c-2475617ced8e",
+  "sequence": 0,
+  "createdAt": "2026-07-11T15:28:17.443Z",
+  "source": "cli",
+  "operation": "history/init",
+  "summary": "Project history baseline",
+  "scope": "project",
+  "affectedDocuments": [
+    {
+      "kind": "project",
+      "id": "isle-of-echoes",
+      "path": "adventure.project.json",
+      "afterSha256": "5151f6f1b45058b47b9dccadd46505d5a0c03455ee59b96a83da4c137685042d"
+    },
+    {
+      "kind": "scene",
+      "id": "moonlit-dock",
+      "path": "scenes/moonlit-dock.scene.json",
+      "afterSha256": "ee73dbe39fa4248af2df0c2df90281ae60ee0fda6e39f331d1b86bcd83b1b0c0"
+    },
+    {
+      "kind": "scene",
+      "id": "new-scene",
+      "path": "scenes/new-scene.scene.json",
+      "afterSha256": "7f06a2b7545ceab8924454950f2da575e01869cd06bd7fe6c7e0a7f097956ece"
+    },
+    {
+      "kind": "flow",
+      "id": "look-tavern-door",
+      "path": "flows/look-tavern-door.flow.json",
+      "afterSha256": "39cf2bc875aa21835785231ec7a275b60a60dbe9d8f5272cc92e71c4a7ec4581"
+    },
+    {
+      "kind": "flow",
+      "id": "talk-tavern-door",
+      "path": "flows/talk-tavern-door.flow.json",
+      "afterSha256": "5626e737cbbc11562424cca8bedf0640602cae8eb7659e21541ae7b32a5ec6ba"
+    },
+    {
+      "kind": "flow",
+      "id": "pickup-rusty-hook",
+      "path": "flows/pickup-rusty-hook.flow.json",
+      "afterSha256": "0ac8e304b76ecf1b160a7b350f0032b2af678eb6a70b0050ce577cbbbb0ce0eb"
+    },
+    {
+      "kind": "flow",
+      "id": "use-rusty-hook-on-door",
+      "path": "flows/use-rusty-hook-on-door.flow.json",
+      "afterSha256": "6a7cc02f458211283b99b79d0a63fd77ba893d0656246daeb8000b82f11b31f5"
+    },
+    {
+      "kind": "flow",
+      "id": "return-to-dock",
+      "path": "flows/return-to-dock.flow.json",
+      "afterSha256": "3abc5021d33cc1e3e7a9451af3d9faf8f9121818b812d49120f5de17c7d5863c"
+    },
+    {
+      "kind": "item",
+      "id": "rusty-hook",
+      "path": "items/rusty-hook.item.json",
+      "afterSha256": "441c9b984ed62417dadbf8af87936f9cae8a035ac87fe4d8057fa603cc4efa9f"
+    },
+    {
+      "kind": "asset",
+      "id": "mara-spritesheet",
+      "path": "assets/mara-spritesheet.asset.json",
+      "afterSha256": "f2a3881adfc3d635f2e87bff7e14abc08a02311bf2585b8dfb2ae248599cd8fe"
+    },
+    {
+      "kind": "animation-pack",
+      "id": "mara",
+      "path": "animation-packs/mara.animation-pack.json",
+      "afterSha256": "a79a2509416bbba82d29fe3ff31b5d6d3b79b93733200d10eedb717c55074722"
+    },
+    {
+      "kind": "prompt-pack",
+      "id": "moonlit-dock-art",
+      "path": "prompt-packs/moonlit-dock-art.prompt-pack.json",
+      "afterSha256": "82df167ea8d166f47bb51381fc374c01ed4ce89a7005efabcc042987bebdf874"
+    },
+    {
+      "kind": "style-bible",
+      "id": "isle-style",
+      "path": "style-bibles/isle-style.style-bible.json",
+      "afterSha256": "81f9917b7e6d579b792273694c2bd423424a5be1b0fc53a096b9a51a5bf8fd7d"
+    },
+    {
+      "kind": "locale",
+      "id": "en",
+      "path": "locales/en.json",
+      "afterSha256": "13c419aa281ada37ac2163179c64aaae86122f9f40a2be07d1aeea9621da5f3d"
+    }
+  ]
+}

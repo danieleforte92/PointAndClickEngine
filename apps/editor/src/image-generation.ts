@@ -54,6 +54,7 @@ export interface ImageGenerationProvider {
 }
 
 export interface GenerateImageAssetRequest {
+  allowRemoteProvider?: boolean;
   baseUrl?: string;
   backgroundMode?: "opaque-scene" | "transparent-alpha" | "chroma-blue" | "chroma-green" | "reference-only";
   checkpointName?: string;

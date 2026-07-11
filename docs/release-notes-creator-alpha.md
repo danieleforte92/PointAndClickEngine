@@ -1,12 +1,15 @@
 # Creator Alpha Release Notes
 
 Creator Alpha is the first public open-source release target for Point & Click
-Engine. It is a technical alpha for contributors and early creators who are
-comfortable with local developer tools.
+Engine. It is a Windows-first technical alpha for contributors and early
+creators who are comfortable with local developer tools. The 0.1.x line keeps
+schema-v1 project compatibility; it is not a general web export, an SDK, or a
+promise of full puzzle AI.
 
 ## What To Try First
 
-1. Run `pnpm install --force` and `pnpm dev`.
+1. Run `corepack enable`, `pnpm install --frozen-lockfile`, and `pnpm dev` with
+   Node.js 22.17.0 and pnpm 9.6.0.
 2. Open `apps/sample-game/project`.
 3. Move a scene hotspot, pickup, player start, or walk-area point.
 4. Generate a mock prompt pack in **AI Studio**, or open AI Studio from a scene
@@ -24,8 +27,10 @@ comfortable with local developer tools.
 - Web player and embedded packaged preview.
 - Git-friendly JSON project format with schema and semantic validation.
 - Public sample game, minimal starter project, and authoring docs.
-- Local-first AI workflows with mock prompt generation, LM Studio, OpenAI API,
-  and ComfyUI image import.
+- Local-first AI workflows with mock prompt generation, LM Studio, experimental
+  opt-in cloud providers, and ComfyUI image import.
+- Local deterministic narrative and puzzle suggestions that stay advisory;
+  creators author the resulting Flow JSON and gameplay logic explicitly.
 - AI workflow documents for style bibles, workflow templates, generation
   recipes, and generated asset provenance.
 - ComfyUI preset install for SDXL standard 8GB background T2I, SDXL
@@ -58,6 +63,8 @@ comfortable with local developer tools.
   publishing are outside this release.
 - AI provider keys are optional; OpenAI requires API platform access and is not
   covered by a ChatGPT subscription.
+- Cloud providers are experimental and opt-in. Creator Alpha remains useful
+  without an account, key, or paid provider.
 
 ## Release Gate
 
@@ -65,9 +72,11 @@ Before tagging, run:
 
 ```powershell
 pnpm check
+pnpm check:release:candidate
 pnpm test:e2e
 pnpm validate:sample
 pnpm validate:starter
+pnpm validate:provenance:strict
 ```
 
 Also complete the manual smoke test in `docs/release-checklist.md`.

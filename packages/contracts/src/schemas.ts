@@ -474,6 +474,7 @@ export const AssetDocumentSchema = Type.Object(
     kind: AssetKindSchema,
     path: ProjectPath,
     source: AssetSourceSchema,
+    contentSha256: Type.Optional(Type.String({ pattern: "^[a-f0-9]{64}$" })),
     generation: Type.Optional(AssetGenerationMetadataSchema)
   },
   { additionalProperties: false }
@@ -822,6 +823,49 @@ export const PromptPackDocumentSchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const ProjectChangeScopeSchema = Type.Union([
+  Type.Literal("project"),
+  Type.Literal("scene"),
+  Type.Literal("narrative"),
+  Type.Literal("asset"),
+  Type.Literal("ai"),
+  Type.Literal("localization")
+]);
+
+export const ProjectChangeSourceSchema = Type.Union([
+  Type.Literal("editor"),
+  Type.Literal("cli"),
+  Type.Literal("migration"),
+  Type.Literal("external")
+]);
+
+export const ProjectChangeDocumentSchema = Type.Object(
+  {
+    kind: Type.String({ minLength: 1 }),
+    id: Type.Optional(Id),
+    path: ProjectPath,
+    beforeSha256: Type.Optional(Type.String({ pattern: "^[a-f0-9]{64}$" })),
+    afterSha256: Type.Optional(Type.String({ pattern: "^[a-f0-9]{64}$" }))
+  },
+  { additionalProperties: false }
+);
+
+export const ProjectChangeRecordSchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    id: Type.String({ minLength: 1 }),
+    sequence: Type.Integer({ minimum: 0 }),
+    createdAt: Type.String({ format: "date-time" }),
+    source: ProjectChangeSourceSchema,
+    operation: Type.String({ minLength: 1 }),
+    summary: Type.String({ minLength: 1 }),
+    scope: ProjectChangeScopeSchema,
+    affectedDocuments: Type.Array(ProjectChangeDocumentSchema, { minItems: 1 }),
+    command: Type.Optional(Type.Unknown())
+  },
+  { additionalProperties: false }
+);
+
 export type Vector2 = Static<typeof Vector2Schema>;
 export type Rect = Static<typeof RectSchema>;
 export type Polygon2 = Static<typeof Polygon2Schema>;
@@ -870,6 +914,10 @@ export type PromptPackOutputs = Static<typeof PromptPackOutputsSchema>;
 export type PromptPackSuggestedActor = Static<typeof PromptPackSuggestedActorSchema>;
 export type PromptPackProvenance = Static<typeof PromptPackProvenanceSchema>;
 export type PromptPackDocument = Static<typeof PromptPackDocumentSchema>;
+export type ProjectChangeScope = Static<typeof ProjectChangeScopeSchema>;
+export type ProjectChangeSource = Static<typeof ProjectChangeSourceSchema>;
+export type ProjectChangeDocument = Static<typeof ProjectChangeDocumentSchema>;
+export type ProjectChangeRecord = Static<typeof ProjectChangeRecordSchema>;
 
 export interface ProjectBundle {
   manifest: ProjectManifest;

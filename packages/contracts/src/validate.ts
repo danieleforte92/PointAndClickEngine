@@ -10,6 +10,7 @@ import {
   Layered2DSceneSchema,
   LocaleDocumentSchema,
   PromptPackDocumentSchema,
+  ProjectChangeRecordSchema,
   ProjectManifestSchema,
   SceneDocumentSchema,
   StyleBibleDocumentSchema,
@@ -31,7 +32,8 @@ const validators = {
   promptPack: ajv.compile(PromptPackDocumentSchema),
   styleBible: ajv.compile(StyleBibleDocumentSchema),
   workflowTemplate: ajv.compile(WorkflowTemplateDocumentSchema),
-  generationRecipe: ajv.compile(AssetGenerationRecipeDocumentSchema)
+  generationRecipe: ajv.compile(AssetGenerationRecipeDocumentSchema),
+  projectChange: ajv.compile(ProjectChangeRecordSchema)
 } satisfies Record<string, ValidateFunction>;
 
 export type DocumentKind = keyof typeof validators;

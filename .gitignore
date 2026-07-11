@@ -3,6 +3,7 @@ dist/
 out/
 .vite/
 .cache/
+.pnpm-store/
 build/
 coverage/
 playwright-report/

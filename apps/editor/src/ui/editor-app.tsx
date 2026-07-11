@@ -21,6 +21,7 @@ import type {
   ScenePickup,
   WorkflowTemplateDocument
 } from "@pointclick/contracts";
+import type { AuthoringSuggestion } from "@pointclick/authoring";
 import {
   startTransition,
   useEffect,
@@ -1937,7 +1938,10 @@ export function EditorApp() {
   const [promptPackBrief, setPromptPackBrief] = useState(defaultSceneDirectionPreset.artBrief);
   const [promptPackJob, setPromptPackJob] = useState<PromptProviderJob | null>(null);
   const [promptPackGenerationState, setPromptPackGenerationState] = useState<"idle" | "running">("idle");
+  const [authoringSuggestions, setAuthoringSuggestions] = useState<AuthoringSuggestion[]>([]);
+  const [authoringSuggestionState, setAuthoringSuggestionState] = useState<"idle" | "running">("idle");
   const [promptProviderId, setPromptProviderId] = useState<PromptProviderId>("mock");
+  const [remoteProviderConsent, setRemoteProviderConsent] = useState(false);
   const [openAiApiKey, setOpenAiApiKey] = useState("");
   const [openAiBaseUrl, setOpenAiBaseUrl] = useState("https://api.openai.com/v1");
   const [openAiModel, setOpenAiModel] = useState(
@@ -5303,6 +5307,7 @@ export function EditorApp() {
     );
     try {
       const job = await window.pointClick.generatePromptPack({
+        allowRemoteProvider: remoteProviderConsent,
         bundle: buildDraftProjectBundle(project, history.present),
         providerId: promptProviderId,
         sceneId: promptPackScene.id,
@@ -5326,6 +5331,22 @@ export function EditorApp() {
       setStatus(error instanceof Error ? error.message : "Prompt pack could not be generated");
     } finally {
       setPromptPackGenerationState("idle");
+    }
+  };
+
+  const generateAuthoringSuggestions = async () => {
+    if (!project) return;
+    setAuthoringSuggestionState("running");
+    try {
+      const suggestions = await window.pointClick.generateAuthoringSuggestions(
+        promptPackScene ? { sceneId: promptPackScene.id } : undefined
+      );
+      setAuthoringSuggestions(suggestions);
+      setStatus(suggestions.length ? `Generated ${suggestions.length} deterministic authoring suggestion(s).` : "No authoring suggestions are available for this scene.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Authoring suggestions could not be generated.");
+    } finally {
+      setAuthoringSuggestionState("idle");
     }
   };
 
@@ -5555,6 +5576,7 @@ export function EditorApp() {
     setStatus(queuedStatus);
     try {
       const imageRequest = {
+        allowRemoteProvider: remoteProviderConsent,
         expectedAlpha:
           selectedEffectiveGenerationTarget.expectedAlpha ?? selectedEffectiveGenerationTarget.transparent ?? false,
         guideIds: selectedEffectiveGenerationTarget.guideIds ?? [],
@@ -8628,6 +8650,17 @@ export function EditorApp() {
                     </>
                   ) : null}
                   <label className="prompt-studio-field">
+                    Remote provider consent
+                    <span>
+                      <input
+                        checked={remoteProviderConsent}
+                        onChange={(event) => setRemoteProviderConsent(event.target.checked)}
+                        type="checkbox"
+                      />{" "}
+                      I allow AI Studio to send this prompt request to a remote endpoint.
+                    </span>
+                  </label>
+                  <label className="prompt-studio-field">
                     Scene
                     <select
                       disabled={!project || layeredScenes.length === 0}
@@ -8779,6 +8812,31 @@ export function EditorApp() {
                   </button>
                 </div>
               </section>
+              <section className="overview-card prompt-studio-card">
+                <span className="overview-label">Narrative & Puzzle Copilot</span>
+                <strong>Deterministic suggestions, human-approved changes</strong>
+                <p>
+                  This local mock copilot reads the selected scene and proposes reviewable story or puzzle beats. It never changes project files or runtime behavior.
+                </p>
+                <div className="build-actions">
+                  <button
+                    className="secondary-action"
+                    disabled={!project || authoringSuggestionState === "running"}
+                    type="button"
+                    onClick={generateAuthoringSuggestions}
+                  >
+                    {authoringSuggestionState === "running" ? "Reviewing..." : "Suggest Story & Puzzle Beats"}
+                  </button>
+                </div>
+                {authoringSuggestions.map((suggestion) => (
+                  <div className="flow-link" key={suggestion.id}>
+                    <span>{suggestion.kind}</span>
+                    <strong>{suggestion.title}</strong>
+                    <p className="inspector-copy">{suggestion.rationale}</p>
+                    <p className="inspector-copy">{suggestion.proposals.map((proposal) => proposal.summary).join(" ")}</p>
+                  </div>
+                ))}
+              </section>
               <AiProviderBoundary
                 description={
                   promptProviderId === "openai"
@@ -8845,6 +8903,17 @@ export function EditorApp() {
                   <div className="target-customization-note image-provider-note">
                     {selectedImageProvider.detail}
                   </div>
+                  <label className="prompt-studio-field">
+                    Remote provider consent
+                    <span>
+                      <input
+                        checked={remoteProviderConsent}
+                        onChange={(event) => setRemoteProviderConsent(event.target.checked)}
+                        type="checkbox"
+                      />{" "}
+                      I allow AI Studio to send this request and any selected input assets to a remote endpoint.
+                    </span>
+                  </label>
                   {imageProviderId === "openai-image" ? (
                     <>
                       <label className="prompt-studio-field">
@@ -10660,6 +10729,14 @@ export function EditorApp() {
                     {dirtyState.count > 0
                       ? "Preview will use a temporary validated draft bundle."
                       : "Preview will use the saved project bundle."}
+                  </p>
+                </div>
+                <div className="flow-link">
+                  <span>Project history</span>
+                  <strong>{project?.historyRecordCount ?? 0} committed change record(s)</strong>
+                  <p className="inspector-copy">
+                    {(project?.historyRecords ?? []).slice(0, 3).map((record) => `${record.scope}: ${record.summary}`).join(" · ") ||
+                      "No authoring history has been recorded yet."}
                   </p>
                 </div>
               </>

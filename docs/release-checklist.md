@@ -9,8 +9,12 @@ For the GitHub tracking issue body, use
 
 ```powershell
 git status --short
+corepack enable
 pnpm install --frozen-lockfile
 pnpm check
+pnpm check:release:candidate
+pnpm test:e2e
+pnpm validate:provenance:strict
 ```
 
 Expected result:
@@ -20,6 +24,9 @@ Expected result:
 - `starter-game` validates as a minimal gameplay project with only curated
   workflow preset fixtures;
 - `sample-game` validates as the public demo.
+- release evidence identifies the exact commit, Node.js 22.17.0, pnpm 9.6.0,
+  clean-status result, SHA-256 checksum file, signing status, packaged-preview
+  result, and strict provenance outcome.
 
 Notes:
 
@@ -31,6 +38,14 @@ Notes:
   `node_modules`, `.vite`, `dist`, and packaged `out` directories must stay
   untracked. Project-local workflow templates are allowed only when they are
   intentional sample or documentation fixtures.
+- A strict provenance failure is a release blocker, even though the ordinary
+  `pnpm check` deliberately permits review-required starter/sample assets. Do
+  not mark an item approved without its source, permitted redistribution basis,
+  and evidence recorded in `provenance/inventory.json`.
+- `pnpm check:release:candidate` verifies that the committed checkout is clean,
+  that every required release control is tracked, and that all workspace package
+  metadata uses the release version while remaining private. Run it after the
+  build; ignored package output does not invalidate the clean-source check.
 
 ## Manual Smoke Test
 
@@ -84,6 +99,35 @@ apps/editor/out/PointClickStudio-win32-x64/
 
 Open the packaged editor and confirm preview still works without the Vite player
 server.
+
+Generate the candidate evidence after the package exists:
+
+```powershell
+node scripts/create-checksums.mjs apps/editor/out release-artifacts/SHA256SUMS.txt
+node scripts/release-record.mjs --output release-artifacts/release-evidence.json --checksums release-artifacts/SHA256SUMS.txt
+```
+
+Record the human decisions in the evidence environment variables only after they
+occur: `RELEASE_PACKAGED_PREVIEW=passed` with a concise evidence note, and a
+real `RELEASE_SIGNING_STATUS` if signing has been authorized. `pending` and
+`not-configured` are accurate Creator Alpha statuses; do not fabricate signing.
+
+## Accessibility and Reliability Smoke
+
+This bounded Alpha check is not a WCAG conformance claim. In the browser player
+and packaged editor preview, verify:
+
+1. Keyboard focus reaches the primary verb, inventory, guide/capture controls,
+   and visible dialogs without trapping focus.
+2. At a 390px-wide viewport, the player has no horizontal overflow and the
+   canvas, verbs, and inventory remain usable.
+3. With the sample project, complete the look, pickup, use, and walk loop,
+   then reopen preview after saving a scene edit.
+4. Run the automated browser smoke with `pnpm test:e2e`; investigate a failure
+   rather than treating it as an accessibility sign-off.
+
+Full accessibility audit, SBOM generation, and code signing are post-Alpha
+release work unless a maintainer explicitly adds them to the candidate scope.
 
 ## Public Release Notes
 

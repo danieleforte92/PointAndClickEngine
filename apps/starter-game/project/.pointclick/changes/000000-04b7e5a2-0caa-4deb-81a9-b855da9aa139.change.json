@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "04b7e5a2-0caa-4deb-81a9-b855da9aa139",
+  "sequence": 0,
+  "createdAt": "2026-07-11T15:28:17.409Z",
+  "source": "cli",
+  "operation": "history/init",
+  "summary": "Project history baseline",
+  "scope": "project",
+  "affectedDocuments": [
+    {
+      "kind": "project",
+      "id": "clean-adventure",
+      "path": "adventure.project.json",
+      "afterSha256": "6caca994094b92e54b18f9b51e4d45afe759c790ac6d16ff0e2a1189278ee298"
+    },
+    {
+      "kind": "scene",
+      "id": "new-scene",
+      "path": "scenes/new-scene.scene.json",
+      "afterSha256": "d201b140d4fc478422b02fd732db44ae957b6a8ff93c9234722997d462c42673"
+    },
+    {
+      "kind": "locale",
+      "id": "en",
+      "path": "locales/en.json",
+      "afterSha256": "fab251d7a1ac9411a6de9d26fbf636007277e2eab26199f03fa40dd9eecf5ff0"
+    }
+  ]
+}

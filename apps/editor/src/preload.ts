@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { AuthoringSuggestion } from "@pointclick/authoring";
 import type {
   AssetDocument,
   AnimationPackDocument,
@@ -8,6 +9,7 @@ import type {
   Layered2DScene,
   LocaleDocument,
   PromptPackDocument,
+  ProjectChangeRecord,
   ProjectBundle,
   SceneActor,
   ScenePickup,
@@ -73,6 +75,8 @@ export interface EditorProjectSnapshot {
   workflowTemplates: WorkflowTemplateDocument[];
   generationRecipeCount: number;
   generationRecipes: AssetGenerationRecipeDocument[];
+  historyRecordCount: number;
+  historyRecords: ProjectChangeRecord[];
 }
 
 export interface ImportedAssetResult {
@@ -90,6 +94,7 @@ export interface PointClickEditorApi {
   generatePromptPack(
     request: GeneratePromptPackRequest & {
       providerId: PromptProviderId;
+      allowRemoteProvider?: boolean;
       lmStudioApiKey?: string;
       lmStudioBaseUrl?: string;
       lmStudioModel?: string;
@@ -98,6 +103,7 @@ export interface PointClickEditorApi {
       openAiModel?: string;
     }
   ): Promise<PromptProviderJob>;
+  generateAuthoringSuggestions(request?: { sceneId?: string }): Promise<AuthoringSuggestion[]>;
   generateImageAsset(request: GenerateImageAssetRequest): Promise<GeneratedImageAssetJob>;
   installWorkflowPreset(presetId: string): Promise<EditorProjectSnapshot>;
   loadProject(projectDirectory?: string): Promise<EditorProjectSnapshot>;
@@ -117,6 +123,7 @@ const api: PointClickEditorApi = {
   createBlankProject: () => ipcRenderer.invoke("project:create-blank"),
   createProjectFromStarter: () => ipcRenderer.invoke("project:create-from-starter"),
   generatePromptPack: (request) => ipcRenderer.invoke("ai:prompt-pack", request),
+  generateAuthoringSuggestions: (request) => ipcRenderer.invoke("ai:authoring-suggestions", request),
   generateImageAsset: (request) => ipcRenderer.invoke("ai:image-asset", request),
   installWorkflowPreset: (presetId) => ipcRenderer.invoke("workflow-preset:install", presetId),
   importAssetFiles: (filePaths) => ipcRenderer.invoke("project:import-asset-files", filePaths),

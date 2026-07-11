@@ -2,7 +2,8 @@
 
 Open-source TypeScript engine and editor for building 2D point-and-click
 adventures with Git-friendly project files, deterministic runtime state, and
-local-first AI asset workflows.
+local-first AI asset workflows. Creator Alpha is a Windows-first technical
+alpha; it is not a generic web-export platform or a published SDK.
 
 ![Current sample player demo](docs/assets/sample-player-demo.png)
 
@@ -16,7 +17,10 @@ local-first AI asset workflows.
   generation guides, and animation packs.
 - Configure player asset, animation pack, scale-by-depth, and walk speed.
 - Run the sample adventure in the web player or editor preview.
-- Generate prompt packs with the deterministic mock provider, LM Studio, or OpenAI.
+- Generate prompt packs with the deterministic mock provider, LM Studio, or an
+  experimental opt-in cloud provider.
+- Ask the local deterministic copilot for reviewable narrative and puzzle beats;
+  it never changes runtime behavior or project files by itself.
 - Generate and import image assets from a local ComfyUI API workflow.
 - Validate project documents from the CLI and CI.
 
@@ -36,8 +40,8 @@ extend with custom tooling.
 
 ## Requirements
 
-- Node.js 22.17 or newer. Node.js 24 LTS is recommended.
-- pnpm 9.6.
+- Node.js 22.17.0 (the CI and release toolchain version).
+- pnpm 9.6.0, via Corepack.
 - Windows is the primary Creator Alpha packaging target.
 
 Optional local AI tools:
@@ -48,7 +52,8 @@ Optional local AI tools:
 ## Quick Start
 
 ```powershell
-pnpm install --force
+corepack enable
+pnpm install --frozen-lockfile
 pnpm dev
 ```
 
@@ -94,7 +99,7 @@ Creator Alpha does not require paid provider keys.
   layer, player, hotspot, pickup, or actor directly from Scene with a shared art
   style preset and chroma/alpha output contract, without drafting a full prompt
   pack first.
-- **OpenAI image** and **Google image** providers are optional beta paths for
+- **OpenAI image** and **Google image** providers are experimental opt-in paths for
   text-to-image generation. API keys, access tokens, cloud project ids, base
   URLs, and model choices stay in the editor session and are not written to
   project JSON.
@@ -115,7 +120,9 @@ pnpm check
 ```
 
 The release gate runs unit tests, typecheck, sample validation, starter
-validation, and package builds.
+validation, package builds, release hygiene, and development-mode provenance
+coverage. A separate strict provenance gate intentionally blocks public
+redistribution until every review-required item has a recorded rights decision.
 
 Useful focused commands:
 
@@ -124,6 +131,8 @@ pnpm test
 pnpm test:e2e
 pnpm validate:sample
 pnpm validate:starter
+pnpm validate:provenance
+pnpm validate:provenance:strict
 pnpm build
 ```
 
@@ -164,16 +173,23 @@ packages/cli           Project validation commands
   intentionally ignores image inputs.
 - Hosted web demo and marketing site are not required for the first public
   release.
+- Generic web export, SDK publishing, and a full autonomous puzzle-AI system are outside
+  Creator Alpha. Cloud AI providers are experimental, optional, and must never
+  be required to use the editor.
 
 ## Docs
 
 - [Roadmap](docs/roadmap.md)
 - [Architecture](docs/architecture.md)
 - [Project Format](docs/project-format.md)
+- [Git Project History Guide](docs/git-project-history.md)
 - [Authoring Tutorial](docs/authoring-tutorial.md)
 - [AI Prompt Pack Guide](docs/ai-prompt-pack-guide.md)
 - [Character Gym Guide](docs/character-gym-guide.md)
 - [Sample Demo Checklist](docs/sample-demo-checklist.md)
 - [Release Checklist](docs/release-checklist.md)
+- [Creator Alpha Support and Version Policy](docs/creator-alpha-policy.md)
+- [Provenance Inventory](provenance/inventory.json)
+- [Third-Party and Asset Notices](THIRD_PARTY_NOTICES.md)
 - [Creator Alpha Release Issue Draft](docs/creator-alpha-release-issue.md)
 - [Troubleshooting](docs/troubleshooting.md)

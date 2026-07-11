@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "3e4ac2d5-f1d3-4eaf-85a2-90205651497d",
+  "sequence": 1,
+  "createdAt": "2026-07-11T15:40:26.766Z",
+  "source": "editor",
+  "operation": "scene/update",
+  "summary": "scene/update (new-scene)",
+  "scope": "scene",
+  "affectedDocuments": [
+    {
+      "kind": "scene",
+      "id": "new-scene",
+      "path": "scenes/new-scene.scene.json",
+      "beforeSha256": "d201b140d4fc478422b02fd732db44ae957b6a8ff93c9234722997d462c42673",
+      "afterSha256": "2923cbe58e1ff20c324992c7bc7f7b83ea5c78c9e3a74495d76f4b966b69919e"
+    }
+  ],
+  "command": {
+    "type": "scene/update",
+    "patch": {
+      "background": "#24384a",
+      "generationGuides": [],
+      "layers": [],
+      "name": "Cave",
+      "player": {
+        "scaleFar": 0.62,
+        "scaleNear": 1.08,
+        "walkSpeed": 320
+      },
+      "playerStart": {
+        "x": 640,
+        "y": 576
+      },
+      "size": {
+        "height": 720,
+        "width": 1280
+      },
+      "walkArea": {
+        "points": [
+          {
+            "x": 244,
+            "y": 374
+          },
+          {
+            "x": 1280,
+            "y": 269
+          },
+          {
+            "x": 1280,
+            "y": 720
+          },
+          {
+            "x": 0,
+            "y": 720
+          }
+        ]
+      }
+    },
+    "sceneId": "new-scene"
+  }
+}

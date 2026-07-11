@@ -19,7 +19,16 @@
     "build": "pnpm -r --if-present build",
     "validate:sample": "tsx packages/cli/src/index.ts validate apps/sample-game/project",
     "validate:starter": "tsx packages/cli/src/index.ts validate apps/starter-game/project",
-    "check:release": "node scripts/check-release.mjs",
+    "history": "tsx packages/cli/src/index.ts history",
+    "project:diff": "tsx packages/cli/src/index.ts diff",
+    "project:impact": "tsx packages/cli/src/index.ts impact",
+    "validate:provenance": "node scripts/validate-provenance.mjs",
+    "validate:provenance:strict": "node scripts/validate-provenance.mjs --strict",
+    "check:release": "node scripts/check-release.mjs && node scripts/validate-provenance.mjs",
+    "check:release:candidate": "node scripts/check-release.mjs --committed && node scripts/validate-provenance.mjs",
+    "test:release-scripts": "node --test scripts/release-scripts.test.mjs",
+    "verify:windows-package": "node scripts/verify-windows-package.mjs",
+    "release:record": "node scripts/release-record.mjs",
     "check": "pnpm test && pnpm typecheck && pnpm validate:sample && pnpm validate:starter && pnpm build && pnpm check:release"
   },
   "devDependencies": {

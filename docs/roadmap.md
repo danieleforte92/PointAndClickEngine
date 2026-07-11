@@ -16,6 +16,8 @@ author a small scene, generate reviewable AI art direction, validate, and previe
 - Editor project creation/opening, undo/redo, autosave recovery, scene tools,
   narrative editing, asset import, validation, prompt packs, and local image
   generation.
+- Deterministic local narrative and puzzle suggestions that require explicit
+  author review before any project edit.
 - Sample adventure with two scenes, player animation pack, actor animation pack,
   item use, dialogue, transition, and prompt-pack provenance.
 

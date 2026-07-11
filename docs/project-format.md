@@ -19,6 +19,52 @@ locales/<locale>.json
 Every document contains `schemaVersion: 1` and a stable kebab-case ID.
 The manifest references other documents by ID and relative path.
 
+## Git-native authoring history
+
+Project documents remain the source of truth. The editor adds one committed,
+reviewable record for each successful authoring command:
+
+```text
+.pointclick/changes/
+  000000-<id>.change.json
+  000001-<id>.change.json
+```
+
+Records identify the command, authoring scope, affected documents, and their
+before/after SHA-256 hashes. They never contain provider credentials and are
+not required to run a project. This keeps Git responsible for commits, branches,
+and merges while giving reviews a semantic history of scene placement, narrative,
+asset, localization, and AI-workflow edits.
+
+New projects receive a baseline record. Existing projects stay schema-v1
+compatible without history; add one explicitly with:
+
+```powershell
+pnpm history init <project-directory>
+```
+
+Use `history list`, `impact`, and `diff <left-project> <right-project>` to
+inspect the journal and compare project snapshots. External edits are valid;
+their Git diff remains authoritative even if no new journal record exists.
+
+## Persistence and recovery
+
+Project JSON documents are formatted deterministically and saved by writing a
+temporary file beside the destination, then atomically replacing that single
+document. A failed replacement leaves the previous document in place and cleans
+up its temporary file. Project-relative paths are checked both lexically and
+against existing symbolic links; a path may not resolve outside the project.
+New paths are allowed only below an existing in-project ancestor.
+
+Commands that change more than one document are intentionally not transactions
+in schema v1. The manifest is the recovery boundary: if an interruption leaves
+a new unreferenced document before its manifest update, the loader ignores it;
+if a deletion updates the manifest before removing the old document, the old
+unreferenced document is likewise ignored. Keep these orphaned documents for
+human review or remove them after validating the project. The containment check
+cannot defend against a separate process changing a symbolic link after the
+check and before an OS file operation.
+
 The CLI validates schemas and verifies that referenced IDs match the loaded
 documents:
 
@@ -219,6 +265,9 @@ document:
   }
 }
 ```
+
+Imported assets may also carry `contentSha256`. When present, validation warns
+if the on-disk binary no longer matches that recorded content hash.
 
 The CLI validates these references when documents are present:
 

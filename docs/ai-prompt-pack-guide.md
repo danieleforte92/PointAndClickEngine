@@ -159,6 +159,12 @@ reference or mask assets should use ComfyUI local. API keys, access tokens,
 cloud project ids, model ids, base URLs, and timeouts are editor-session
 configuration and are not saved into project JSON.
 
+AI Studio requires the **Remote provider consent** checkbox before it sends a
+prompt or selected input asset to a remote cloud endpoint. The deterministic
+mock provider and default localhost LM Studio/ComfyUI endpoints work without
+that consent. Custom provider URLs must be valid HTTP(S) URLs without embedded
+credentials; a custom remote URL also requires the same explicit consent.
+
 Before queueing, the editor compacts guided prompt-pack text into a visual image
 prompt. It removes `Negative guidance` and `IP safety` bookkeeping lines from
 the positive prompt, keeps the visual style/setting/palette content, and adds

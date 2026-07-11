@@ -1,4 +1,6 @@
-import { copyFile, mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { lstatSync, realpathSync } from "node:fs";
+import { copyFile, mkdir, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   assertDocument,
@@ -17,6 +19,10 @@ import {
   type Layered2DScene,
   type Polygon2,
   type PromptPackDocument,
+  type ProjectChangeDocument,
+  type ProjectChangeRecord,
+  type ProjectChangeScope,
+  type ProjectChangeSource,
   type ProjectBundle,
   type ProjectManifest,
   type Rect,
@@ -34,6 +40,23 @@ import {
 export interface LoadedProject {
   directory: string;
   bundle: ProjectBundle;
+}
+
+export interface ProjectHistory {
+  directory: string;
+  records: ProjectChangeRecord[];
+}
+
+export interface ApplyProjectCommandOptions {
+  recordHistory?: boolean;
+  source?: ProjectChangeSource;
+  summary?: string;
+}
+
+export interface ProjectDiff {
+  changedDocuments: ProjectChangeDocument[];
+  leftProjectDirectory: string;
+  rightProjectDirectory: string;
 }
 
 export interface CreateBlankProjectOptions {
@@ -342,9 +365,57 @@ async function readJson(filePath: string): Promise<unknown> {
   return JSON.parse(await readFile(filePath, "utf8")) as unknown;
 }
 
+export interface AtomicWriteOperations {
+  ensureDirectory(directory: string): Promise<void>;
+  removeFile(filePath: string): Promise<void>;
+  replaceFile(sourcePath: string, destinationPath: string): Promise<void>;
+  writeFile(filePath: string, contents: string): Promise<void>;
+}
+
+export interface AtomicWriteOptions {
+  operations?: AtomicWriteOperations;
+  temporaryPath?: string;
+}
+
+const defaultAtomicWriteOperations: AtomicWriteOperations = {
+  ensureDirectory: async (directory) => {
+    await mkdir(directory, { recursive: true });
+  },
+  removeFile: async (filePath) => {
+    await unlink(filePath);
+  },
+  replaceFile: async (sourcePath, destinationPath) => {
+    await rename(sourcePath, destinationPath);
+  },
+  writeFile: async (filePath, contents) => {
+    await writeFile(filePath, contents, "utf8");
+  }
+};
+
+export function serializeJsonDocument(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+export async function atomicWriteFile(
+  filePath: string,
+  contents: string,
+  options: AtomicWriteOptions = {}
+): Promise<void> {
+  const operations = options.operations ?? defaultAtomicWriteOperations;
+  const temporaryPath = options.temporaryPath ?? `${filePath}.tmp-${randomUUID()}`;
+
+  await operations.ensureDirectory(path.dirname(filePath));
+  try {
+    await operations.writeFile(temporaryPath, contents);
+    await operations.replaceFile(temporaryPath, filePath);
+  } catch (error) {
+    await operations.removeFile(temporaryPath).catch(() => undefined);
+    throw error;
+  }
+}
+
 async function writeJson(filePath: string, value: unknown): Promise<void> {
-  await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await atomicWriteFile(filePath, serializeJsonDocument(value));
 }
 
 function slugifyId(value: string, fallback: string): string {
@@ -374,6 +445,43 @@ export function safeProjectPath(projectDirectory: string, relativePath: string, 
   ) {
     throw new Error(`${label} "${relativePath}" is outside the project`);
   }
+  const canonicalRoot = realpathSync(root);
+  let existingPath = resolvedPath;
+  while (true) {
+    try {
+      lstatSync(existingPath);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+      if (existingPath === root) {
+        throw new Error(`${label} project root "${projectDirectory}" does not exist`);
+      }
+      existingPath = path.dirname(existingPath);
+    }
+  }
+
+  let canonicalExistingPath: string;
+  try {
+    canonicalExistingPath = realpathSync(existingPath);
+  } catch (error) {
+    throw new Error(
+      `${label} "${relativePath}" resolves through an unreadable or dangling symbolic link: ${
+        error instanceof Error ? error.message : "unknown error"
+      }`
+    );
+  }
+
+  const canonicalRelativePath = path.relative(canonicalRoot, canonicalExistingPath);
+  if (
+    canonicalRelativePath === ".." ||
+    canonicalRelativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(canonicalRelativePath)
+  ) {
+    throw new Error(`${label} "${relativePath}" resolves outside the project through a symbolic link`);
+  }
+
   return resolvedPath;
 }
 
@@ -1584,7 +1692,9 @@ export async function createBlankProject(
   await mkdir(path.join(directory, "generation-recipes"), { recursive: true });
   await mkdir(path.join(directory, "workflows"), { recursive: true });
 
-  return loadProjectFromDirectory(directory);
+  const loaded = await loadProjectFromDirectory(directory);
+  await initializeProjectHistory(loaded.directory, "migration");
+  return loaded;
 }
 
 export async function createProjectFromTemplate(
@@ -1597,7 +1707,9 @@ export async function createProjectFromTemplate(
   await loadProjectFromDirectory(sourceDirectory);
   await copyDirectoryContents(sourceDirectory, directory);
 
-  return loadProjectFromDirectory(directory);
+  const loaded = await loadProjectFromDirectory(directory);
+  await initializeProjectHistory(loaded.directory, "migration");
+  return loaded;
 }
 
 function scenePathFor(project: LoadedProject, sceneId: string): string {
@@ -2379,6 +2491,20 @@ export async function validateProjectFiles(project: LoadedProject): Promise<Proj
       }
       throw error;
     }
+
+    if (asset.contentSha256) {
+      const actualHash = sha256(await readFile(assetFilePath));
+      if (actualHash !== asset.contentSha256) {
+        diagnostics.push(
+          createDiagnostic(
+            "warning",
+            "asset.content-hash-mismatch",
+            `Asset "${asset.id}" file content no longer matches its recorded SHA-256 hash.`,
+            { documentId: asset.id, path: `assets/${asset.id}/contentSha256` }
+          )
+        );
+      }
+    }
   }
 
   for (const workflow of Object.values(project.bundle.workflowTemplates)) {
@@ -2482,10 +2608,245 @@ export async function validateProjectFiles(project: LoadedProject): Promise<Proj
     }
   }
 
+  diagnostics.push(...(await validateProjectHistory(project.directory)));
+
   return diagnostics;
 }
 
-export async function applyProjectCommand(
+const projectHistoryDirectory = (projectDirectory: string) => path.join(projectDirectory, ".pointclick", "changes");
+
+function sha256(value: string | Uint8Array): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function documentHash(value: unknown): string {
+  return sha256(serializeJsonDocument(value));
+}
+
+function projectDocumentSnapshots(project: LoadedProject): ProjectChangeDocument[] {
+  const snapshots: ProjectChangeDocument[] = [
+    {
+      kind: "project",
+      id: project.bundle.manifest.id,
+      path: "adventure.project.json",
+      afterSha256: documentHash(project.bundle.manifest)
+    }
+  ];
+
+  const appendReferences = <T extends { id?: string }>(
+    kind: string,
+    references: ReadonlyArray<{ id: string; path: string }> | undefined,
+    documents: Record<string, T>
+  ) => {
+    for (const reference of references ?? []) {
+      const document = documents[reference.id];
+      if (!document) continue;
+      snapshots.push({
+        kind,
+        id: reference.id,
+        path: reference.path,
+        afterSha256: documentHash(document)
+      });
+    }
+  };
+
+  appendReferences("scene", project.bundle.manifest.scenes, project.bundle.scenes);
+  appendReferences("flow", project.bundle.manifest.flows, project.bundle.flows);
+  appendReferences("item", project.bundle.manifest.items, project.bundle.items);
+  appendReferences("asset", project.bundle.manifest.assets, project.bundle.assets);
+  appendReferences("animation-pack", project.bundle.manifest.animationPacks, project.bundle.animationPacks);
+  appendReferences("prompt-pack", project.bundle.manifest.promptPacks, project.bundle.promptPacks);
+  appendReferences("style-bible", project.bundle.manifest.styleBibles, project.bundle.styleBibles);
+  appendReferences("workflow-template", project.bundle.manifest.workflowTemplates, project.bundle.workflowTemplates);
+  appendReferences("generation-recipe", project.bundle.manifest.generationRecipes, project.bundle.generationRecipes);
+
+  for (const reference of project.bundle.manifest.locales) {
+    const document = project.bundle.locales[reference.locale];
+    if (!document) continue;
+    snapshots.push({
+      kind: "locale",
+      id: reference.locale,
+      path: reference.path,
+      afterSha256: documentHash(document)
+    });
+  }
+
+  return snapshots;
+}
+
+function projectChangeScope(command: EditorProjectCommand): ProjectChangeScope {
+  if (command.type === "project/update-settings") return "project";
+  if (command.type.startsWith("scene/") || command.type.startsWith("hotspot/") || command.type.startsWith("pickup/") || command.type.startsWith("actor/")) {
+    return "scene";
+  }
+  if (command.type.startsWith("flow/") || command.type.startsWith("item/")) return "narrative";
+  if (command.type.startsWith("locale/")) return "localization";
+  if (command.type.startsWith("asset/") || command.type.startsWith("animation-pack/")) return "asset";
+  return "ai";
+}
+
+function projectChangeSummary(command: EditorProjectCommand): string {
+  const target =
+    "sceneId" in command ? command.sceneId :
+    "flowId" in command ? command.flowId :
+    "itemId" in command ? command.itemId :
+    "assetId" in command ? command.assetId :
+    "hotspotId" in command ? command.hotspotId :
+    "pickupId" in command ? command.pickupId :
+    "actorId" in command ? command.actorId :
+    "locale" in command ? command.locale :
+    undefined;
+  return target ? `${command.type} (${target})` : command.type;
+}
+
+function redactHistoryValue(value: unknown, key = ""): unknown {
+  const normalizedKey = key.toLowerCase();
+  if (/(api[-_]?key|token|secret|password|authorization|access[-_]?token)/.test(normalizedKey)) {
+    return "[redacted]";
+  }
+  if (Array.isArray(value)) return value.map((entry) => redactHistoryValue(entry));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([entryKey, entryValue]) => [
+        entryKey,
+        redactHistoryValue(entryValue, entryKey)
+      ])
+    );
+  }
+  return value;
+}
+
+function changedProjectDocuments(before: LoadedProject, after: LoadedProject): ProjectChangeDocument[] {
+  const beforeByPath = new Map(projectDocumentSnapshots(before).map((document) => [document.path, document]));
+  const afterByPath = new Map(projectDocumentSnapshots(after).map((document) => [document.path, document]));
+  const paths = new Set([...beforeByPath.keys(), ...afterByPath.keys()]);
+  const changed: ProjectChangeDocument[] = [];
+
+  for (const documentPath of [...paths].sort()) {
+    const beforeDocument = beforeByPath.get(documentPath);
+    const afterDocument = afterByPath.get(documentPath);
+    if (beforeDocument?.afterSha256 === afterDocument?.afterSha256) continue;
+    const id = afterDocument?.id ?? beforeDocument?.id;
+    changed.push({
+      kind: afterDocument?.kind ?? beforeDocument!.kind,
+      ...(id ? { id } : {}),
+      path: documentPath,
+      ...(beforeDocument?.afterSha256 ? { beforeSha256: beforeDocument.afterSha256 } : {}),
+      ...(afterDocument?.afterSha256 ? { afterSha256: afterDocument.afterSha256 } : {})
+    });
+  }
+
+  return changed;
+}
+
+export async function diffProjectDirectories(
+  leftProjectDirectory: string,
+  rightProjectDirectory: string
+): Promise<ProjectDiff> {
+  const [left, right] = await Promise.all([
+    loadProjectFromDirectory(leftProjectDirectory),
+    loadProjectFromDirectory(rightProjectDirectory)
+  ]);
+  return {
+    changedDocuments: changedProjectDocuments(left, right),
+    leftProjectDirectory: left.directory,
+    rightProjectDirectory: right.directory
+  };
+}
+
+export async function loadProjectHistory(projectDirectory: string): Promise<ProjectHistory> {
+  const directory = projectHistoryDirectory(path.resolve(projectDirectory));
+  let entries;
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { directory, records: [] };
+    throw error;
+  }
+
+  const records: ProjectChangeRecord[] = [];
+  for (const entry of entries.filter((entry) => entry.isFile() && entry.name.endsWith(".change.json")).sort((left, right) => left.name.localeCompare(right.name))) {
+    const value = await readJson(path.join(directory, entry.name));
+    assertDocument<ProjectChangeRecord>("projectChange", value);
+    records.push(value);
+  }
+  return { directory, records: records.sort((left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id)) };
+}
+
+async function writeProjectHistoryRecord(projectDirectory: string, record: ProjectChangeRecord): Promise<void> {
+  assertDocument<ProjectChangeRecord>("projectChange", record);
+  const directory = projectHistoryDirectory(path.resolve(projectDirectory));
+  const filename = `${String(record.sequence).padStart(6, "0")}-${record.id}.change.json`;
+  await writeJson(path.join(directory, filename), record);
+}
+
+export async function initializeProjectHistory(
+  projectDirectory: string,
+  source: ProjectChangeSource = "migration"
+): Promise<ProjectHistory> {
+  const existing = await loadProjectHistory(projectDirectory);
+  if (existing.records.length > 0) return existing;
+  const project = await loadProjectFromDirectory(projectDirectory);
+  const affectedDocuments = projectDocumentSnapshots(project).map(({ afterSha256, ...document }) => ({
+    ...document,
+    ...(afterSha256 ? { afterSha256 } : {})
+  }));
+  const record: ProjectChangeRecord = {
+    schemaVersion: 1,
+    id: randomUUID(),
+    sequence: 0,
+    createdAt: new Date().toISOString(),
+    source,
+    operation: "history/init",
+    summary: "Project history baseline",
+    scope: "project",
+    affectedDocuments
+  };
+  await writeProjectHistoryRecord(project.directory, record);
+  return { directory: existing.directory, records: [record] };
+}
+
+export async function recordProjectChange(
+  before: LoadedProject,
+  after: LoadedProject,
+  command: EditorProjectCommand,
+  options: Pick<ApplyProjectCommandOptions, "source" | "summary"> = {}
+): Promise<ProjectChangeRecord> {
+  const history = await loadProjectHistory(after.directory);
+  const affectedDocuments = changedProjectDocuments(before, after);
+  const record: ProjectChangeRecord = {
+    schemaVersion: 1,
+    id: randomUUID(),
+    sequence: (history.records.at(-1)?.sequence ?? 0) + 1,
+    createdAt: new Date().toISOString(),
+    source: options.source ?? "editor",
+    operation: command.type,
+    summary: options.summary?.trim() || projectChangeSummary(command),
+    scope: projectChangeScope(command),
+    affectedDocuments: affectedDocuments.length > 0 ? affectedDocuments : projectDocumentSnapshots(after).slice(0, 1),
+    command: redactHistoryValue(command)
+  };
+  await writeProjectHistoryRecord(after.directory, record);
+  return record;
+}
+
+export async function validateProjectHistory(projectDirectory: string): Promise<ProjectDiagnostic[]> {
+  try {
+    await loadProjectHistory(projectDirectory);
+    return [];
+  } catch (error) {
+    return [
+      createDiagnostic(
+        "error",
+        "history.invalid",
+        `Project history is invalid: ${error instanceof Error ? error.message : "unknown error"}`,
+        { path: ".pointclick/changes" }
+      )
+    ];
+  }
+}
+
+async function applyProjectCommandWithoutHistory(
   projectDirectory: string,
   command: EditorProjectCommand
 ): Promise<LoadedProject> {
@@ -2885,12 +3246,19 @@ export async function applyProjectCommand(
     };
 
     for (const asset of command.assets) {
+      let contentSha256: string | undefined;
+      try {
+        contentSha256 = sha256(await readFile(safeProjectPath(project.directory, asset.filePath, `Asset file "${asset.id}"`)));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
       const assetDocument: AssetDocument = {
         schemaVersion: 1,
         id: asset.id,
         kind: asset.kind,
         path: asset.filePath,
         source: asset.source,
+        ...(contentSha256 ? { contentSha256 } : {}),
         ...(asset.generation ? { generation: asset.generation } : {})
       };
       assertDocument<AssetDocument>("asset", assetDocument);
@@ -3070,4 +3438,20 @@ export async function applyProjectCommand(
   }
 
   return loadProjectFromDirectory(projectDirectory);
+}
+
+export async function applyProjectCommand(
+  projectDirectory: string,
+  command: EditorProjectCommand,
+  options: ApplyProjectCommandOptions = {}
+): Promise<LoadedProject> {
+  const before = await loadProjectFromDirectory(projectDirectory);
+  if (options.recordHistory !== false) {
+    await initializeProjectHistory(before.directory, options.source ?? "editor");
+  }
+  const after = await applyProjectCommandWithoutHistory(before.directory, command);
+  if (options.recordHistory !== false) {
+    await recordProjectChange(before, after, command, options);
+  }
+  return after;
 }

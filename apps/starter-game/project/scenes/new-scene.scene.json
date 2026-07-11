@@ -19,8 +19,8 @@
   "walkArea": {
     "points": [
       {
-        "x": 175,
-        "y": 454
+        "x": 244,
+        "y": 374
       },
       {
         "x": 1280,
@@ -40,5 +40,7 @@
     "scaleFar": 0.62,
     "scaleNear": 1.08,
     "walkSpeed": 320
-  }
+  },
+  "generationGuides": [],
+  "layers": []
 }
