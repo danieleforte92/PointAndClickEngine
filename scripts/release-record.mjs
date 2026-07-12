@@ -9,7 +9,7 @@ function option(name) {
 
 const output = option("--output");
 if (!output) throw new Error("Usage: node scripts/release-record.mjs --output <file> [--checksums <file>]");
-const command = (file, args) => execFileSync(file, args, { encoding: "utf8" }).trim();
+const command = (file, args, options = {}) => execFileSync(file, args, { encoding: "utf8", ...options }).trim();
 const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const strictGate = spawnSync(process.execPath, ["scripts/validate-provenance.mjs", "--strict", "--format=json"], {
   encoding: "utf8"
@@ -31,7 +31,7 @@ const record = {
   cleanWorkingTree: command("git", ["status", "--porcelain"]) === "",
   toolchain: {
     node: process.version,
-    pnpm: command(pnpmCommand, ["--version"]),
+    pnpm: command(pnpmCommand, ["--version"], { shell: process.platform === "win32" }),
     packageManager: JSON.parse(readFileSync("package.json", "utf8")).packageManager
   },
   checksums: checksumsPath ? { path: checksumsPath, sha256sumFile: readFileSync(checksumsPath, "utf8") } : null,
