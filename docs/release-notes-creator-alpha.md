@@ -10,10 +10,10 @@ Release page: [GitHub `v0.1.0`](https://github.com/danieleforte92/PointAndClickE
 
 ## Public Walkthrough
 
-- [Scene editor](assets/scene_editor.jpg)
-- [Player showcase loop](assets/player.jpg)
-- [AI Studio with Advanced and Candidate Output](assets/ai-studio-advanced.png)
-- [Asset Studio mock asset surface](assets/asset_studio.jpg)
+- [Scene editor](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.1.0/docs/assets/scene_editor.jpg)
+- [Player showcase loop](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.1.0/docs/assets/player.jpg)
+- [AI Studio with Advanced and Candidate Output](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.1.0/docs/assets/ai-studio-advanced.png)
+- [Asset Studio mock asset surface](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.1.0/docs/assets/asset_studio.jpg)
 
 ## What To Try First
 
