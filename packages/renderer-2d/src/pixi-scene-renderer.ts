@@ -72,6 +72,9 @@ export class PixiSceneRenderer {
       host.style.backgroundSize = "100% 100%";
     }
 
+    const automatedBrowserPreference =
+      typeof navigator !== "undefined" && navigator.webdriver ? "canvas" : undefined;
+
     await this.app.init({
       width: this.scene.size.width,
       height: this.scene.size.height,
@@ -79,7 +82,8 @@ export class PixiSceneRenderer {
       backgroundAlpha: isHexColor(this.scene.background) ? 1 : 0,
       antialias: true,
       autoDensity: true,
-      resolution: Math.min(window.devicePixelRatio, 2)
+      resolution: Math.min(window.devicePixelRatio, 2),
+      ...(automatedBrowserPreference ? { preference: automatedBrowserPreference } : {})
     });
     this.initialized = true;
     if (this.destroyed) {
