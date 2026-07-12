@@ -162,8 +162,9 @@ Include:
   and richer job progress remain later polish;
 - known limitations;
 - screenshot or GIF from `docs/assets`;
-- `docs/assets/player-showcase-loop.png`, `docs/assets/ai-studio-advanced.png`,
-  and `docs/assets/asset-studio.png` reviewed for public-safe content;
+- `docs/assets/scene_editor.jpg`, `docs/assets/player.jpg`,
+  `docs/assets/ai-studio-advanced.png`, and `docs/assets/asset_studio.jpg`
+  reviewed for public-safe content;
 - links to README, roadmap, authoring tutorial, AI guide, and Character Gym guide.
 
 ## Known Limitations To State Publicly

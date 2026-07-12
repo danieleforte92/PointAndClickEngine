@@ -90,9 +90,10 @@ smoke notes.
 - Source archive from GitHub release.
 - Windows packaged editor from `apps/editor/out/PointClickStudio-win32-x64/`.
 - Screenshot or GIF from `docs/assets`.
-- `docs/assets/player-showcase-loop.png` — completed Player loop.
+- `docs/assets/scene_editor.jpg` — Scene editor authoring surface.
+- `docs/assets/player.jpg` — completed Player loop.
 - `docs/assets/ai-studio-advanced.png` — mock Advanced workspace with Candidate Output.
-- `docs/assets/asset-studio.png` — mock Asset Studio surface.
+- `docs/assets/asset_studio.jpg` — mock Asset Studio surface.
 - Link to `docs/release-notes-creator-alpha.md`.
 - Link to `docs/release-checklist.md`.
 - SHA-256 checksum file and release-evidence JSON from the release-candidate
