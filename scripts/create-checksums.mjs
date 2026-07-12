@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { lstatSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { relative, resolve, join, relative as relativePath } from "node:path";
+import { dirname, relative, resolve, join, relative as relativePath } from "node:path";
 
 const source = resolve(process.argv[2] ?? "apps/editor/out");
 const output = resolve(process.argv[3] ?? "release-artifacts/SHA256SUMS.txt");
+const additionalFiles = process.argv.slice(4).map((file) => resolve(file));
 
 if (!statSync(source).isDirectory()) throw new Error(`Package source is not a directory: ${source}`);
 const outputRelativeToSource = relativePath(source, output);
@@ -31,6 +32,13 @@ const lines = files.map((file) => {
   const digest = createHash("sha256").update(readFileSync(file)).digest("hex");
   return `${digest}  ${relative(source, file).replace(/\\/g, "/")}`;
 });
+for (const file of additionalFiles) {
+  if (!statSync(file).isFile() || lstatSync(file).isSymbolicLink()) {
+    throw new Error(`Additional checksum input must be a regular file: ${file}`);
+  }
+  const digest = createHash("sha256").update(readFileSync(file)).digest("hex");
+  lines.push(`${digest}  ${relative(dirname(output), file).replace(/\\/g, "/")}`);
+}
 mkdirSync(resolve(output, ".."), { recursive: true });
 writeFileSync(output, `${lines.join("\n")}\n`);
 console.log(`Wrote ${lines.length} SHA-256 checksums to ${output}`);

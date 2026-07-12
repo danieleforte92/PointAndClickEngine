@@ -1,6 +1,10 @@
-# Creator Alpha Release Checklist
+# Creator Alpha v0.1.0 Release Checklist
 
 Use this checklist before tagging a public GitHub release.
+
+The target tag is `v0.1.0`. The Windows x64 package is intentionally unsigned;
+do not record signing as passed unless a separate authorized signing decision
+and evidence exist.
 
 For the GitHub tracking issue body, use
 `docs/creator-alpha-release-issue.md`.
@@ -16,6 +20,7 @@ pnpm audit --audit-level high
 pnpm check:release:candidate
 pnpm test:e2e
 pnpm validate:provenance:strict
+pnpm verify:windows-package
 ```
 
 Expected result:
@@ -70,15 +75,18 @@ Notes:
 10. Run **Asset Studio > Chroma Key** on a flat chroma image, save the processed PNG, and
    verify it is assigned as a new asset without overwriting the source.
 11. In **AI**, generate a mock prompt pack.
-12. With LM Studio running, generate a local prompt pack.
-13. With ComfyUI running, install the background preset, save a recipe, then
+12. In **AI Studio**, open Advanced from Generate and Review; confirm it scrolls
+    into view, Candidate Output is reachable, keyboard focus is visible, and
+    mouse-wheel/touchpad scrolling moves the central panel.
+13. With LM Studio running, generate a local prompt pack.
+14. With ComfyUI running, install the background preset, save a recipe, then
     generate and import one text-to-image asset.
-14. Install the chroma or inpaint preset, queue one target with linked reference
+15. Install the chroma or inpaint preset, queue one target with linked reference
     or mask assets when available, and confirm provenance records `workflowId`,
     `recipeId`, `referenceAssetIds`, `maskAssetId`, and `parentAssetIds`.
-15. Send a `sprite-sheet` or `animation-reference` target to Asset Studio and verify Character Gym can slice it.
-16. In **Build**, run validation.
-17. Use **Play from here** and **Browser** preview.
+16. Send a `sprite-sheet` or `animation-reference` target to Asset Studio and verify Character Gym can slice it.
+17. In **Build**, run validation.
+18. Use **Play from here** and **Browser** preview.
 
 For provider smoke tests:
 
@@ -87,6 +95,10 @@ For provider smoke tests:
   machine-local absolute paths.
 - Confirm imported AI images are normal project assets and that any available
   provider provenance remains visible from the editor.
+
+The checked-in public screenshots are deterministic mock captures. They must not
+show provider keys, provider output, machine-local absolute paths, or model
+weights.
 
 ## Package
 
@@ -110,7 +122,7 @@ server.
 Generate the candidate evidence after the package exists:
 
 ```powershell
-node scripts/create-checksums.mjs apps/editor/out release-artifacts/SHA256SUMS.txt
+node scripts/create-checksums.mjs apps/editor/out release-artifacts/SHA256SUMS.txt release-artifacts/PointClickStudio-v0.1.0-win32-x64.zip
 node scripts/release-record.mjs --output release-artifacts/release-evidence.json --checksums release-artifacts/SHA256SUMS.txt
 ```
 
@@ -150,6 +162,8 @@ Include:
   and richer job progress remain later polish;
 - known limitations;
 - screenshot or GIF from `docs/assets`;
+- `docs/assets/player-showcase-loop.png`, `docs/assets/ai-studio-advanced.png`,
+  and `docs/assets/asset-studio.png` reviewed for public-safe content;
 - links to README, roadmap, authoring tutorial, AI guide, and Character Gym guide.
 
 ## Known Limitations To State Publicly
@@ -162,4 +176,5 @@ Include:
   image loader nodes; the built-in text-to-image path ignores image inputs.
 - OpenAI integration requires API platform access; ChatGPT subscriptions do not
   cover API calls.
+- The Windows x64 package is unsigned in Creator Alpha v0.1.0.
 - Flow graph editing, hosted demo, and public website are later milestones.

@@ -53,8 +53,23 @@ jobs:
       - name: Smoke-check package contents
         run: pnpm verify:windows-package
 
+      - name: Archive Windows x64 package
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          New-Item -ItemType Directory -Force release-artifacts | Out-Null
+          Compress-Archive `
+            -Path apps/editor/out/PointClickStudio-win32-x64 `
+            -DestinationPath "release-artifacts/PointClickStudio-v$version-win32-x64.zip" `
+            -CompressionLevel Optimal
+
       - name: Generate candidate checksums
-        run: node scripts/create-checksums.mjs apps/editor/out release-artifacts/SHA256SUMS.txt
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          node scripts/create-checksums.mjs `
+            apps/editor/out `
+            release-artifacts/SHA256SUMS.txt `
+            "release-artifacts/PointClickStudio-v$version-win32-x64.zip"
 
       - name: Evaluate strict provenance gate
         id: provenance
@@ -70,7 +85,6 @@ jobs:
         with:
           name: windows-creator-alpha-candidate
           path: |
-            apps/editor/out/PointClickStudio-win32-x64/
             release-artifacts/
           if-no-files-found: warn
 

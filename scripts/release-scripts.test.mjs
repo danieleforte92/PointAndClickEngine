@@ -92,10 +92,16 @@ test("release check rejects inconsistent workspace package metadata", () => {
 test("checksum generation is deterministic and refuses output inside the package", () => {
   const root = temporaryDirectory();
   writeFile(root, "package/pointclick-studio.exe", "binary fixture");
+  writeFile(root, "release/PointClickStudio-v0.1.0-win32-x64.zip", "zip fixture");
   const output = join(root, "checksums.txt");
-  const success = spawnSync(process.execPath, [createChecksums, join(root, "package"), output], { encoding: "utf8" });
+  const success = spawnSync(
+    process.execPath,
+    [createChecksums, join(root, "package"), output, join(root, "release", "PointClickStudio-v0.1.0-win32-x64.zip")],
+    { encoding: "utf8" }
+  );
   assert.equal(success.status, 0, success.stderr);
   assert.match(readFileSync(output, "utf8"), /pointclick-studio\.exe/);
+  assert.match(readFileSync(output, "utf8"), /PointClickStudio-v0\.1\.0-win32-x64\.zip/);
 
   const unsafe = spawnSync(process.execPath, [createChecksums, join(root, "package"), join(root, "package", "SHA256SUMS.txt")], { encoding: "utf8" });
   assert.notEqual(unsafe.status, 0);

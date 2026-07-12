@@ -40,7 +40,7 @@ actor fallback path, prompt-pack provenance, and saved-project validation.
 To refresh the checked-in sample screenshot after UI changes, run:
 
 ```powershell
-$env:CAPTURE_SAMPLE_SCREENSHOT_PATH='docs/assets/sample-player-demo.png'
+$env:CAPTURE_SAMPLE_SCREENSHOT_PATH='docs/assets/player-showcase-loop.png'
 pnpm test:e2e
 ```
 

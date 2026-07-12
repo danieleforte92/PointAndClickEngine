@@ -43,6 +43,8 @@ export class PixiSceneRenderer {
   private playerPosition: Vector2 = { x: 0, y: 0 };
   private pendingPlayerPosition: Vector2 = { x: 0, y: 0 };
   private mounted = false;
+  private host: HTMLElement | null = null;
+  private viewportScale = { x: 1, y: 1 };
 
   constructor(
     private readonly scene: Layered2DScene,
@@ -54,6 +56,7 @@ export class PixiSceneRenderer {
   }
 
   async mount(host: HTMLElement): Promise<void> {
+    this.host = host;
     if (isHexColor(this.scene.background)) {
       host.style.background = this.scene.background;
       host.style.backgroundImage = "";
@@ -78,6 +81,7 @@ export class PixiSceneRenderer {
 
     this.app.canvas.className = "game-canvas";
     host.replaceChildren(this.app.canvas);
+    this.resizeToHost(host);
     this.app.stage.sortableChildren = true;
 
     const walkSurface = new Graphics()
@@ -86,7 +90,10 @@ export class PixiSceneRenderer {
     walkSurface.eventMode = "static";
     walkSurface.cursor = "crosshair";
     walkSurface.on("pointertap", (event) => {
-      this.handlers.onWalk({ x: event.global.x, y: event.global.y });
+      this.handlers.onWalk({
+        x: event.global.x / this.viewportScale.x,
+        y: event.global.y / this.viewportScale.y
+      });
     });
     this.app.stage.addChild(walkSurface);
 
@@ -178,6 +185,26 @@ export class PixiSceneRenderer {
     this.animatePlayerTo(position);
   }
 
+  resizeToHost(host = this.host): void {
+    if (!host || !this.app.canvas) return;
+
+    const bounds = host.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+
+    const width = Math.round(bounds.width);
+    const height = Math.round(bounds.height);
+    this.app.renderer.resize(width, height);
+    this.viewportScale = {
+      x: width / this.scene.size.width,
+      y: height / this.scene.size.height
+    };
+    this.app.stage.scale.set(this.viewportScale.x, this.viewportScale.y);
+    this.app.canvas.style.width = `${width}px`;
+    this.app.canvas.style.height = `${height}px`;
+    this.app.canvas.style.maxWidth = "100%";
+    this.app.canvas.style.maxHeight = "100%";
+  }
+
   destroy(): void {
     if (!this.mounted) return;
     if (this.playerAnimationFrame !== null) {
@@ -186,6 +213,7 @@ export class PixiSceneRenderer {
     }
     this.app.destroy(true, { children: true });
     this.mounted = false;
+    this.host = null;
   }
 
   private async createPlayerVisual(): Promise<void> {

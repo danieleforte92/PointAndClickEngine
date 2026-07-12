@@ -18,21 +18,37 @@ type StorySignal = {
   done: boolean;
 };
 
-type PlayerSurfaceMode = "guide" | "capture";
+export type PlayerSurfaceMode = "play" | "showcase" | "capture";
+
+export type PlayerPresentation = {
+  mode: PlayerSurfaceMode;
+  showDemoGuide: boolean;
+  showDiagnostics: boolean;
+  showHeader: boolean;
+  showSurfaceToggle: boolean;
+};
+
+function presentationFor(mode: PlayerSurfaceMode): PlayerPresentation {
+  return {
+    mode,
+    showDemoGuide: mode === "showcase",
+    showDiagnostics: mode !== "play",
+    showHeader: mode !== "play",
+    showSurfaceToggle: mode !== "play"
+  };
+}
 
 function readSurfaceMode(): PlayerSurfaceMode {
-  return new URLSearchParams(window.location.search).get("mode") === "capture"
-    ? "capture"
-    : "guide";
+  const mode = new URLSearchParams(window.location.search).get("mode");
+  if (mode === "capture") return "capture";
+  if (mode === "showcase" || mode === "guide") return "showcase";
+  return "play";
 }
 
 function writeSurfaceMode(mode: PlayerSurfaceMode) {
   const url = new URL(window.location.href);
-  if (mode === "capture") {
-    url.searchParams.set("mode", "capture");
-  } else {
-    url.searchParams.delete("mode");
-  }
+  if (mode === "play") url.searchParams.delete("mode");
+  else url.searchParams.set("mode", mode);
 
   window.history.replaceState({}, "", url);
 }
@@ -253,6 +269,8 @@ export function PlayerApp() {
   const [frame, setFrame] = useState<RuntimeFrame | null>(null);
   const scene = engine?.currentScene as Layered2DScene | undefined;
   const rendererReady = frame !== null;
+  const presentation = presentationFor(surfaceMode);
+  const captureMode = surfaceMode === "capture";
   const inventoryItems =
     frame?.state.inventory
       .map((itemId) => bundle?.items[itemId])
@@ -262,7 +280,9 @@ export function PlayerApp() {
   const demoHint =
     demoSteps.length > 0
       ? nextDemoHint(demoSteps)
-      : "Preparing the current demo loop...";
+      : "Preparing the current demo loop…";
+  const playHint = "Choose a verb, then click the scene.";
+  const surfaceHint = presentation.showDemoGuide || captureMode ? demoHint : playHint;
   const storySignals = frame && engine ? buildStorySignals(frame, engine) : [];
   const recentEvents =
     bundle && engine && scene
@@ -281,8 +301,6 @@ export function PlayerApp() {
         )
       : "None";
   const latestEventLabel = recentEvents[0] ?? "ready";
-  const captureMode = surfaceMode === "capture";
-
   useEffect(() => {
     let cancelled = false;
 
@@ -372,9 +390,16 @@ export function PlayerApp() {
     );
     rendererRef.current = renderer;
 
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => renderer.resizeToHost(host));
+    resizeObserver?.observe(host);
+
     void renderer.mount(host).then(() => {
       const nextFrame = frameRef.current;
       if (!disposed && nextFrame) {
+        renderer.resizeToHost(host);
         renderer.renderPlayer(nextFrame.state.player);
         renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
         renderer.renderVisibleActors(activeEngine.visibleActors().map((actor) => actor.id));
@@ -383,6 +408,7 @@ export function PlayerApp() {
 
     return () => {
       disposed = true;
+      resizeObserver?.disconnect();
       renderer.destroy();
       rendererRef.current = null;
     };
@@ -451,7 +477,7 @@ export function PlayerApp() {
 
       if (event.key.toLowerCase() === "c") {
         event.preventDefault();
-        const nextMode = surfaceMode === "capture" ? "guide" : "capture";
+        const nextMode = surfaceMode === "capture" ? "showcase" : "capture";
         setSurfaceMode(nextMode);
         writeSurfaceMode(nextMode);
         return;
@@ -486,7 +512,7 @@ export function PlayerApp() {
           </div>
         </header>
         <section className="stage-frame" aria-label="Game scene">
-          <div className="hint">{loadError}</div>
+          <div className="hint" aria-live="polite">{loadError}</div>
         </section>
       </main>
     );
@@ -502,51 +528,53 @@ export function PlayerApp() {
           </div>
         </header>
         <section className="stage-frame" aria-label="Game scene">
-          <div className="hint">Preparing the selected project...</div>
+          <div className="hint" aria-live="polite">Preparing the selected project…</div>
         </section>
       </main>
     );
   }
 
   return (
-    <main
-      className={captureMode ? "player-shell capture-mode" : "player-shell"}
-    >
-      <header className="game-header">
-        <div>
-          <p className="eyebrow">Foundation playable</p>
-          <h1>{bundle.manifest.title}</h1>
-        </div>
-        <div className="status-panel">
-          <div className="status">
-            <span>Scene</span>
-            <strong>{scene.name}</strong>
+    <main className={`player-shell ${surfaceMode}-mode`}>
+      {presentation.showHeader ? (
+        <header className="game-header">
+          <div>
+            <p className="eyebrow">Foundation playable</p>
+            <h1>{bundle.manifest.title}</h1>
           </div>
-          <div
-            className="surface-mode-toggle"
-            aria-label="Player surface mode"
-            role="group"
-          >
-            <button
-              aria-pressed={surfaceMode === "guide"}
-              className={surfaceMode === "guide" ? "active" : ""}
-              type="button"
-              onClick={() => changeSurfaceMode("guide")}
+          {presentation.showSurfaceToggle ? (
+            <div
+              className="status-panel"
+              aria-label="Player surface mode"
+              role="group"
             >
-              Guide
-            </button>
-            <button
-              aria-keyshortcuts="c"
-              aria-pressed={surfaceMode === "capture"}
-              className={surfaceMode === "capture" ? "active" : ""}
-              type="button"
-              onClick={() => changeSurfaceMode("capture")}
-            >
-              Capture
-            </button>
-          </div>
-        </div>
-      </header>
+              <div className="status">
+                <span>Scene</span>
+                <strong>{scene.name}</strong>
+              </div>
+              <div className="surface-mode-toggle">
+                <button
+                  aria-pressed={surfaceMode === "showcase"}
+                  className={surfaceMode === "showcase" ? "active" : ""}
+                  type="button"
+                  onClick={() => changeSurfaceMode("showcase")}
+                >
+                  Showcase
+                </button>
+                <button
+                  aria-keyshortcuts="c"
+                  aria-pressed={surfaceMode === "capture"}
+                  className={surfaceMode === "capture" ? "active" : ""}
+                  type="button"
+                  onClick={() => changeSurfaceMode("capture")}
+                >
+                  Capture
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </header>
+      ) : null}
 
       {captureMode ? (
         <section className="capture-strip" aria-label="Capture mode summary">
@@ -562,7 +590,7 @@ export function PlayerApp() {
             <strong>{latestEventLabel}</strong>
           </div>
         </section>
-      ) : (
+      ) : presentation.showDemoGuide ? (
         <>
           <section className="demo-brief" aria-label="Sample demo checklist">
             <div className="demo-brief-copy">
@@ -626,12 +654,14 @@ export function PlayerApp() {
             </aside>
           </section>
         </>
-      )}
+      ) : null}
 
       <section className="stage-frame" aria-label="Game scene">
         <div className="stage-grain" />
         <div ref={hostRef} className="stage-host" />
-        <div className="hint">{demoHint}</div>
+        <div className="hint" aria-live="polite">
+          {surfaceHint}
+        </div>
       </section>
 
       <section className="verb-bar" aria-label="Interaction verbs">
@@ -680,7 +710,7 @@ export function PlayerApp() {
         </div>
       </section>
 
-      <footer className="game-footer">
+      {presentation.showDiagnostics ? <footer className="game-footer">
         <div className="event-readout">
           <span>Event trace</span>
           <strong>{latestEventLabel}</strong>
@@ -704,14 +734,17 @@ export function PlayerApp() {
           <span>Selected item</span>
           <strong>{selectedItemLabel}</strong>
         </div>
-      </footer>
+      </footer> : null}
 
       {frame.feedback ? (
-        <div className="feedback-banner">{frame.feedback}</div>
+        <div className="feedback-banner" aria-live="polite">
+          {frame.feedback}
+        </div>
       ) : null}
 
       {frame.dialogue ? (
         <button
+          aria-live="polite"
           className="dialogue-card"
           type="button"
           onClick={advanceDialogue}

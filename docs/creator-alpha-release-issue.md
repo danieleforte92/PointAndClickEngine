@@ -1,7 +1,6 @@
 # Creator Alpha Release Tracking Issue
 
-Use this as the body for the GitHub tracking issue before tagging
-`creator-alpha`.
+Use this as the body for the GitHub tracking issue before tagging `v0.1.0`.
 
 ## Goal
 
@@ -31,6 +30,8 @@ export, SDK publishing, and a full puzzle-AI promise are out of scope.
 - README, roadmap, release notes, troubleshooting, AI guide, Character Gym guide,
   and project format docs match the shipped behavior.
 - The release includes a current screenshot or GIF from `docs/assets`.
+- The release includes the deterministic Player, AI Studio, and Asset Studio
+  screenshots from `docs/assets`.
 - No model weights, generated experiments, provider secrets, local absolute
   paths, caches, logs, or packaged output are committed.
 
@@ -40,6 +41,10 @@ Follow `docs/release-checklist.md`.
 
 Record the result here before tagging:
 
+No manual smoke item below is claimed complete by this draft. Check an item only
+after recording the real result in release evidence or the maintainer's manual
+smoke notes.
+
 - [ ] Blank project created.
 - [ ] Starter project created and validated.
 - [ ] Sample project opened.
@@ -48,9 +53,10 @@ Record the result here before tagging:
 - [ ] Asset imported or dropped from an inspector.
 - [ ] Chroma cleanup saved as a processed PNG asset.
 - [ ] Mock prompt pack generated.
+- [ ] AI Studio Advanced scroll, Candidate Output, keyboard focus, and wheel/touchpad smoke completed.
 - [ ] LM Studio prompt pack generated, if LM Studio is installed.
 - [ ] ComfyUI preset installed, recipe saved, and text-to-image asset generated,
-  if ComfyUI is installed.
+      if ComfyUI is installed.
 - [ ] ComfyUI chroma or inpaint workflow smoke-tested, if a compatible target is
   available.
 - [ ] Character Gym can preview a spritesheet target.
@@ -84,6 +90,9 @@ Record the result here before tagging:
 - Source archive from GitHub release.
 - Windows packaged editor from `apps/editor/out/PointClickStudio-win32-x64/`.
 - Screenshot or GIF from `docs/assets`.
+- `docs/assets/player-showcase-loop.png` — completed Player loop.
+- `docs/assets/ai-studio-advanced.png` — mock Advanced workspace with Candidate Output.
+- `docs/assets/asset-studio.png` — mock Asset Studio surface.
 - Link to `docs/release-notes-creator-alpha.md`.
 - Link to `docs/release-checklist.md`.
 - SHA-256 checksum file and release-evidence JSON from the release-candidate

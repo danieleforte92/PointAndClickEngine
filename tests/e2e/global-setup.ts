@@ -2,6 +2,7 @@ import path from "node:path";
 import { createServer, type ViteDevServer } from "vite";
 
 const baseUrl = "http://127.0.0.1:5173";
+const editorBaseUrl = "http://127.0.0.1:5174";
 
 async function existingServerIsReady() {
   try {
@@ -12,25 +13,47 @@ async function existingServerIsReady() {
   }
 }
 
+async function existingEditorServerIsReady() {
+  try {
+    const response = await fetch(editorBaseUrl);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export default async function globalSetup() {
-  if (!process.env.CI && (await existingServerIsReady())) {
-    return;
+  const servers: ViteDevServer[] = [];
+
+  if (process.env.CI || !(await existingServerIsReady())) {
+    const playerServer = await createServer({
+      configFile: path.resolve("apps/player-web/vite.config.ts"),
+      root: path.resolve("apps/player-web"),
+      server: {
+        host: "127.0.0.1",
+        port: 5173,
+        strictPort: true
+      }
+    });
+    await playerServer.listen();
+    servers.push(playerServer);
   }
 
-  let server: ViteDevServer | null = await createServer({
-    configFile: path.resolve("apps/player-web/vite.config.ts"),
-    root: path.resolve("apps/player-web"),
-    server: {
-      host: "127.0.0.1",
-      port: 5173,
-      strictPort: true
-    }
-  });
-
-  await server.listen();
+  if (process.env.CI || !(await existingEditorServerIsReady())) {
+    const editorServer = await createServer({
+      configFile: path.resolve("apps/editor/vite.renderer.config.ts"),
+      root: path.resolve("apps/editor"),
+      server: {
+        host: "127.0.0.1",
+        port: 5174,
+        strictPort: true
+      }
+    });
+    await editorServer.listen();
+    servers.push(editorServer);
+  }
 
   return async () => {
-    await server?.close();
-    server = null;
+    await Promise.all(servers.map((server) => server.close()));
   };
 }

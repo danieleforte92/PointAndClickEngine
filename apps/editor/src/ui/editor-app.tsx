@@ -24,6 +24,7 @@ import type {
 import type { AuthoringSuggestion } from "@pointclick/authoring";
 import {
   startTransition,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -41,6 +42,7 @@ import {
   Package,
   Plus,
   Scissors,
+  Settings2,
   Trash2,
   UserRound,
   X,
@@ -274,6 +276,36 @@ const freePromptOutputPresets: Array<{
   }
 ];
 
+interface PromptProviderConfigValues {
+  lmStudioApiKey: string;
+  lmStudioBaseUrl: string;
+  lmStudioModel: string;
+  openAiApiKey: string;
+  openAiBaseUrl: string;
+  openAiModel: string;
+  remoteProviderConsent: boolean;
+}
+
+interface ImageProviderConfigValues {
+  comfyUiBaseUrl: string;
+  comfyUiCheckpoint: string;
+  comfyUiSeed: string;
+  comfyUiTimeoutMinutes: string;
+  comfyUiWorkflowPath: string;
+  googleImageAccessToken: string;
+  googleImageApiKey: string;
+  googleImageBaseUrl: string;
+  googleImageLocation: string;
+  googleImageModel: string;
+  googleImageProjectId: string;
+  googleImageProvider: "gemini-api" | "vertex-ai";
+  openAiImageApiKey: string;
+  openAiImageBaseUrl: string;
+  openAiImageMode: "images-api" | "responses-api";
+  openAiImageModel: string;
+  remoteProviderConsent: boolean;
+}
+
 const imageProviderOptions: Array<{ detail: string; label: string; value: ImageGenerationProviderId }> = [
   {
     detail: "Local ComfyUI queue with workflow templates, reference uploads, masks, and 8GB presets.",
@@ -306,6 +338,15 @@ interface FreePromptTarget {
 }
 
 type AssetTool = "info" | "chroma" | "crop" | "guide" | "animation";
+
+type AiStudioStep = "brief" | "targets" | "generate" | "review";
+
+const aiStudioSteps: Array<{ id: AiStudioStep; label: string; detail: string }> = [
+  { id: "brief", label: "Brief", detail: "Set the art direction." },
+  { id: "targets", label: "Targets", detail: "Choose what to generate." },
+  { id: "generate", label: "Generate", detail: "Prepare the asset workflow." },
+  { id: "review", label: "Review & Apply", detail: "Approve changes explicitly." }
+];
 
 interface ImageGenerationSceneContext {
   entityId?: string;
@@ -725,6 +766,436 @@ function sceneSelectionSummary({
   if (target.kind === "pickup") return { detail: target.entityId ?? "pickup", title: selectedPickup?.labelKey || target.entityId || label };
   if (target.kind === "hotspot") return { detail: target.entityId ?? "hotspot", title: selectedHotspot?.labelKey || target.entityId || label };
   return { detail: selectedScene.id, title: label };
+}
+
+interface ProviderBoundaryStatus {
+  detail: string;
+  label: string;
+  tone: "good" | "warn" | "error" | "muted";
+}
+
+function providerBoundaryStatus(
+  providerId: string,
+  baseUrl: string,
+  defaultBaseUrl: string,
+  remoteProviderConsent = false
+): ProviderBoundaryStatus {
+  if (providerId === "mock") {
+    return {
+      detail: "Offline deterministic output. No network request is made.",
+      label: "Offline",
+      tone: "good"
+    };
+  }
+
+  const configuredUrl = baseUrl.trim() || defaultBaseUrl;
+  try {
+    const endpoint = new URL(configuredUrl);
+    const hostname = endpoint.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    const isLoopback = hostname === "localhost" || hostname === "::1" || /^127(?:\.\d{1,3}){3}$/.test(hostname);
+    if (isLoopback) {
+      return {
+        detail: `Local endpoint ${endpoint.origin}.`,
+        label: "Local",
+        tone: "good"
+      };
+    }
+    return {
+      detail: remoteProviderConsent
+        ? `Remote endpoint ${endpoint.origin}. Consent is enabled for this session.`
+        : `Remote endpoint ${endpoint.origin}. Explicit consent is required before sending project context.`,
+      label: remoteProviderConsent ? "Remote · allowed" : "Remote · consent",
+      tone: remoteProviderConsent ? "good" : "warn"
+    };
+  } catch {
+    return {
+      detail: "The endpoint must be an absolute HTTP(S) URL.",
+      label: "Check URL",
+      tone: "error"
+    };
+  }
+}
+
+interface ProviderConfigDialogShellProps {
+  children: React.ReactNode;
+  description: string;
+  onApply: () => void;
+  onCancel: () => void;
+  title: string;
+}
+
+function ProviderConfigDialogShell({
+  children,
+  description,
+  onApply,
+  onCancel,
+  title
+}: ProviderConfigDialogShellProps) {
+  const dialogRef = useRef<HTMLElement | null>(null);
+  const titleId = `provider-config-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    const focusableSelector =
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector));
+    focusable()[0]?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCancel();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const elements = focusable();
+      if (elements.length === 0) return;
+      const first = elements[0]!;
+      const last = elements[elements.length - 1]!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    dialog.addEventListener("keydown", handleKeyDown);
+    return () => dialog.removeEventListener("keydown", handleKeyDown);
+  }, [onCancel]);
+
+  return (
+    <div
+      className="provider-config-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <section
+        ref={dialogRef}
+        aria-labelledby={titleId}
+        aria-modal="true"
+        className="provider-config-modal"
+        role="dialog"
+        tabIndex={-1}
+      >
+        <header className="provider-config-header">
+          <div>
+            <span className="overview-label">Provider configuration</span>
+            <h2 id={titleId}>{title}</h2>
+            <p>{description}</p>
+          </div>
+          <button className="icon-action" type="button" aria-label={`Close ${title}`} onClick={onCancel}>
+            <X size={iconSize} />
+          </button>
+        </header>
+        <div className="provider-config-body">{children}</div>
+        <footer className="provider-config-footer">
+          <p>Changes are kept in this editor session and never written to project JSON.</p>
+          <div className="build-actions">
+            <button className="secondary-action compact-action" type="button" onClick={onCancel}>
+              Cancel
+            </button>
+            <button className="play-action compact-action" type="button" onClick={onApply}>
+              Apply
+            </button>
+          </div>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+interface PromptProviderConfigDialogProps {
+  provider: PromptProviderId;
+  values: PromptProviderConfigValues;
+  onApply: (values: PromptProviderConfigValues) => void;
+  onCancel: () => void;
+}
+
+function PromptProviderConfigDialog({ provider, values, onApply, onCancel }: PromptProviderConfigDialogProps) {
+  const [draft, setDraft] = useState(values);
+  const descriptor = promptProviderDescriptors.find((item) => item.id === provider) ?? promptProviderDescriptors[0]!;
+
+  return (
+    <ProviderConfigDialogShell
+      description={descriptor.detail}
+      onApply={() => onApply(draft)}
+      onCancel={onCancel}
+      title={descriptor.label}
+    >
+      {provider === "mock" ? (
+        <div className="provider-config-note">
+          <strong>Ready offline</strong>
+          <p>Mock deterministic generates a reproducible prompt pack without credentials or network access.</p>
+        </div>
+      ) : provider === "lmstudio" ? (
+        <>
+          <label className="prompt-studio-field">
+            LM Studio base URL
+            <input
+              value={draft.lmStudioBaseUrl}
+              onChange={(event) => setDraft((current) => ({ ...current, lmStudioBaseUrl: event.target.value }))}
+            />
+          </label>
+          <label className="prompt-studio-field">
+            Model
+            <input
+              placeholder="Use the model id shown by LM Studio"
+              value={draft.lmStudioModel}
+              onChange={(event) => setDraft((current) => ({ ...current, lmStudioModel: event.target.value }))}
+            />
+          </label>
+          <label className="prompt-studio-field">
+            API key
+            <input
+              placeholder="Optional; LM Studio usually accepts any value"
+              type="password"
+              value={draft.lmStudioApiKey}
+              onChange={(event) => setDraft((current) => ({ ...current, lmStudioApiKey: event.target.value }))}
+            />
+          </label>
+        </>
+      ) : (
+        <>
+          <label className="prompt-studio-field">
+            OpenAI API key
+            <input
+              placeholder="Uses OPENAI_API_KEY if empty"
+              type="password"
+              value={draft.openAiApiKey}
+              onChange={(event) => setDraft((current) => ({ ...current, openAiApiKey: event.target.value }))}
+            />
+          </label>
+          <label className="prompt-studio-field">
+            Model
+            <input
+              value={draft.openAiModel}
+              onChange={(event) => setDraft((current) => ({ ...current, openAiModel: event.target.value }))}
+            />
+          </label>
+          <label className="prompt-studio-field">
+            Base URL
+            <input
+              value={draft.openAiBaseUrl}
+              onChange={(event) => setDraft((current) => ({ ...current, openAiBaseUrl: event.target.value }))}
+            />
+          </label>
+        </>
+      )}
+      {provider !== "mock" ? (
+        <label className="prompt-studio-field provider-consent-field">
+          Remote provider consent
+          <span>
+            <input
+              checked={draft.remoteProviderConsent}
+              type="checkbox"
+              onChange={(event) => setDraft((current) => ({ ...current, remoteProviderConsent: event.target.checked }))}
+            />{" "}
+            I allow AI Studio to send project prompts to a remote endpoint.
+          </span>
+        </label>
+      ) : null}
+    </ProviderConfigDialogShell>
+  );
+}
+
+interface ImageProviderConfigDialogProps {
+  provider: ImageGenerationProviderId;
+  values: ImageProviderConfigValues;
+  onApply: (values: ImageProviderConfigValues) => void;
+  onCancel: () => void;
+}
+
+function ImageProviderConfigDialog({ provider, values, onApply, onCancel }: ImageProviderConfigDialogProps) {
+  const [draft, setDraft] = useState(values);
+  const descriptor = imageProviderOptions.find((item) => item.value === provider) ?? imageProviderOptions[0]!;
+
+  return (
+    <ProviderConfigDialogShell
+      description={descriptor.detail}
+      onApply={() => onApply(draft)}
+      onCancel={onCancel}
+      title={descriptor.label}
+    >
+      {provider === "comfyui-local" ? (
+        <>
+          <label className="prompt-studio-field">
+            ComfyUI base URL
+            <input
+              value={draft.comfyUiBaseUrl}
+              onChange={(event) => setDraft((current) => ({ ...current, comfyUiBaseUrl: event.target.value }))}
+            />
+          </label>
+          <label className="prompt-studio-field">
+            Checkpoint filename / override
+            <input
+              placeholder="Optional when a workflow provides the checkpoint"
+              value={draft.comfyUiCheckpoint}
+              onChange={(event) => setDraft((current) => ({ ...current, comfyUiCheckpoint: event.target.value }))}
+            />
+          </label>
+          <label className="prompt-studio-field">
+            Workflow API JSON path
+            <input
+              placeholder="Optional project-relative path"
+              value={draft.comfyUiWorkflowPath}
+              onChange={(event) => setDraft((current) => ({ ...current, comfyUiWorkflowPath: event.target.value }))}
+            />
+          </label>
+          <label className="prompt-studio-field">
+            Seed
+            <input
+              placeholder="Empty for random"
+              value={draft.comfyUiSeed}
+              onChange={(event) => setDraft((current) => ({ ...current, comfyUiSeed: event.target.value }))}
+            />
+          </label>
+          <label className="prompt-studio-field">
+            Timeout (minutes)
+            <input
+              min={1}
+              step={1}
+              type="number"
+              value={draft.comfyUiTimeoutMinutes}
+              onChange={(event) => setDraft((current) => ({ ...current, comfyUiTimeoutMinutes: event.target.value }))}
+            />
+          </label>
+        </>
+      ) : provider === "openai-image" ? (
+        <>
+          <label className="prompt-studio-field">
+            OpenAI image API key
+            <input
+              placeholder="Uses OPENAI_API_KEY if empty"
+              type="password"
+              value={draft.openAiImageApiKey}
+              onChange={(event) => setDraft((current) => ({ ...current, openAiImageApiKey: event.target.value }))}
+            />
+          </label>
+          <label className="prompt-studio-field">
+            OpenAI image model
+            <input
+              value={draft.openAiImageModel}
+              onChange={(event) => setDraft((current) => ({ ...current, openAiImageModel: event.target.value }))}
+            />
+          </label>
+          <label className="prompt-studio-field">
+            OpenAI path
+            <select
+              value={draft.openAiImageMode}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  openAiImageMode: event.target.value as ImageProviderConfigValues["openAiImageMode"]
+                }))
+              }
+            >
+              <option value="images-api">Images API</option>
+              <option value="responses-api">Responses image tool</option>
+            </select>
+          </label>
+          <label className="prompt-studio-field">
+            OpenAI base URL
+            <input
+              value={draft.openAiImageBaseUrl}
+              onChange={(event) => setDraft((current) => ({ ...current, openAiImageBaseUrl: event.target.value }))}
+            />
+          </label>
+        </>
+      ) : (
+        <>
+          <label className="prompt-studio-field">
+            Google path
+            <select
+              value={draft.googleImageProvider}
+              onChange={(event) => {
+                const nextProvider = event.target.value as ImageProviderConfigValues["googleImageProvider"];
+                setDraft((current) => ({
+                  ...current,
+                  googleImageModel: nextProvider === "vertex-ai" ? "imagen-4.0-generate-preview" : "gemini-2.5-flash-image",
+                  googleImageProvider: nextProvider
+                }));
+              }}
+            >
+              <option value="gemini-api">Gemini API</option>
+              <option value="vertex-ai">Vertex AI Imagen</option>
+            </select>
+          </label>
+          {draft.googleImageProvider === "gemini-api" ? (
+            <label className="prompt-studio-field">
+              Gemini API key
+              <input
+                placeholder="Uses GEMINI_API_KEY if empty"
+                type="password"
+                value={draft.googleImageApiKey}
+                onChange={(event) => setDraft((current) => ({ ...current, googleImageApiKey: event.target.value }))}
+              />
+            </label>
+          ) : (
+            <>
+              <label className="prompt-studio-field">
+                Vertex access token
+                <input
+                  placeholder="Uses GOOGLE_VERTEX_ACCESS_TOKEN if empty"
+                  type="password"
+                  value={draft.googleImageAccessToken}
+                  onChange={(event) => setDraft((current) => ({ ...current, googleImageAccessToken: event.target.value }))}
+                />
+              </label>
+              <label className="prompt-studio-field">
+                Google Cloud project
+                <input
+                  value={draft.googleImageProjectId}
+                  onChange={(event) => setDraft((current) => ({ ...current, googleImageProjectId: event.target.value }))}
+                />
+              </label>
+            </>
+          )}
+          <label className="prompt-studio-field">
+            Google image model
+            <input
+              value={draft.googleImageModel}
+              onChange={(event) => setDraft((current) => ({ ...current, googleImageModel: event.target.value }))}
+            />
+          </label>
+          <label className="prompt-studio-field">
+            Location
+            <input
+              value={draft.googleImageLocation}
+              onChange={(event) => setDraft((current) => ({ ...current, googleImageLocation: event.target.value }))}
+            />
+          </label>
+          <label className="prompt-studio-field">
+            Base URL override
+            <input
+              placeholder="Optional provider API root"
+              value={draft.googleImageBaseUrl}
+              onChange={(event) => setDraft((current) => ({ ...current, googleImageBaseUrl: event.target.value }))}
+            />
+          </label>
+        </>
+      )}
+      {provider !== "comfyui-local" ? (
+        <label className="prompt-studio-field provider-consent-field">
+          Remote provider consent
+          <span>
+            <input
+              checked={draft.remoteProviderConsent}
+              type="checkbox"
+              onChange={(event) => setDraft((current) => ({ ...current, remoteProviderConsent: event.target.checked }))}
+            />{" "}
+            I allow AI Studio to send prompts and selected input assets to a remote endpoint.
+          </span>
+        </label>
+      ) : null}
+    </ProviderConfigDialogShell>
+  );
 }
 
 function stageToolbarModelFor({
@@ -1934,6 +2405,8 @@ export function EditorApp() {
   const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
   const [assetPathDraft, setAssetPathDraft] = useState("");
   const [promptPackSceneId, setPromptPackSceneId] = useState("");
+  const [aiStep, setAiStep] = useState<AiStudioStep>("brief");
+  const [aiAdvancedOpen, setAiAdvancedOpen] = useState(false);
   const [sceneDirectionPresetId, setSceneDirectionPresetId] = useState(defaultSceneDirectionPreset.id);
   const [promptPackBrief, setPromptPackBrief] = useState(defaultSceneDirectionPreset.artBrief);
   const [promptPackJob, setPromptPackJob] = useState<PromptProviderJob | null>(null);
@@ -1980,6 +2453,8 @@ export function EditorApp() {
   const [googleImageModel, setGoogleImageModel] = useState("gemini-2.5-flash-image");
   const [googleImageProjectId, setGoogleImageProjectId] = useState("");
   const [googleImageProvider, setGoogleImageProvider] = useState<"gemini-api" | "vertex-ai">("gemini-api");
+  const [promptProviderConfigOpen, setPromptProviderConfigOpen] = useState(false);
+  const [imageProviderConfigOpen, setImageProviderConfigOpen] = useState(false);
   const [comfyUiOutputPresetId, setComfyUiOutputPresetId] = useState(defaultPromptPresetSelection.comfyOutputPreset);
   const [selectedWorkflowPresetId, setSelectedWorkflowPresetId] = useState(workflowPresets[0]?.id ?? "");
   const [selectedWorkflowTemplateId, setSelectedWorkflowTemplateId] = useState("");
@@ -2019,6 +2494,10 @@ export function EditorApp() {
   const [sceneInspectorTarget, setSceneInspectorTarget] = useState<SceneInspectorTarget>("scene");
   const [selectedSceneLayerId, setSelectedSceneLayerId] = useState<string | null>(null);
   const [selectedGenerationGuideId, setSelectedGenerationGuideId] = useState<string | null>(null);
+  const promptProviderConfigReturnFocusRef = useRef<HTMLButtonElement | null>(null);
+  const imageProviderConfigReturnFocusRef = useRef<HTMLButtonElement | null>(null);
+  const aiWorkspaceRef = useRef<HTMLDivElement | null>(null);
+  const aiAdvancedSectionRef = useRef<HTMLDetailsElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const cleanupSourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const cleanupOutputCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -2111,6 +2590,28 @@ export function EditorApp() {
     promptProviderDescriptors.find((provider) => provider.id === promptProviderId) ?? promptProviderDescriptors[0]!;
   const selectedImageProvider =
     imageProviderOptions.find((provider) => provider.value === imageProviderId) ?? imageProviderOptions[0]!;
+  const promptProviderBoundary = providerBoundaryStatus(
+    promptProviderId,
+    promptProviderId === "lmstudio" ? lmStudioBaseUrl : openAiBaseUrl,
+    promptProviderId === "lmstudio" ? "http://localhost:1234/v1" : "https://api.openai.com/v1",
+    remoteProviderConsent
+  );
+  const imageProviderBoundary = providerBoundaryStatus(
+    imageProviderId,
+    imageProviderId === "comfyui-local"
+      ? comfyUiBaseUrl
+      : imageProviderId === "openai-image"
+        ? openAiImageBaseUrl
+        : googleImageBaseUrl,
+    imageProviderId === "comfyui-local"
+      ? "http://127.0.0.1:8188"
+      : imageProviderId === "openai-image"
+        ? "https://api.openai.com/v1"
+        : googleImageProvider === "vertex-ai"
+          ? `https://${googleImageLocation || "us-central1"}-aiplatform.googleapis.com/v1`
+          : "https://generativelanguage.googleapis.com/v1beta",
+    remoteProviderConsent
+  );
   const freePromptStylePreset =
     visualStylePresets.find((preset) => preset.id === freePromptStylePresetId) ??
     visualStylePresets.find((preset) => preset.id === defaultPromptPresetSelection.visualStylePreset) ??
@@ -2585,6 +3086,37 @@ export function EditorApp() {
       }))
     ];
   }, [selectedScene]);
+
+  const scrollAiAdvancedIntoView = useCallback(() => {
+    const workspaceElement = aiWorkspaceRef.current;
+    const advancedElement = aiAdvancedSectionRef.current;
+    if (!workspaceElement || !advancedElement || !advancedElement.open) return;
+
+    const workspaceBounds = workspaceElement.getBoundingClientRect();
+    const advancedBounds = advancedElement.getBoundingClientRect();
+    const targetTop =
+      workspaceElement.scrollTop + advancedBounds.top - workspaceBounds.top - 12;
+    const maxTop = Math.max(0, workspaceElement.scrollHeight - workspaceElement.clientHeight);
+
+    workspaceElement.scrollTo({
+      behavior: "auto",
+      top: Math.min(Math.max(targetTop, 0), maxTop)
+    });
+  }, []);
+
+  const openAiAdvancedSection = useCallback(() => {
+    setAiAdvancedOpen(true);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(scrollAiAdvancedIntoView);
+    });
+  }, [scrollAiAdvancedIntoView]);
+
+  useEffect(() => {
+    if (workspace !== "ai" || !aiAdvancedOpen) return;
+
+    const frame = window.requestAnimationFrame(scrollAiAdvancedIntoView);
+    return () => window.cancelAnimationFrame(frame);
+  }, [aiAdvancedOpen, aiStep, scrollAiAdvancedIntoView, workspace]);
   const selectedGuideSource =
     guideSourceOptions.find((option) => option.id === guideSourceId) ?? guideSourceOptions[0] ?? null;
   const canEditViewportScene = workspace === "scene" && !!selectedScene;
@@ -5294,6 +5826,62 @@ export function EditorApp() {
     setComfyUiTimeoutMinutes(String(preset.timeoutMinutes));
   };
 
+  const restoreProviderConfigFocus = (ref: React.MutableRefObject<HTMLButtonElement | null>) => {
+    window.setTimeout(() => ref.current?.focus(), 0);
+  };
+
+  const openPromptProviderConfig = (opener?: HTMLButtonElement) => {
+    if (opener) promptProviderConfigReturnFocusRef.current = opener;
+    setPromptProviderConfigOpen(true);
+  };
+
+  const closePromptProviderConfig = () => {
+    setPromptProviderConfigOpen(false);
+    restoreProviderConfigFocus(promptProviderConfigReturnFocusRef);
+  };
+
+  const applyPromptProviderConfig = (values: PromptProviderConfigValues) => {
+    setLmStudioApiKey(values.lmStudioApiKey);
+    setLmStudioBaseUrl(values.lmStudioBaseUrl);
+    setLmStudioModel(values.lmStudioModel);
+    setOpenAiApiKey(values.openAiApiKey);
+    setOpenAiBaseUrl(values.openAiBaseUrl);
+    setOpenAiModel(values.openAiModel);
+    setRemoteProviderConsent(values.remoteProviderConsent);
+    closePromptProviderConfig();
+  };
+
+  const openImageProviderConfig = (opener?: HTMLButtonElement) => {
+    if (opener) imageProviderConfigReturnFocusRef.current = opener;
+    setImageProviderConfigOpen(true);
+  };
+
+  const closeImageProviderConfig = () => {
+    setImageProviderConfigOpen(false);
+    restoreProviderConfigFocus(imageProviderConfigReturnFocusRef);
+  };
+
+  const applyImageProviderConfig = (values: ImageProviderConfigValues) => {
+    setComfyUiBaseUrl(values.comfyUiBaseUrl);
+    setComfyUiCheckpoint(values.comfyUiCheckpoint);
+    setComfyUiSeed(values.comfyUiSeed);
+    setComfyUiTimeoutMinutes(values.comfyUiTimeoutMinutes);
+    setComfyUiWorkflowPath(values.comfyUiWorkflowPath);
+    setGoogleImageAccessToken(values.googleImageAccessToken);
+    setGoogleImageApiKey(values.googleImageApiKey);
+    setGoogleImageBaseUrl(values.googleImageBaseUrl);
+    setGoogleImageLocation(values.googleImageLocation);
+    setGoogleImageModel(values.googleImageModel);
+    setGoogleImageProjectId(values.googleImageProjectId);
+    setGoogleImageProvider(values.googleImageProvider);
+    setOpenAiImageApiKey(values.openAiImageApiKey);
+    setOpenAiImageBaseUrl(values.openAiImageBaseUrl);
+    setOpenAiImageMode(values.openAiImageMode);
+    setOpenAiImageModel(values.openAiImageModel);
+    setRemoteProviderConsent(values.remoteProviderConsent);
+    closeImageProviderConfig();
+  };
+
   const generatePromptPack = async () => {
     if (!project || !promptPackScene) return;
 
@@ -6943,6 +7531,7 @@ export function EditorApp() {
     if (!freePromptTarget || !promptPackScene) return;
     setContextualGenerationModalOpen(false);
     setWorkspace("ai");
+    openAiAdvancedSection();
     setStatus(`Opened AI Studio for ${freePromptLabel(freePromptTarget, promptPackScene)}.`);
   };
 
@@ -8224,12 +8813,11 @@ export function EditorApp() {
       return (
         <>
           <div className="tree-section-label">AI Studio</div>
-          <div className="tree-group open">Target workflow</div>
+          <div className="tree-group open">Creator workflow</div>
           <div className="tree-item tree-meta">1. Brief</div>
-          <div className="tree-item tree-meta">2. Context</div>
-          <div className="tree-item tree-meta">3. Recipe</div>
-          <div className="tree-item tree-meta">4. Generate</div>
-          <div className="tree-item tree-meta">5. Review & Apply</div>
+          <div className="tree-item tree-meta">2. Targets</div>
+          <div className="tree-item tree-meta">3. Generate</div>
+          <div className="tree-item tree-meta">4. Review & Apply</div>
           <div className="tree-group open">Prompt Packs ({project.promptPackCount})</div>
           {project.promptPacks.map((promptPack) => (
             <button
@@ -8524,7 +9112,387 @@ export function EditorApp() {
               warningIssueCount={buildWarningIssues.length}
             />
           ) : workspace === "ai" ? (
-            <div className="workspace-overview build-workspace ai-workspace">
+            <div ref={aiWorkspaceRef} className="workspace-overview build-workspace ai-workspace">
+              <section className="overview-card ai-guided-shell" aria-labelledby="ai-guided-title">
+                <div className="ai-guided-heading">
+                  <div>
+                    <span className="overview-label">AI Studio workflow</span>
+                    <h2 id="ai-guided-title">Build art direction, then approve the output.</h2>
+                    <p>
+                      The mock provider is offline and deterministic. Advanced provider and workflow settings stay
+                      available below when you need them.
+                    </p>
+                  </div>
+                  <span className="capability-badge good">Local-first</span>
+                </div>
+                <nav className="ai-stepper" aria-label="AI Studio steps">
+                  {aiStudioSteps.map((step, index) => (
+                    <button
+                      aria-current={aiStep === step.id ? "step" : undefined}
+                      className={aiStep === step.id ? "active" : ""}
+                      key={step.id}
+                      type="button"
+                      onClick={() => setAiStep(step.id)}
+                    >
+                      <span>{String(index + 1).padStart(2, "0")}</span>
+                      <strong>{step.label}</strong>
+                      <small>{step.detail}</small>
+                    </button>
+                  ))}
+                </nav>
+              </section>
+
+              {aiStep === "brief" ? (
+                <section className="overview-card ai-guided-step" aria-labelledby="ai-brief-title">
+                  <div className="ai-guided-step-heading">
+                    <div>
+                      <span className="overview-label">01 / Brief</span>
+                      <h3 id="ai-brief-title">Give the scene a clear visual point of view.</h3>
+                    </div>
+                    <span className="prompt-chip">{selectedPromptProvider.label}</span>
+                  </div>
+                  <div className="ai-guided-grid">
+                    <label className="prompt-studio-field">
+                      Scene
+                      <select
+                        disabled={!project || layeredScenes.length === 0}
+                        value={promptPackScene?.id ?? ""}
+                        onChange={(event) => setPromptPackSceneId(event.target.value)}
+                      >
+                        {layeredScenes.map((scene) => (
+                          <option key={`guided-scene-${scene.id}`} value={scene.id}>
+                            {scene.name} ({scene.id})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="prompt-studio-field provider-selector-field">
+                      <span>Prompt provider</span>
+                      <div className="provider-selector-row">
+                        <select
+                          aria-label="Prompt provider"
+                          value={promptProviderId}
+                          onChange={(event) => setPromptProviderId(event.target.value as PromptProviderId)}
+                        >
+                          {promptProviderDescriptors.map((provider) => (
+                            <option key={`guided-prompt-provider-${provider.id}`} value={provider.id}>
+                              {provider.label}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          ref={(element) => {
+                            promptProviderConfigReturnFocusRef.current = element;
+                          }}
+                          aria-label="Configure prompt provider"
+                          className="icon-action provider-settings-button"
+                          title="Configure prompt provider"
+                          type="button"
+                          onClick={(event) => openPromptProviderConfig(event.currentTarget)}
+                        >
+                          <Settings2 size={iconSize} />
+                        </button>
+                      </div>
+                      <span className={`provider-boundary-status ${promptProviderBoundary.tone}`}>
+                        <span className="capability-badge compact">{promptProviderBoundary.label}</span>
+                        {promptProviderBoundary.detail}
+                      </span>
+                    </div>
+                    <label className="prompt-studio-field">
+                      Visual style
+                      <select value={visualStylePresetId} onChange={(event) => setVisualStylePresetId(event.target.value)}>
+                        {visualStylePresets.map((preset) => (
+                          <option key={`guided-style-${preset.id}`} value={preset.id}>
+                            {preset.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="prompt-studio-field">
+                      Mood
+                      <select value={moodPresetId} onChange={(event) => setMoodPresetId(event.target.value)}>
+                        {moodPresets.map((preset) => (
+                          <option key={`guided-mood-${preset.id}`} value={preset.id}>
+                            {preset.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="prompt-studio-field">
+                      Setting
+                      <select value={settingPresetId} onChange={(event) => setSettingPresetId(event.target.value)}>
+                        {settingPresets.map((preset) => (
+                          <option key={`guided-setting-${preset.id}`} value={preset.id}>
+                            {preset.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="prompt-studio-field">
+                      Palette
+                      <select value={palettePresetId} onChange={(event) => setPalettePresetId(event.target.value)}>
+                        {palettePresets.map((preset) => (
+                          <option key={`guided-palette-${preset.id}`} value={preset.id}>
+                            {preset.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="prompt-studio-field ai-guided-wide-field">
+                      Art brief
+                      <textarea value={promptPackBrief} onChange={(event) => setPromptPackBrief(event.target.value)} />
+                    </label>
+                    <fieldset className="prompt-studio-field ai-guided-wide-field ai-guided-checklist">
+                      <legend>Gameplay emphasis</legend>
+                      <div>
+                        {gameplayEmphasisPresets.map((preset) => (
+                          <label key={`guided-gameplay-${preset.id}`}>
+                            <input
+                              checked={gameplayEmphasisPresetIds.includes(preset.id)}
+                              type="checkbox"
+                              onChange={() => toggleGameplayEmphasisPreset(preset.id)}
+                            />
+                            <span>{preset.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                  </div>
+                  <div className="ai-guided-footer">
+                    <p className="ai-guided-status" aria-live="polite">
+                      {status}
+                    </p>
+                    <button
+                      className="play-action"
+                      disabled={!project || !promptPackScene || promptPackGenerationState === "running"}
+                      type="button"
+                      onClick={() => {
+                        setAiStep("targets");
+                        void generatePromptPack();
+                      }}
+                    >
+                      {promptPackGenerationState === "running" ? "Generating…" : "Generate Targets"}
+                    </button>
+                  </div>
+                </section>
+              ) : null}
+
+              {aiStep === "targets" ? (
+                <section className="overview-card ai-guided-step" aria-labelledby="ai-targets-title">
+                  <div className="ai-guided-step-heading">
+                    <div>
+                      <span className="overview-label">02 / Targets</span>
+                      <h3 id="ai-targets-title">Choose the game pieces that need artwork.</h3>
+                    </div>
+                    <span className="prompt-chip">{imageGenerationTargets.length} target(s)</span>
+                  </div>
+                  {imageGenerationTargets.length ? (
+                    <div className="ai-target-list">
+                      {imageGenerationTargets.map((target) => (
+                        <button
+                          className={selectedGenerationTarget?.id === target.id ? "selected" : ""}
+                          key={`guided-target-${target.id}`}
+                          type="button"
+                          onClick={() => setSelectedGenerationTargetId(target.id)}
+                        >
+                          <span>{target.intendedUse}</span>
+                          <strong>{target.id}</strong>
+                          <small>{target.width ?? selectedGenerationDimensions.width} × {target.height ?? selectedGenerationDimensions.height}</small>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="ai-guided-empty" aria-live="polite">
+                      {promptPackGenerationState === "running"
+                        ? "Generating target suggestions…"
+                        : "No targets yet. Generate a prompt pack from the Brief step."}
+                    </div>
+                  )}
+                  <div className="ai-guided-footer">
+                    <p className="ai-guided-status" aria-live="polite">
+                      {promptPackCandidate?.summary ?? aiNextAction}
+                    </p>
+                    <div className="ai-guided-actions">
+                      <button className="secondary-action" type="button" onClick={() => setAiStep("brief")}>
+                        Back to Brief
+                      </button>
+                      <button
+                        className="play-action"
+                        disabled={!selectedEffectiveGenerationTarget}
+                        type="button"
+                        onClick={() => setAiStep("generate")}
+                      >
+                        Continue to Generate
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+
+              {aiStep === "generate" ? (
+                <section className="overview-card ai-guided-step" aria-labelledby="ai-generate-title">
+                  <div className="ai-guided-step-heading">
+                    <div>
+                      <span className="overview-label">03 / Generate</span>
+                      <h3 id="ai-generate-title">Prepare one asset without losing the project context.</h3>
+                    </div>
+                   <span className={`capability-badge ${aiRecipeReady ? "good" : "warn"}`}>
+                      {aiRecipeReady ? "Ready" : "Advanced setup needed"}
+                    </span>
+                  </div>
+                  <div className="provider-selector-panel">
+                    <div className="prompt-studio-field provider-selector-field">
+                      <span>Image provider</span>
+                      <div className="provider-selector-row">
+                        <select
+                          aria-label="Image provider"
+                          value={imageProviderId}
+                          onChange={(event) => setImageProviderId(event.target.value as ImageGenerationProviderId)}
+                        >
+                          {imageProviderOptions.map((provider) => (
+                            <option key={`guided-image-provider-${provider.value}`} value={provider.value}>
+                              {provider.label}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          ref={(element) => {
+                            imageProviderConfigReturnFocusRef.current = element;
+                          }}
+                          aria-label="Configure image provider"
+                          className="icon-action provider-settings-button"
+                          title="Configure image provider"
+                          type="button"
+                          onClick={(event) => openImageProviderConfig(event.currentTarget)}
+                        >
+                          <Settings2 size={iconSize} />
+                        </button>
+                      </div>
+                      <span className={`provider-boundary-status ${imageProviderBoundary.tone}`}>
+                        <span className="capability-badge compact">{imageProviderBoundary.label}</span>
+                        {imageProviderBoundary.detail}
+                      </span>
+                    </div>
+                    <p className="target-customization-note image-provider-note">{selectedImageProvider.detail}</p>
+                  </div>
+                  <div className="ai-guided-summary-grid">
+                    <div><span>Target</span><strong>{selectedEffectiveGenerationTarget?.id ?? "Choose a target"}</strong></div>
+                     <div><span>Provider</span><strong>{selectedImageProvider.label}</strong></div>
+                    <div><span>Workflow</span><strong>{selectedWorkflowTemplate?.id ?? "Not installed"}</strong></div>
+                    <div><span>Output</span><strong>{selectedGenerationDimensions.width} × {selectedGenerationDimensions.height}</strong></div>
+                  </div>
+                  <p className="ai-guided-callout" aria-live="polite">
+                    {aiRecipeReady
+                      ? "The selected target is ready to generate and import as a normal project asset."
+                      : "Install a compatible workflow and save a recipe in Advanced before queueing the asset."}
+                  </p>
+                  <div className="ai-guided-footer">
+                    <p className="ai-guided-status" aria-live="polite">
+                      {comfyUiGenerationStatus}
+                    </p>
+                    <div className="ai-guided-actions">
+                      <button className="secondary-action" type="button" onClick={() => setAiStep("targets")}>
+                        Back to Targets
+                      </button>
+                      <button
+                        className="play-action"
+                        disabled={!selectedEffectiveGenerationTarget || imageGenerationState === "running"}
+                        type="button"
+                        onClick={() => {
+                          if (!aiRecipeReady) {
+                            openAiAdvancedSection();
+                            return;
+                          }
+                          void generateImageAsset();
+                          setAiStep("review");
+                        }}
+                      >
+                        {!aiRecipeReady
+                          ? "Open Advanced Setup"
+                          : imageGenerationState === "running"
+                            ? "Generating…"
+                            : "Generate & Import Asset"}
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+
+              {aiStep === "review" ? (
+                <section className="overview-card ai-guided-step" aria-labelledby="ai-review-title">
+                  <div className="ai-guided-step-heading">
+                    <div>
+                      <span className="overview-label">04 / Review & Apply</span>
+                      <h3 id="ai-review-title">Approve the draft before it changes the project.</h3>
+                    </div>
+                    <span className="capability-badge good">Human approval required</span>
+                  </div>
+                   {promptPackCandidate ? (
+                     <div className="ai-review-summary">
+                       <div>
+                         <span>Candidate</span>
+                         <strong>{promptPackCandidate.promptPack.id}</strong>
+                         <p>{promptPackCandidate.summary}</p>
+                       </div>
+                       <div>
+                         <span>Prompt</span>
+                         <strong>Scene background</strong>
+                         <p>{promptPackCandidate.promptPack.outputs.sceneBackgroundPrompt}</p>
+                       </div>
+                       <div>
+                         <span>Provenance</span>
+                         <strong>{promptPackCandidate.promptPack.provenance.provider}</strong>
+                        <p>{promptPackCandidate.promptPack.provenance.model} · {promptPackCandidate.promptPack.provenance.inputHash}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="ai-guided-empty">
+                      Generate a prompt pack or asset first. Nothing has been written to the project.
+                    </div>
+                  )}
+                  {lastGeneratedImageAsset ? (
+                    <p className="ai-guided-callout" aria-live="polite">
+                      Generated asset {lastGeneratedImageAsset.assetId} is ready for inspection.
+                    </p>
+                  ) : null}
+                  <div className="ai-guided-footer">
+                    <p className="ai-guided-status" aria-live="polite">
+                      {status}
+                    </p>
+                     <div className="ai-guided-actions">
+                       <button className="secondary-action" type="button" onClick={() => setAiStep("targets")}>
+                         Edit Targets
+                       </button>
+                        <button className="secondary-action" type="button" onClick={openAiAdvancedSection}>
+                         Open Advanced
+                       </button>
+                       <button
+                        className="play-action"
+                        disabled={!promptPackCandidate}
+                        type="button"
+                        onClick={() => void saveApprovedPromptPack()}
+                      >
+                        Save Approved Pack
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+
+              <details
+                ref={aiAdvancedSectionRef}
+                className="ai-advanced-section"
+                open={aiAdvancedOpen}
+                onToggle={(event) => setAiAdvancedOpen(event.currentTarget.open)}
+              >
+                <summary>
+                  <span>
+                    <strong>Advanced AI workspace</strong>
+                    <small>Provider credentials, recipes, ComfyUI, guides, masks, prompts and provenance.</small>
+                  </span>
+                  <span className="prompt-chip">Optional</span>
+                </summary>
+                <div className="ai-advanced-content">
               <section className="overview-card ai-target-cockpit">
                 <div className="ai-target-cockpit-header">
                   <div>
@@ -8581,85 +9549,6 @@ export function EditorApp() {
                 <strong>{promptPackScene ? `${promptPackScene.name} target brief` : "No layered scene"}</strong>
                 <p>{selectedPromptProvider.detail}</p>
                 <div className="prompt-studio-controls">
-                  <label className="prompt-studio-field">
-                    Provider
-                    <select
-                      value={promptProviderId}
-                      onChange={(event) => setPromptProviderId(event.target.value as PromptProviderId)}
-                    >
-                      {promptProviderDescriptors.map((provider) => (
-                        <option key={`ai-provider-${provider.id}`} value={provider.id}>
-                          {provider.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {promptProviderId === "openai" ? (
-                    <>
-                      <label className="prompt-studio-field">
-                        OpenAI API key
-                        <input
-                          placeholder="Uses OPENAI_API_KEY if empty"
-                          type="password"
-                          value={openAiApiKey}
-                          onChange={(event) => setOpenAiApiKey(event.target.value)}
-                        />
-                      </label>
-                      <label className="prompt-studio-field">
-                        Model
-                        <input
-                          value={openAiModel}
-                          onChange={(event) => setOpenAiModel(event.target.value)}
-                        />
-                      </label>
-                      <label className="prompt-studio-field">
-                        Base URL
-                        <input
-                          value={openAiBaseUrl}
-                          onChange={(event) => setOpenAiBaseUrl(event.target.value)}
-                        />
-                      </label>
-                    </>
-                  ) : null}
-                  {promptProviderId === "lmstudio" ? (
-                    <>
-                      <label className="prompt-studio-field">
-                        LM Studio base URL
-                        <input
-                          value={lmStudioBaseUrl}
-                          onChange={(event) => setLmStudioBaseUrl(event.target.value)}
-                        />
-                      </label>
-                      <label className="prompt-studio-field">
-                        Model
-                        <input
-                          placeholder="Use the model id shown by LM Studio"
-                          value={lmStudioModel}
-                          onChange={(event) => setLmStudioModel(event.target.value)}
-                        />
-                      </label>
-                      <label className="prompt-studio-field">
-                        API key
-                        <input
-                          placeholder="Optional; LM Studio usually accepts any value"
-                          type="password"
-                          value={lmStudioApiKey}
-                          onChange={(event) => setLmStudioApiKey(event.target.value)}
-                        />
-                      </label>
-                    </>
-                  ) : null}
-                  <label className="prompt-studio-field">
-                    Remote provider consent
-                    <span>
-                      <input
-                        checked={remoteProviderConsent}
-                        onChange={(event) => setRemoteProviderConsent(event.target.checked)}
-                        type="checkbox"
-                      />{" "}
-                      I allow AI Studio to send this prompt request to a remote endpoint.
-                    </span>
-                  </label>
                   <label className="prompt-studio-field">
                     Scene
                     <select
@@ -8887,133 +9776,6 @@ export function EditorApp() {
                   import the output as a normal project asset.
                 </p>
                 <div className="prompt-studio-controls">
-                  <label className="prompt-studio-field">
-                    Image provider
-                    <select
-                      value={imageProviderId}
-                      onChange={(event) => setImageProviderId(event.target.value as ImageGenerationProviderId)}
-                    >
-                      {imageProviderOptions.map((provider) => (
-                        <option key={`image-provider-${provider.value}`} value={provider.value}>
-                          {provider.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="target-customization-note image-provider-note">
-                    {selectedImageProvider.detail}
-                  </div>
-                  <label className="prompt-studio-field">
-                    Remote provider consent
-                    <span>
-                      <input
-                        checked={remoteProviderConsent}
-                        onChange={(event) => setRemoteProviderConsent(event.target.checked)}
-                        type="checkbox"
-                      />{" "}
-                      I allow AI Studio to send this request and any selected input assets to a remote endpoint.
-                    </span>
-                  </label>
-                  {imageProviderId === "openai-image" ? (
-                    <>
-                      <label className="prompt-studio-field">
-                        OpenAI image API key
-                        <input
-                          placeholder="Uses OPENAI_API_KEY if empty"
-                          type="password"
-                          value={openAiImageApiKey}
-                          onChange={(event) => setOpenAiImageApiKey(event.target.value)}
-                        />
-                      </label>
-                      <label className="prompt-studio-field">
-                        OpenAI image model
-                        <input value={openAiImageModel} onChange={(event) => setOpenAiImageModel(event.target.value)} />
-                      </label>
-                      <label className="prompt-studio-field">
-                        OpenAI path
-                        <select
-                          value={openAiImageMode}
-                          onChange={(event) => setOpenAiImageMode(event.target.value as "images-api" | "responses-api")}
-                        >
-                          <option value="images-api">Images API</option>
-                          <option value="responses-api">Responses image tool</option>
-                        </select>
-                      </label>
-                      <label className="prompt-studio-field">
-                        OpenAI base URL
-                        <input
-                          value={openAiImageBaseUrl}
-                          onChange={(event) => setOpenAiImageBaseUrl(event.target.value)}
-                        />
-                      </label>
-                    </>
-                  ) : null}
-                  {imageProviderId === "google-image" ? (
-                    <>
-                      <label className="prompt-studio-field">
-                        Google path
-                        <select
-                          value={googleImageProvider}
-                          onChange={(event) => {
-                            const provider = event.target.value as "gemini-api" | "vertex-ai";
-                            setGoogleImageProvider(provider);
-                            setGoogleImageModel(
-                              provider === "vertex-ai" ? "imagen-4.0-generate-preview" : "gemini-2.5-flash-image"
-                            );
-                          }}
-                        >
-                          <option value="gemini-api">Gemini API</option>
-                          <option value="vertex-ai">Vertex AI Imagen</option>
-                        </select>
-                      </label>
-                      {googleImageProvider === "gemini-api" ? (
-                        <label className="prompt-studio-field">
-                          Gemini API key
-                          <input
-                            placeholder="Uses GEMINI_API_KEY if empty"
-                            type="password"
-                            value={googleImageApiKey}
-                            onChange={(event) => setGoogleImageApiKey(event.target.value)}
-                          />
-                        </label>
-                      ) : (
-                        <>
-                          <label className="prompt-studio-field">
-                            Vertex access token
-                            <input
-                              placeholder="Uses GOOGLE_VERTEX_ACCESS_TOKEN if empty"
-                              type="password"
-                              value={googleImageAccessToken}
-                              onChange={(event) => setGoogleImageAccessToken(event.target.value)}
-                            />
-                          </label>
-                          <label className="prompt-studio-field">
-                            Google Cloud project
-                            <input
-                              value={googleImageProjectId}
-                              onChange={(event) => setGoogleImageProjectId(event.target.value)}
-                            />
-                          </label>
-                        </>
-                      )}
-                      <label className="prompt-studio-field">
-                        Google image model
-                        <input value={googleImageModel} onChange={(event) => setGoogleImageModel(event.target.value)} />
-                      </label>
-                      <label className="prompt-studio-field">
-                        Location
-                        <input value={googleImageLocation} onChange={(event) => setGoogleImageLocation(event.target.value)} />
-                      </label>
-                      <label className="prompt-studio-field">
-                        Base URL override
-                        <input
-                          placeholder={googleImageProvider === "vertex-ai" ? "Optional Vertex API root" : "Optional Gemini API root"}
-                          value={googleImageBaseUrl}
-                          onChange={(event) => setGoogleImageBaseUrl(event.target.value)}
-                        />
-                      </label>
-                    </>
-                  ) : null}
                   <div className="target-customization-panel free-prompt-panel">
                     <div className="target-customization-heading">
                       <div>
@@ -9086,14 +9848,6 @@ export function EditorApp() {
                     </p>
                   </div>
                   <label className="prompt-studio-field">
-                    ComfyUI base URL
-                    <input
-                      disabled={imageProviderId !== "comfyui-local"}
-                      value={comfyUiBaseUrl}
-                      onChange={(event) => setComfyUiBaseUrl(event.target.value)}
-                    />
-                  </label>
-                  <label className="prompt-studio-field">
                     Output preset
                     <select
                       value={comfyUiOutputPresetId}
@@ -9159,24 +9913,6 @@ export function EditorApp() {
                       outputNodeId={selectedWorkflowTemplate.output.nodeId}
                     />
                   ) : null}
-                  <label className="prompt-studio-field">
-                    Workflow API JSON path (legacy/advanced)
-                    <input
-                      disabled={imageProviderId !== "comfyui-local"}
-                      placeholder="Optional project-relative path, e.g. workflows/image_krea2_turbo_t2i.json"
-                      value={comfyUiWorkflowPath}
-                      onChange={(event) => setComfyUiWorkflowPath(event.target.value)}
-                    />
-                  </label>
-                  <label className="prompt-studio-field">
-                    Checkpoint filename / override
-                    <input
-                      disabled={imageProviderId !== "comfyui-local"}
-                      placeholder="Required without workflow path; optional override with workflow path"
-                      value={comfyUiCheckpoint}
-                      onChange={(event) => setComfyUiCheckpoint(event.target.value)}
-                    />
-                  </label>
                   <label className="prompt-studio-field">
                     Target
                     <select
@@ -9568,9 +10304,11 @@ export function EditorApp() {
                         {promptPackCandidate.promptPack.provenance.inputHash}
                       </p>
                     </div>
-                  </div>
-                ) : null}
+                    </div>
+                  ) : null}
               </section>
+                </div>
+              </details>
             </div>
           ) : workspace === "assets" ? (
             <div className="workspace-overview build-workspace asset-workspace">
@@ -13210,6 +13948,48 @@ export function EditorApp() {
       </div>
       </>
       )}
+      {promptProviderConfigOpen ? (
+        <PromptProviderConfigDialog
+          provider={promptProviderId}
+          values={{
+            lmStudioApiKey,
+            lmStudioBaseUrl,
+            lmStudioModel,
+            openAiApiKey,
+            openAiBaseUrl,
+            openAiModel,
+            remoteProviderConsent
+          }}
+          onApply={applyPromptProviderConfig}
+          onCancel={closePromptProviderConfig}
+        />
+      ) : null}
+      {imageProviderConfigOpen ? (
+        <ImageProviderConfigDialog
+          provider={imageProviderId}
+          values={{
+            comfyUiBaseUrl,
+            comfyUiCheckpoint,
+            comfyUiSeed,
+            comfyUiTimeoutMinutes,
+            comfyUiWorkflowPath,
+            googleImageAccessToken,
+            googleImageApiKey,
+            googleImageBaseUrl,
+            googleImageLocation,
+            googleImageModel,
+            googleImageProjectId,
+            googleImageProvider,
+            openAiImageApiKey,
+            openAiImageBaseUrl,
+            openAiImageMode,
+            openAiImageModel,
+            remoteProviderConsent
+          }}
+          onApply={applyImageProviderConfig}
+          onCancel={closeImageProviderConfig}
+        />
+      ) : null}
       {contextualGenerationModalOpen && freePromptTarget && promptPackScene ? (
         <div className="contextual-generation-backdrop" role="presentation">
           <section
@@ -13236,19 +14016,34 @@ export function EditorApp() {
               </button>
             </div>
             <div className="contextual-generation-body">
-              <label className="prompt-studio-field">
-                Provider
-                <select
-                  value={imageProviderId}
-                  onChange={(event) => setImageProviderId(event.target.value as ImageGenerationProviderId)}
-                >
-                  {imageProviderOptions.map((provider) => (
-                    <option key={`context-image-provider-${provider.value}`} value={provider.value}>
-                      {provider.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="prompt-studio-field provider-selector-field">
+                <span>Provider</span>
+                <div className="provider-selector-row">
+                  <select
+                    aria-label="Contextual image provider"
+                    value={imageProviderId}
+                    onChange={(event) => setImageProviderId(event.target.value as ImageGenerationProviderId)}
+                  >
+                    {imageProviderOptions.map((provider) => (
+                      <option key={`context-image-provider-${provider.value}`} value={provider.value}>
+                        {provider.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    ref={(element) => {
+                      imageProviderConfigReturnFocusRef.current = element;
+                    }}
+                    aria-label="Configure image provider"
+                    className="icon-action provider-settings-button"
+                    title="Configure image provider"
+                    type="button"
+                    onClick={(event) => openImageProviderConfig(event.currentTarget)}
+                  >
+                    <Settings2 size={iconSize} />
+                  </button>
+                </div>
+              </div>
               <label className="prompt-studio-field">
                 Art style
                 <select

@@ -1,10 +1,18 @@
-# Creator Alpha Release Notes
+# Creator Alpha v0.1.0 Release Notes
 
 Creator Alpha is the first public open-source release target for Point & Click
 Engine. It is a Windows-first technical alpha for contributors and early
 creators who are comfortable with local developer tools. The 0.1.x line keeps
 schema-v1 project compatibility; it is not a general web export, an SDK, or a
 promise of full puzzle AI.
+
+Release page: [GitHub `v0.1.0`](https://github.com/danieleforte92/PointAndClickEngine/releases/tag/v0.1.0).
+
+## Public Walkthrough
+
+- [Player showcase loop](assets/player-showcase-loop.png)
+- [AI Studio with Advanced and Candidate Output](assets/ai-studio-advanced.png)
+- [Asset Studio mock asset surface](assets/asset-studio.png)
 
 ## What To Try First
 
@@ -29,6 +37,8 @@ promise of full puzzle AI.
 - Public sample game, minimal starter project, and authoring docs.
 - Local-first AI workflows with mock prompt generation, LM Studio, experimental
   opt-in cloud providers, and ComfyUI image import.
+- Mock deterministic is the guaranteed offline path and requires no provider
+  account, key, model download, or network request.
 - Local deterministic narrative and puzzle suggestions that stay advisory;
   creators author the resulting Flow JSON and gameplay logic explicitly.
 - AI workflow documents for style bibles, workflow templates, generation
@@ -52,6 +62,8 @@ promise of full puzzle AI.
 ## Known Limitations
 
 - Windows is the primary packaged target.
+- The Windows x64 package is unsigned; no signing certificate or signing
+  evidence is configured for this Alpha.
 - Character Gym is an MVP editor workflow for spritesheet slicing, clip preview,
   pack editing, and player/actor assignment. Generated animation-sheet
   consistency still needs stronger presets.
@@ -74,11 +86,10 @@ Before tagging, run:
 ```powershell
 pnpm check
 pnpm audit --audit-level high
-pnpm check:release:candidate
 pnpm test:e2e
-pnpm validate:sample
-pnpm validate:starter
+pnpm check:release:candidate
 pnpm validate:provenance:strict
+pnpm verify:windows-package
 ```
 
 Also complete the manual smoke test in `docs/release-checklist.md`.

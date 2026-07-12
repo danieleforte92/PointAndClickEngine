@@ -24,20 +24,39 @@ apps/sample-game/project/prompt-packs/moonlit-dock-art.prompt-pack.json
 Open **AI Studio** in the editor.
 
 1. Choose a layered 2D scene.
-2. Write or revise the art brief.
-3. Choose a provider:
-   - **Mock deterministic** works offline and is the default open-source path.
-   - **OpenAI Responses API** uses an OpenAI API platform key or the
-     `OPENAI_API_KEY` environment variable.
-   - **LM Studio local** uses a local OpenAI-compatible server, typically
-     `http://localhost:1234/v1`.
+2. Write or revise the art brief and choose the Prompt Pack provider.
+   Use the gear beside the provider selector to configure credentials, model,
+   base URL, and remote-provider consent in a session-only modal.
+3. Choose an image provider in the Generate step when you want to create an
+   asset. The gear beside that selector opens the corresponding image-provider
+   configuration modal.
 4. Generate a candidate prompt pack.
 5. Review background, prop, character, animation, target, actor, and provenance
    sections.
 6. Save only when the candidate is approved.
 
+AI Studio keeps Brief, Targets, Generate, and Review in one central vertical
+scroll surface. Opening **Advanced** from Generate, Review, or the contextual
+summary opens the same workspace and moves Advanced into view automatically.
+The section remains keyboard reachable through its native disclosure control,
+shows a visible focus ring, and accepts mouse-wheel or touchpad scrolling.
+**Candidate Output** is part of the Advanced surface and can be reached without
+leaving the central panel.
+
+Available Prompt Pack providers:
+
+- **Mock deterministic** works offline and is the default open-source path.
+- **OpenAI Responses API** uses an OpenAI API platform key or the
+  `OPENAI_API_KEY` environment variable.
+- **LM Studio local** uses a local OpenAI-compatible server, typically
+  `http://localhost:1234/v1`.
+
 Generation does not mutate project files. The editor writes a prompt-pack JSON
 document only after **Save Approved Pack**.
+
+The mock provider is the guaranteed offline path for the public release: it uses
+no provider account, key, model download, network request, or absolute local
+path. LM Studio, ComfyUI, and cloud providers are optional integrations.
 
 AI Studio includes composable presets for visual style, mood, setting,
 palette, gameplay emphasis, output target, and negative prompt guidance. The

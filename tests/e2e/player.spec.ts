@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test";
 
-test("plays the light-verb inventory loop end to end", async ({ page }) => {
-  await page.goto("/");
+test("plays the showcase light-verb inventory loop end to end", async ({ page }) => {
+  await page.goto("/?mode=showcase");
 
   await expect(page.getByRole("heading", { name: "The Isle of Echoes" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Record the full point-and-click loop in one take." })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Guide" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Showcase" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "Capture" })).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator(".demo-progress strong")).toContainText("0/3");
   await expect(page.getByRole("region", { name: "Current story state" })).toContainText("Door inspected");
@@ -74,7 +74,7 @@ test("plays the light-verb inventory loop end to end", async ({ page }) => {
 
   await page.keyboard.press("c");
   await expect(page.getByRole("button", { name: "Capture" })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("button", { name: "Guide" })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByRole("button", { name: "Showcase" })).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByRole("region", { name: "Capture mode summary" })).toContainText("Loop progress 3/3");
   await expect(page.getByRole("region", { name: "Sample demo checklist" })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Current sample loop" })).toHaveCount(0);
@@ -93,15 +93,38 @@ test("keeps the player surface usable on a mobile viewport", async ({ page }) =>
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "The Isle of Echoes" })).toBeVisible();
   await expect(page.locator(".stage-host canvas")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("button", { name: "walk" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Inventory" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Sample demo checklist" })).toHaveCount(0);
 
+  const stage = page.locator(".stage-frame");
+  const canvas = page.locator(".stage-host canvas");
+  const stageBounds = await stage.boundingBox();
+  const canvasBounds = await canvas.boundingBox();
+  if (!stageBounds || !canvasBounds) throw new Error("Play surface has no layout bounds");
+  expect(canvasBounds.width).toBeLessThanOrEqual(stageBounds.width + 1);
+  expect(canvasBounds.height).toBeLessThanOrEqual(stageBounds.height + 1);
+  expect(canvasBounds.width).toBeGreaterThan(0);
+  expect(canvasBounds.height).toBeGreaterThan(0);
+  expect(canvasBounds.width / canvasBounds.height).toBeCloseTo(16 / 9, 1);
+  const canvasBuffer = await canvas.evaluate((node) => ({ width: node.width, height: node.height }));
+  expect(canvasBuffer.width).toBeLessThan(1280);
+  expect(canvasBuffer.height).toBeLessThan(720);
+
+  await page.goto("/?mode=showcase");
+  await expect(page.getByRole("button", { name: "Showcase" })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Capture" }).click();
   await expect(page.getByRole("button", { name: "Capture" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("region", { name: "Capture mode summary" })).toBeVisible();
 
   const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   expect(hasHorizontalOverflow).toBe(false);
+});
+
+test("keeps the legacy guide query as a showcase alias", async ({ page }) => {
+  await page.goto("/?mode=guide");
+
+  await expect(page.getByRole("button", { name: "Showcase" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("region", { name: "Sample demo checklist" })).toBeVisible();
 });
