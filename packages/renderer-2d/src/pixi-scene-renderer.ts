@@ -43,6 +43,8 @@ export class PixiSceneRenderer {
   private playerPosition: Vector2 = { x: 0, y: 0 };
   private pendingPlayerPosition: Vector2 = { x: 0, y: 0 };
   private mounted = false;
+  private initialized = false;
+  private destroyed = false;
   private host: HTMLElement | null = null;
   private viewportScale = { x: 1, y: 1 };
 
@@ -56,6 +58,7 @@ export class PixiSceneRenderer {
   }
 
   async mount(host: HTMLElement): Promise<void> {
+    if (this.destroyed) return;
     this.host = host;
     if (isHexColor(this.scene.background)) {
       host.style.background = this.scene.background;
@@ -78,10 +81,13 @@ export class PixiSceneRenderer {
       autoDensity: true,
       resolution: Math.min(window.devicePixelRatio, 2)
     });
+    this.initialized = true;
+    if (this.destroyed) {
+      this.disposeApplication();
+      return;
+    }
 
     this.app.canvas.className = "game-canvas";
-    host.replaceChildren(this.app.canvas);
-    this.resizeToHost(host);
     this.app.stage.sortableChildren = true;
 
     const walkSurface = new Graphics()
@@ -99,6 +105,10 @@ export class PixiSceneRenderer {
 
     for (const layer of [...(this.scene.layers ?? [])].sort((a, b) => a.depth - b.depth)) {
       const sprite = await this.createLayerSprite(layer);
+      if (this.destroyed) {
+        this.disposeApplication();
+        return;
+      }
       if (sprite) {
         this.app.stage.addChild(sprite);
       }
@@ -143,21 +153,40 @@ export class PixiSceneRenderer {
 
     for (const actor of this.scene.actors) {
       const target = await this.createActorTarget(actor);
+      if (this.destroyed) {
+        this.disposeApplication();
+        return;
+      }
       this.actorTargets.set(actor.id, target);
       this.app.stage.addChild(target);
     }
 
     for (const pickup of this.scene.pickups) {
       const target = await this.createPickupTarget(pickup);
+      if (this.destroyed) {
+        this.disposeApplication();
+        return;
+      }
       this.pickupTargets.set(pickup.id, target);
       this.app.stage.addChild(target);
     }
 
     await this.createPlayerVisual();
+    if (this.destroyed) {
+      this.disposeApplication();
+      return;
+    }
     this.player.zIndex = 50;
     this.playerPosition = { ...this.pendingPlayerPosition };
     this.applyPlayerTransform(this.pendingPlayerPosition);
     this.app.stage.addChild(this.player);
+
+    // Do not expose an interactive canvas until every hit target and the
+    // player visual have been installed. This also makes an interrupted
+    // StrictMode mount invisible instead of leaving a half-built renderer in
+    // the host while its async asset work is still running.
+    host.replaceChildren(this.app.canvas);
+    this.resizeToHost(host);
     this.mounted = true;
   }
 
@@ -186,7 +215,7 @@ export class PixiSceneRenderer {
   }
 
   resizeToHost(host = this.host): void {
-    if (!host || !this.app.canvas) return;
+    if (!host || !this.initialized || !this.app.canvas) return;
 
     const bounds = host.getBoundingClientRect();
     if (bounds.width <= 0 || bounds.height <= 0) return;
@@ -206,12 +235,18 @@ export class PixiSceneRenderer {
   }
 
   destroy(): void {
-    if (!this.mounted) return;
+    this.destroyed = true;
     if (this.playerAnimationFrame !== null) {
       cancelAnimationFrame(this.playerAnimationFrame);
       this.playerAnimationFrame = null;
     }
+    this.disposeApplication();
+  }
+
+  private disposeApplication(): void {
+    if (!this.initialized) return;
     this.app.destroy(true, { children: true });
+    this.initialized = false;
     this.mounted = false;
     this.host = null;
   }
