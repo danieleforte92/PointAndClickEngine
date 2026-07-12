@@ -5,15 +5,15 @@ adventures with Git-friendly project files, deterministic runtime state, and
 local-first AI asset workflows. Creator Alpha is a Windows-first technical
 alpha; it is not a generic web-export platform or a published SDK.
 
-![Creator Alpha Player showcase loop](docs/assets/player-showcase-loop.png)
+![Creator Alpha Player showcase loop](docs/assets/scene_editor.jpg)
 
 ## Creator Alpha Screenshots
 
 The public Creator Alpha path is visible in three focused surfaces:
 
-- **Player:** [complete deterministic sample loop](docs/assets/player-showcase-loop.png)
+- **Player:** [complete deterministic sample loop](docs/assets/player.jpg)
 - **AI Studio:** [Advanced open with Candidate Output reachable](docs/assets/ai-studio-advanced.png)
-- **Asset Studio:** [mock asset inspection and cleanup workspace](docs/assets/asset-studio.png)
+- **Asset Studio:** [mock asset inspection and cleanup workspace](docs/assets/asset-studio.jpg)
 
 Release page: [GitHub `v0.1.0`](https://github.com/danieleforte92/PointAndClickEngine/releases/tag/v0.1.0)
 for the Windows x64 package, checksums, release evidence, and source archive.
