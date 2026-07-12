@@ -1,5 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const chromiumLaunchOptions = process.env.CI
+  ? { args: ["--disable-gpu"] }
+  : undefined;
+
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: false,
@@ -9,7 +13,8 @@ export default defineConfig({
   use: {
     baseURL: "http://127.0.0.1:5173",
     trace: "retain-on-failure",
-    screenshot: "only-on-failure"
+    screenshot: "only-on-failure",
+    launchOptions: chromiumLaunchOptions
   },
   projects: [
     {
