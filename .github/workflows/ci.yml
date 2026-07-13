@@ -30,7 +30,7 @@ jobs:
         run: pnpm test
 
       - name: Coverage
-        run: pnpm test -- --coverage
+        run: pnpm run test -- --coverage
 
       - name: Typecheck
         run: pnpm typecheck
