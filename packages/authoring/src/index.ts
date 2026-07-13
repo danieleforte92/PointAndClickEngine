@@ -1,5 +1,7 @@
 import type { Layered2DScene, ProjectBundle } from "@pointclick/contracts";
 
+export * from "./flow-graph";
+
 export type AuthoringSuggestionKind = "narrative" | "puzzle";
 
 export interface AuthoringSuggestionContext {
