@@ -36,13 +36,15 @@ export function decide(state: WorldState, command: GameCommand): DomainEvent[] {
     case "verb/select":
       return state.activeVerb === command.verb ? [] : [{ type: "verb/selected", verb: command.verb }];
     case "inventory/select":
-      return state.selectedItemId === command.itemId
+      return !state.inventory.includes(command.itemId)
+        ? []
+        : state.selectedItemId === command.itemId
         ? [{ type: "inventory/selection-cleared" }]
         : [{ type: "inventory/item-selected", itemId: command.itemId }];
     case "inventory/clear-selection":
       return state.selectedItemId === null ? [] : [{ type: "inventory/selection-cleared" }];
     case "pickup/collect":
-      return state.collectedPickups.includes(command.pickupId) || state.inventory.includes(command.itemId)
+      return state.collectedPickups.includes(command.pickupId)
         ? []
         : [{ type: "pickup/collected", pickupId: command.pickupId, itemId: command.itemId }];
     case "character/walk":

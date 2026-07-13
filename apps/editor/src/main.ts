@@ -1,8 +1,7 @@
-import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { createServer, type Server } from "node:http";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import type {
   AssetDocument,
   AnimationPackDocument,
@@ -35,7 +34,6 @@ import { generateOpenAIPromptPack } from "./openai-prompt-provider";
 import { OpenAIImageProvider } from "./openai-image-provider";
 import { isTrustedEditorIpcSender } from "./ipc-security";
 import { assertProviderEndpointConsent } from "./provider-security";
-import type { EditorPreviewRequest } from "./preload";
 import { mockPromptPackProvider, type GeneratePromptPackRequest, type PromptProviderId } from "./prompt-pack-studio";
 import { createValidationReport } from "./validation-report";
 import { workflowPresetById } from "./workflow-presets";
@@ -52,18 +50,110 @@ import {
   validateProjectBundle,
   validateProjectFiles
 } from "@pointclick/project-io";
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell, type IpcMainInvokeEvent } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  nativeImage,
+  session,
+  type IpcMainInvokeEvent
+} from "electron";
+import { installPermissionDenyPolicy, installWindowSecurity } from "./security";
+import { LocalErrorLogger, installProcessErrorLogging } from "./error-logging";
+import { PreviewManager } from "./preview";
+import { registerEditorIpcHandlers } from "./ipc-registration";
 
 let editorWindow: BrowserWindow | null = null;
-let previewWindow: BrowserWindow | null = null;
-let playerServer: Server | null = null;
-let previewBundleServer: Server | null = null;
 let playerUrl = process.env.POINTCLICK_PLAYER_URL ?? "http://127.0.0.1:5173";
-let loadedProjectDirectory = starterProjectPath();
-const previewSessions = new Map<string, { bundle: ProjectBundle; projectDirectory: string }>();
+let loadedProjectDirectory = initialProjectPath();
+let localErrorLogger: LocalErrorLogger | null = null;
+
+const requestedUserDataDirectory = process.env.POINTCLICK_USER_DATA_DIR ?? argumentValue("--user-data-dir");
+if (requestedUserDataDirectory) {
+  app.setPath("userData", path.resolve(requestedUserDataDirectory));
+}
+
+function initialProjectPath(): string {
+  const projectArgument = argumentValue("--project");
+  return projectArgument && !projectArgument.startsWith("-")
+    ? path.resolve(projectArgument)
+    : starterProjectPath();
+}
+
+function argumentValue(argument: string): string | undefined {
+  const inlineArgument = process.argv.find((value) => value.startsWith(`${argument}=`));
+  if (inlineArgument) {
+    const inlineValue = inlineArgument.slice(argument.length + 1);
+    return inlineValue && !inlineValue.startsWith("-") ? inlineValue : undefined;
+  }
+  const argumentIndex = process.argv.indexOf(argument);
+  const value = argumentIndex >= 0 ? process.argv[argumentIndex + 1] : undefined;
+  return value && !value.startsWith("-") ? value : undefined;
+}
 
 function starterProjectPath(): string {
   return path.resolve(__dirname, "../../../starter-game/project");
+}
+
+function editorAllowedOrigins(): readonly string[] {
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    try {
+      return [new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL).origin];
+    } catch {
+      return [];
+    }
+  }
+  return ["file://"];
+}
+
+function attachWindowDiagnostics(window: BrowserWindow): void {
+  window.webContents.on("render-process-gone", (_event, details) => {
+    void localErrorLogger?.log({
+      at: new Date().toISOString(),
+      event: "renderer-process-gone",
+      level: "error",
+      details: {
+        reason: details.reason,
+        exitCode: details.exitCode
+      }
+    });
+  });
+  window.webContents.on("unresponsive", () => {
+    void localErrorLogger?.log({
+      at: new Date().toISOString(),
+      event: "renderer-unresponsive",
+      level: "warn"
+    });
+  });
+  window.webContents.on("did-finish-load", () => {
+    void localErrorLogger?.log({
+      at: new Date().toISOString(),
+      event: "renderer-finished-load",
+      level: "info",
+      details: { url: window.webContents.getURL() }
+    });
+  });
+  window.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
+    console.error("PointClick renderer failed to load", errorCode, errorDescription, validatedURL);
+    void localErrorLogger?.log({
+      at: new Date().toISOString(),
+      event: "renderer-load-failed",
+      level: "error",
+      details: { errorCode, errorDescription, validatedURL }
+    });
+  });
+  window.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    if (level >= 2) {
+      console.error("PointClick renderer console error", message, sourceId, line);
+    }
+    void localErrorLogger?.log({
+      at: new Date().toISOString(),
+      event: "renderer-console",
+      level: level >= 2 ? "error" : "warn",
+      details: { level, message, line, sourceId }
+    });
+  });
 }
 
 const mimeTypes: Record<string, string> = {
@@ -80,136 +170,13 @@ const mimeTypes: Record<string, string> = {
   ".webp": "image/webp"
 };
 
-function isPathInside(rootDirectory: string, candidatePath: string): boolean {
-  const relativePath = path.relative(path.resolve(rootDirectory), path.resolve(candidatePath));
-  return (
-    relativePath === "" ||
-    (!relativePath.startsWith(`..${path.sep}`) && relativePath !== ".." && !path.isAbsolute(relativePath))
-  );
-}
-
-async function startBundledPlayerServer(): Promise<string> {
-  const root = path.resolve(process.resourcesPath, "dist");
-  const indexPath = path.join(root, "index.html");
-
-  playerServer = createServer(async (request, response) => {
-    try {
-      const pathname = decodeURIComponent(new URL(request.url ?? "/", "http://localhost").pathname);
-      const candidate = path.resolve(root, `.${pathname}`);
-      const requestedPath = isPathInside(root, candidate) ? candidate : indexPath;
-      const filePath = (await stat(requestedPath)).isFile() ? requestedPath : indexPath;
-      response.writeHead(200, {
-        "Content-Type": mimeTypes[path.extname(filePath)] ?? "application/octet-stream",
-        "Cache-Control": filePath === indexPath ? "no-cache" : "public, max-age=31536000, immutable"
-      });
-      createReadStream(filePath).pipe(response);
-    } catch {
-      response.writeHead(404);
-      response.end("Not found");
-    }
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    playerServer?.once("error", reject);
-    playerServer?.listen(0, "127.0.0.1", resolve);
-  });
-
-  const address = playerServer.address();
-  if (!address || typeof address === "string") {
-    throw new Error("Unable to determine bundled player server address");
-  }
-  return `http://127.0.0.1:${address.port}`;
-}
-
-async function ensurePreviewBundleServer(): Promise<string> {
-  if (!previewBundleServer) {
-    previewBundleServer = createServer(async (request, response) => {
-      response.setHeader("Access-Control-Allow-Origin", "*");
-      response.setHeader("Cache-Control", "no-store");
-
-      if (request.method === "OPTIONS") {
-        response.writeHead(204, {
-          "Access-Control-Allow-Headers": "content-type",
-          "Access-Control-Allow-Methods": "GET, OPTIONS"
-        });
-        response.end();
-        return;
-      }
-
-      const pathname = decodeURIComponent(new URL(request.url ?? "/", "http://localhost").pathname);
-      const segments = pathname.split("/").filter(Boolean);
-      const token = segments[1];
-      const previewSession = token ? previewSessions.get(token) : null;
-      if (!token || !previewSession) {
-        response.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
-        response.end(JSON.stringify({ error: "Preview bundle not found" }));
-        return;
-      }
-
-      if (segments[0] === "preview") {
-        response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-        response.end(JSON.stringify(previewSession.bundle));
-        return;
-      }
-
-      if (segments[0] === "asset") {
-        const relativeAssetPath = segments.slice(2).join("/");
-        let candidate: string;
-        try {
-          candidate = safeProjectPath(previewSession.projectDirectory, relativeAssetPath, "Preview asset path");
-        } catch {
-          response.writeHead(404);
-          response.end("Not found");
-          return;
-        }
-
-        try {
-          const fileStat = await stat(candidate);
-          if (!fileStat.isFile()) {
-            response.writeHead(404);
-            response.end("Not found");
-            return;
-          }
-          response.writeHead(200, {
-            "Content-Type": mimeTypes[path.extname(candidate)] ?? "application/octet-stream"
-          });
-          createReadStream(candidate).pipe(response);
-          return;
-        } catch {
-          response.writeHead(404);
-          response.end("Not found");
-          return;
-        }
-      }
-
-      response.writeHead(404);
-      response.end("Not found");
-    });
-
-    await new Promise<void>((resolve, reject) => {
-      previewBundleServer?.once("error", reject);
-      previewBundleServer?.listen(0, "127.0.0.1", resolve);
-    });
-  }
-
-  const address = previewBundleServer.address();
-  if (!address || typeof address === "string") {
-    throw new Error("Unable to determine preview bundle server address");
-  }
-  return `http://127.0.0.1:${address.port}`;
-}
-
-function registerPreviewBundle(bundle: ProjectBundle, projectDirectory: string): string {
-  const token = randomUUID();
-  previewSessions.set(token, { bundle, projectDirectory });
-
-  if (previewSessions.size > 8) {
-    const oldestToken = previewSessions.keys().next().value;
-    if (oldestToken) previewSessions.delete(oldestToken);
-  }
-
-  return token;
-}
+const previewManager = new PreviewManager({
+  attachDiagnostics: (window) => attachWindowDiagnostics(window),
+  getPlayerUrl: () => playerUrl,
+  getProjectDirectory: () => currentProjectPath(),
+  mimeTypes,
+  resourcesPath: process.resourcesPath
+});
 
 function createEditorWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -228,14 +195,19 @@ function createEditorWindow(): BrowserWindow {
   });
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    void window.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
+    void window.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL).catch((error: unknown) => {
+      console.error("PointClick editor load failed", error);
+    });
   } else {
-    void window.loadFile(
-      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`)
-    );
+    const indexPath = path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`);
+    void window.loadURL(pathToFileURL(indexPath).toString()).catch((error: unknown) => {
+      console.error("PointClick editor load failed", error);
+    });
   }
 
   editorWindow = window;
+  installWindowSecurity(window, editorAllowedOrigins);
+  attachWindowDiagnostics(window);
   window.on("closed", () => {
     if (editorWindow === window) editorWindow = null;
   });
@@ -255,69 +227,6 @@ function handleTrustedIpc<Args extends unknown[], Result>(
   handler: (window: BrowserWindow, ...args: Args) => Result | Promise<Result>
 ): void {
   ipcMain.handle(channel, (event, ...args: Args) => handler(requireTrustedEditorWindow(event), ...args));
-}
-
-async function buildPreviewUrl(request?: EditorPreviewRequest): Promise<string> {
-  const url = new URL(playerUrl);
-  url.searchParams.set("host", "electron");
-  if (request?.sceneId) {
-    url.searchParams.set("scene", request.sceneId);
-  }
-
-  if (request?.bundle) {
-    const diagnostics = validateProjectBundle(request.bundle).filter(
-      (diagnostic) => diagnostic.severity === "error"
-    );
-    if (diagnostics.length > 0) {
-      const summary = diagnostics
-        .slice(0, 5)
-        .map((diagnostic) => diagnostic.message)
-        .join(" ");
-      throw new Error(`Preview blocked by project errors. ${summary}`);
-    }
-
-    const serverUrl = await ensurePreviewBundleServer();
-    const token = registerPreviewBundle(request.bundle, currentProjectPath());
-    url.searchParams.set("bundleUrl", `${serverUrl}/preview/${token}`);
-    url.searchParams.set("assetBaseUrl", `${serverUrl}/asset/${token}/`);
-  }
-
-  return url.toString();
-}
-
-async function openPreview(request?: EditorPreviewRequest): Promise<void> {
-  const previewUrl = await buildPreviewUrl(request);
-
-  if (previewWindow && !previewWindow.isDestroyed()) {
-    void previewWindow.loadURL(previewUrl);
-    previewWindow.show();
-    previewWindow.focus();
-    return;
-  }
-
-  previewWindow = new BrowserWindow({
-    width: 1280,
-    height: 820,
-    minWidth: 800,
-    minHeight: 520,
-    backgroundColor: "#071019",
-    title: "Point & Click Preview",
-    autoHideMenuBar: true,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true
-    }
-  });
-  previewWindow.on("closed", () => {
-    previewWindow = null;
-  });
-  void previewWindow.loadURL(previewUrl);
-}
-
-async function openPreviewInBrowser(request?: EditorPreviewRequest): Promise<void> {
-  const previewUrl = await buildPreviewUrl(request);
-  await shell.openExternal(previewUrl);
 }
 
 async function resolveProjectAssetUrl(assetPath: string): Promise<string> {
@@ -1027,71 +936,53 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
   };
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  const logDirectories = [
+    path.join(app.getPath("userData"), "logs"),
+    path.join(app.getPath("temp"), "pointclick-logs")
+  ];
+  for (const directory of logDirectories) {
+    const candidate = new LocalErrorLogger(directory);
+    try {
+      await candidate.initialize();
+      localErrorLogger = candidate;
+      installProcessErrorLogging(candidate);
+      break;
+    } catch {
+      localErrorLogger = null;
+    }
+  }
+  installPermissionDenyPolicy(session.defaultSession);
+
   if (app.isPackaged) {
-    return startBundledPlayerServer();
+    return previewManager.startBundledPlayerServer();
   }
   return playerUrl;
 }).then((resolvedPlayerUrl) => {
   playerUrl = resolvedPlayerUrl;
-  handleTrustedIpc("preview:open", async (_window, request?: EditorPreviewRequest) => openPreview(request));
-  handleTrustedIpc("preview:browser", async (_window, request?: EditorPreviewRequest) => {
-    await openPreviewInBrowser(request);
-  });
-  handleTrustedIpc("project:load", async (_window, projectDirectory?: string) => {
-    return readEditorProject(projectDirectory);
-  });
-  handleTrustedIpc("project:pick", async (window) => {
-    return promptForProjectDirectory(window);
-  });
-  handleTrustedIpc("project:create-blank", async (window) => {
-    return createBlankEditorProject(window);
-  });
-  handleTrustedIpc("project:create-from-starter", async (window) => {
-    return createEditorProjectFromStarter(window);
-  });
-  handleTrustedIpc("project:import-assets", async (window) => {
-    return importProjectAssets(window);
-  });
-  handleTrustedIpc("project:import-asset-files", async (_window, filePaths: unknown) => {
-    return importProjectAssetFiles(filePaths);
-  });
-  handleTrustedIpc(
-    "project:save-processed-image-asset",
-    async (_window, request: unknown) => {
-      return saveProcessedImageAsset(request);
-    }
-  );
-  handleTrustedIpc("ai:prompt-pack", async (_window, request: Parameters<typeof generatePromptPack>[0]) => {
-    return generatePromptPack(request);
-  });
-  handleTrustedIpc("ai:authoring-suggestions", async (_window, request?: { sceneId?: string }) => {
-    const loaded = await loadProjectFromDirectory(currentProjectPath());
-    return mockAuthoringProvider.suggest({ bundle: loaded.bundle, ...(request?.sceneId ? { sceneId: request.sceneId } : {}) });
-  });
-  handleTrustedIpc("ai:image-asset", async (_window, request: GenerateImageAssetRequest) => {
-    return generateImageAsset(request);
-  });
-  handleTrustedIpc("workflow-preset:install", async (_window, presetId: string) => {
-    return installWorkflowPreset(presetId);
-  });
-  handleTrustedIpc("project:command", async (_window, command: EditorProjectCommand) => {
-    return applyEditorCommand(command);
-  });
-  handleTrustedIpc("project:validate", async () => {
-    return runEditorValidation();
-  });
-  handleTrustedIpc("project:asset-url", async (_window, assetPath: string) => {
-    return resolveProjectAssetUrl(assetPath);
-  });
-  handleTrustedIpc("recovery:load", async (_window, projectDirectory: string) => {
-    return loadRecoverySnapshot(projectDirectory);
-  });
-  handleTrustedIpc("recovery:save", async (_window, snapshot: EditorRecoverySnapshot) => {
-    await saveRecoverySnapshot(snapshot);
-  });
-  handleTrustedIpc("recovery:clear", async (_window, projectDirectory: string) => {
-    await clearRecoverySnapshot(projectDirectory);
+  registerEditorIpcHandlers(handleTrustedIpc, {
+    openPreview: (request) => previewManager.open(request),
+    openPreviewInBrowser: (request) => previewManager.openInBrowser(request),
+    loadProject: (projectDirectory) => readEditorProject(projectDirectory),
+    pickProject: (window) => promptForProjectDirectory(window),
+    createBlankProject: (window) => createBlankEditorProject(window),
+    createProjectFromStarter: (window) => createEditorProjectFromStarter(window),
+    importAssets: (window) => importProjectAssets(window),
+    importAssetFiles: (filePaths) => importProjectAssetFiles(filePaths),
+    saveProcessedImageAsset: (request) => saveProcessedImageAsset(request),
+    promptPack: (request) => generatePromptPack(request as Parameters<typeof generatePromptPack>[0]),
+    authoringSuggestions: async (request) => {
+      const loaded = await loadProjectFromDirectory(currentProjectPath());
+      return mockAuthoringProvider.suggest({ bundle: loaded.bundle, ...(request?.sceneId ? { sceneId: request.sceneId } : {}) });
+    },
+    imageAsset: (request) => generateImageAsset(request as GenerateImageAssetRequest),
+    installWorkflowPreset: (presetId) => installWorkflowPreset(presetId),
+    applyProjectCommand: (command) => applyEditorCommand(command as EditorProjectCommand),
+    validateProject: () => runEditorValidation(),
+    resolveAssetUrl: (assetPath) => resolveProjectAssetUrl(assetPath),
+    loadRecovery: (projectDirectory) => loadRecoverySnapshot(projectDirectory),
+    saveRecovery: (snapshot) => saveRecoverySnapshot(snapshot as EditorRecoverySnapshot),
+    clearRecovery: (projectDirectory) => clearRecoverySnapshot(projectDirectory)
   });
 
   createEditorWindow();
@@ -1099,6 +990,10 @@ app.whenReady().then(() => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createEditorWindow();
   });
+}).catch((error: unknown) => {
+  console.error("PointClick Studio failed during startup", error);
+  void localErrorLogger?.logError("startup-failure", error);
+  app.quit();
 });
 
 app.on("window-all-closed", () => {
@@ -1106,9 +1001,5 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
-  playerServer?.close();
-  playerServer = null;
-  previewBundleServer?.close();
-  previewBundleServer = null;
-  previewSessions.clear();
+  previewManager.close();
 });

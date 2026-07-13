@@ -1,6 +1,6 @@
 {
   "name": "point-and-click-engine",
-  "version": "0.1.0",
+  "version": "0.1.1-alpha.1",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -22,6 +22,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:packaged": "node scripts/test-packaged.mjs",
     "typecheck": "pnpm -r --if-present typecheck",
     "build": "pnpm -r --if-present build",
     "validate:sample": "tsx packages/cli/src/index.ts validate apps/sample-game/project",
@@ -44,6 +45,7 @@
     "concurrently": "^9.2.0",
     "tsx": "^4.20.0",
     "typescript": "^5.8.3",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.7",
+    "@vitest/coverage-v8": "^3.2.4"
   }
 }

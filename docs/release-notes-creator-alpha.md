@@ -1,19 +1,19 @@
-# Creator Alpha v0.1.0 Release Notes
+# Creator Alpha v0.1.1-alpha.1 Release Notes
 
-Creator Alpha is the first public open-source release target for Point & Click
+Creator Alpha v0.1.1-alpha.1 is the stabilization prerelease for Point & Click
 Engine. It is a Windows-first technical alpha for contributors and early
 creators who are comfortable with local developer tools. The 0.1.x line keeps
 schema-v1 project compatibility; it is not a general web export, an SDK, or a
 promise of full puzzle AI.
 
-Release page: [GitHub `v0.1.0`](https://github.com/danieleforte92/PointAndClickEngine/releases/tag/v0.1.0).
+Release page: publish this candidate as GitHub prerelease tag `v0.1.1-alpha.1`.
 
 ## Public Walkthrough
 
-- [Scene editor](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.1.0/docs/assets/scene_editor.jpg)
-- [Player showcase loop](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.1.0/docs/assets/player.jpg)
-- [AI Studio with Advanced and Candidate Output](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.1.0/docs/assets/ai-studio-advanced.png)
-- [Asset Studio mock asset surface](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.1.0/docs/assets/asset_studio.jpg)
+- [Scene editor](docs/assets/scene_editor.jpg)
+- [Player showcase loop](docs/assets/player.jpg)
+- [AI Studio with Advanced and Candidate Output](docs/assets/ai-studio-advanced.png)
+- [Asset Studio mock asset surface](docs/assets/asset_studio.jpg)
 
 ## What To Try First
 

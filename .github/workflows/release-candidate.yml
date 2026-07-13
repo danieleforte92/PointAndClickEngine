@@ -15,7 +15,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout candidate
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           ref: ${{ inputs.ref }}
 
@@ -23,7 +23,7 @@ jobs:
         run: corepack enable
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22.17.0"
           cache: pnpm
@@ -53,6 +53,17 @@ jobs:
       - name: Smoke-check package contents
         run: pnpm verify:windows-package
 
+      - name: Launch packaged Windows smoke test
+        run: pnpm test:e2e:packaged
+
+      - name: Upload packaged diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: packaged-e2e-diagnostics
+          path: test-results/packaged/
+          if-no-files-found: ignore
+
       - name: Archive Windows x64 package
         shell: pwsh
         run: |
@@ -77,11 +88,15 @@ jobs:
         run: node scripts/validate-provenance.mjs --strict --format=json > release-artifacts/provenance-release-gate.json
 
       - name: Record release evidence
+        env:
+          RELEASE_PACKAGED_PREVIEW: passed
+          RELEASE_PACKAGED_PREVIEW_EVIDENCE: test-results/packaged/
+          RELEASE_SIGNING_STATUS: unsigned-beta
         run: node scripts/release-record.mjs --output release-artifacts/release-evidence.json --checksums release-artifacts/SHA256SUMS.txt
 
       - name: Upload unsigned candidate artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows-creator-alpha-candidate
           path: |

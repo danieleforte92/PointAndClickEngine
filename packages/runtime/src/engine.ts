@@ -95,6 +95,10 @@ export class AdventureEngine {
       return this.frame([], null, `Missing item "${itemId}".`);
     }
 
+    if (!this.world.inventory.includes(itemId)) {
+      return this.frame([], null, `Item "${this.itemLabel(itemId)}" is not in the inventory.`);
+    }
+
     const events = this.dispatch({ type: "inventory/select", itemId });
     return this.frame(events, null, null);
   }

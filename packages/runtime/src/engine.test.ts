@@ -129,6 +129,13 @@ function testBundle(): ProjectBundle {
             interactSpot: { x: 30, y: 100 },
             itemId: "brass-key",
             labelKey: "pickup.brass-key"
+          },
+          {
+            bounds: { x: 60, y: 80, width: 20, height: 20 },
+            id: "key-pickup-second",
+            interactSpot: { x: 70, y: 100 },
+            itemId: "brass-key",
+            labelKey: "pickup.brass-key"
           }
         ],
         playerStart: { x: 10, y: 100 },
@@ -192,5 +199,31 @@ describe("AdventureEngine interactions", () => {
     engine.interactPickup("key-pickup");
 
     expect(engine.visibleActors().map((actor) => actor.id)).toEqual(["radio", "locked-panel"]);
+  });
+
+  it("does not select an item that has not been collected", () => {
+    const engine = new AdventureEngine(testBundle());
+    engine.start();
+
+    const frame = engine.toggleSelectedItem("brass-key");
+
+    expect(frame.events).toEqual([]);
+    expect(frame.state.selectedItemId).toBeNull();
+    expect(frame.feedback).toContain("not in the inventory");
+  });
+
+  it("marks a second pickup as collected when its unique item is already owned", () => {
+    const engine = new AdventureEngine(testBundle());
+    engine.start();
+    engine.selectVerb("use");
+
+    const first = engine.interactPickup("key-pickup");
+    const second = engine.interactPickup("key-pickup-second");
+
+    expect(first.state.inventory).toEqual(["brass-key"]);
+    expect(first.state.collectedPickups).toEqual(["key-pickup"]);
+    expect(second.events.map((event) => event.type)).toContain("pickup/collected");
+    expect(second.state.inventory).toEqual(["brass-key"]);
+    expect(second.state.collectedPickups).toEqual(["key-pickup", "key-pickup-second"]);
   });
 });
