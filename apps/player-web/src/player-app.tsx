@@ -28,11 +28,15 @@ export type PlayerPresentation = {
   showSurfaceToggle: boolean;
 };
 
+const isDevelopmentBuild = Boolean(
+  (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV,
+);
+
 function presentationFor(mode: PlayerSurfaceMode): PlayerPresentation {
   return {
     mode,
     showDemoGuide: mode === "showcase",
-    showDiagnostics: import.meta.env.DEV && mode !== "play",
+    showDiagnostics: isDevelopmentBuild && mode !== "play",
     showHeader: mode !== "play",
     showSurfaceToggle: mode !== "play"
   };
