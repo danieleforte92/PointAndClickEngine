@@ -1,14 +1,15 @@
 # Creator Alpha Release Tracking Issue
 
-Use this as the body for the GitHub tracking issue before tagging `v0.1.0`.
+Use this as the body for the GitHub tracking issue before tagging
+`v0.4.0-alpha.1`.
 
 ## Goal
 
-Ship the first public Windows-first technical alpha of Point & Click Engine: a
-local-first, Git-friendly 2D point-and-click editor/runtime that a technical
-creator can clone, run, inspect, modify, validate, and package without paid
-provider keys. The 0.1.x line keeps schema-v1 compatibility; generic web
-export, SDK publishing, and a full puzzle-AI promise are out of scope.
+Ship the v0.4.0 distribution and accessibility alpha of Point & Click Engine:
+a local-first, Git-friendly 2D point-and-click editor/runtime that a creator
+can clone, run, inspect, modify, validate, migrate, export, and package without
+paid provider keys. Static web export is in scope; hosted web delivery, SDK
+publishing, and a full puzzle-AI promise remain out of scope.
 
 ## Exit Criteria
 
@@ -25,6 +26,13 @@ export, SDK publishing, and a full puzzle-AI promise are out of scope.
 - `apps/starter-game/project` validates as the minimal clean gameplay project
   with curated ComfyUI workflow preset fixtures.
 - `apps/sample-game/project` validates as the public demo project.
+- v1 migration dry-run, backup, staging, and rollback are covered by fixtures.
+- Save slots, autosave, checkpoints, and browser/Electron storage adapters are
+  covered by runtime tests.
+- Flow diagnostics, puzzle dependencies, static web export, and accessibility
+  smoke checks are covered by the candidate validation record.
+- `pnpm --filter @pointclick/editor make` produces and verifies the portable
+  ZIP and Squirrel installer outputs.
 - The packaged Windows editor opens and previews the sample without the Vite dev
   server.
 - README, roadmap, release notes, troubleshooting, AI guide, Character Gym guide,
@@ -64,6 +72,11 @@ smoke notes.
 - [ ] Browser preview opened.
 - [ ] Packaged editor preview opened.
 - [ ] Keyboard, narrow-viewport, and preview-reopen reliability smoke completed.
+- [ ] Migration dry-run, backup, and rollback smoke completed.
+- [ ] Save slots, autosave, checkpoint, and storage-adapter smoke completed.
+- [ ] Flow diagnostics and puzzle dependency smoke completed.
+- [ ] Static web export opened without the development server.
+- [ ] Portable ZIP and Squirrel installer outputs reviewed.
 - [ ] Strict provenance gate passed with evidence; no review-required release input remains.
 - [ ] Candidate checksum and release-evidence artifacts reviewed.
 
@@ -80,8 +93,8 @@ smoke notes.
   inputs.
 - OpenAI support requires API platform billing; ChatGPT subscriptions do not
   cover API calls.
-- Hosted demo, public website, web export, and SDK publishing are later
-  milestones.
+- Hosted demo, public website, and SDK publishing are later milestones; static
+  web export is included in v0.4.0-alpha.1.
 - Cloud providers are experimental and opt-in; no provider account is required
   for the local-first authoring loop.
 
@@ -89,6 +102,8 @@ smoke notes.
 
 - Source archive from GitHub release.
 - Windows packaged editor from `apps/editor/out/PointClickStudio-win32-x64/`.
+- Portable ZIP, Squirrel `Setup.exe`, `RELEASES`, and full `.nupkg` installer
+  outputs from the Electron Forge make step.
 - Screenshot or GIF from `docs/assets`.
 - `docs/assets/scene_editor.jpg` — Scene editor authoring surface.
 - `docs/assets/player.jpg` — completed Player loop.

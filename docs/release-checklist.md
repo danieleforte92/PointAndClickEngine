@@ -1,8 +1,8 @@
-# Creator Alpha v0.1.1-alpha.1 Release Checklist
+# Creator Alpha v0.4.0-alpha.1 Release Checklist
 
 Use this checklist before tagging a public GitHub release.
 
-The target tag is `v0.1.1-alpha.1`. The Windows x64 package is intentionally unsigned;
+The target tag is `v0.4.0-alpha.1`. The Windows x64 package is intentionally unsigned;
 do not record signing as passed unless a separate authorized signing decision
 and evidence exist.
 
@@ -21,6 +21,8 @@ pnpm check:release:candidate
 pnpm test:e2e
 pnpm validate:provenance:strict
 pnpm verify:windows-package
+pnpm --filter @pointclick/editor make
+pnpm test:e2e:packaged
 ```
 
 Expected result:
@@ -108,6 +110,22 @@ release decision. The required stabilization controls are:
 17. In **Build**, run validation.
 18. Use **Play from here** and **Browser** preview.
 
+## v0.4 Alpha Smoke
+
+In addition to the editor smoke above, record these distribution and runtime
+checks for the v0.4 alpha candidate:
+
+1. Run migration dry-run, backup, and rollback against a v1 fixture.
+2. Create and restore a manual save, autosave, and checkpoint in the sample.
+3. Validate browser storage and Electron storage adapters.
+4. Inspect Flow graph diagnostics and puzzle dependency output.
+5. Export the sample to a static web build and open the output without the
+   development server.
+6. Verify keyboard focus, captions, reduced motion, contrast-oriented controls,
+   and the 390px-wide player layout.
+7. Run `pnpm --filter @pointclick/editor make` and verify the portable ZIP,
+   Squirrel `RELEASES`, `Setup.exe`, and full `.nupkg` output.
+
 For provider smoke tests:
 
 - Keep LM Studio and ComfyUI bound to localhost.
@@ -142,7 +160,7 @@ server.
 Generate the candidate evidence after the package exists:
 
 ```powershell
-node scripts/create-checksums.mjs apps/editor/out release-artifacts/SHA256SUMS.txt release-artifacts/PointClickStudio-v0.1.1-alpha.1-win32-x64.zip
+node scripts/create-checksums.mjs apps/editor/out release-artifacts/SHA256SUMS.txt release-artifacts/PointClickStudio-v0.4.0-alpha.1-win32-x64.zip
 node scripts/release-record.mjs --output release-artifacts/release-evidence.json --checksums release-artifacts/SHA256SUMS.txt
 ```
 
@@ -197,5 +215,6 @@ Include:
   image loader nodes; the built-in text-to-image path ignores image inputs.
 - OpenAI integration requires API platform access; ChatGPT subscriptions do not
   cover API calls.
-- The Windows x64 package is unsigned in Creator Alpha v0.1.1-alpha.1.
-- Flow graph editing, hosted demo, and public website are later milestones.
+- The Windows x64 package is unsigned in Creator Alpha v0.4.0-alpha.1.
+- Full flow graph authoring, hosted demo, and public website are later
+  milestones; static web export is included in this candidate.

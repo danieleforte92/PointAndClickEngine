@@ -230,6 +230,7 @@ function formatEvent(
       return `pickup collected: ${localize(bundle, item?.labelKey ?? "", item?.name ?? event.itemId)}`;
     }
     case "character/moved":
+    case "movement/completed":
       return `character moved: ${Math.round(event.x)}, ${Math.round(event.y)}`;
     case "scene/changed":
       return `scene changed: ${bundle.scenes[event.sceneId]?.name ?? event.sceneId}`;

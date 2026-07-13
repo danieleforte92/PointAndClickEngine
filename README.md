@@ -2,8 +2,9 @@
 
 Open-source TypeScript engine and editor for building 2D point-and-click
 adventures with Git-friendly project files, deterministic runtime state, and
-local-first AI asset workflows. Creator Alpha is a Windows-first technical
-alpha; it is not a generic web-export platform or a published SDK.
+local-first AI asset workflows. Creator Alpha `v0.4.0-alpha.1` is a
+Windows-first distribution and accessibility alpha. Static web export is
+available; a hosted web demo and published SDK are not part of this candidate.
 
 ![Creator Alpha scene editor](docs/assets/scene_editor.jpg)
 
@@ -15,8 +16,9 @@ The public Creator Alpha path is visible in three focused surfaces:
 - **AI Studio:** [Advanced open with Candidate Output reachable](docs/assets/ai-studio-advanced.png)
 - **Asset Studio:** [mock asset inspection and cleanup workspace](docs/assets/asset_studio.jpg)
 
-Release page: [GitHub `v0.1.0`](https://github.com/danieleforte92/PointAndClickEngine/releases/tag/v0.1.0)
-for the Windows x64 package, checksums, release evidence, and source archive.
+Release page: [GitHub `v0.4.0-alpha.1`](https://github.com/danieleforte92/PointAndClickEngine/releases/tag/v0.4.0-alpha.1)
+for the Windows x64 package, Squirrel installer, checksums, release evidence,
+and source archive.
 
 ## What You Can Try Today
 
@@ -28,6 +30,13 @@ for the Windows x64 package, checksums, release evidence, and source archive.
   generation guides, and animation packs.
 - Configure player asset, animation pack, scale-by-depth, and walk speed.
 - Run the sample adventure in the web player or editor preview.
+- Test waypoint movement, pending interactions, save slots, autosave, and
+  browser/Electron persistence in the runtime.
+- Migrate a v1 project with `pointclick migrate`, including dry-run and backup
+  mode, then inspect Flow graph diagnostics and puzzle dependencies.
+- Export a project as a static web build and open the generated output locally.
+- Exercise keyboard focus, captions, reduced motion, and narrow browser layouts
+  in the player.
 - Generate prompt packs with the deterministic mock provider, LM Studio, or an
   experimental opt-in cloud provider.
 - Ask the local deterministic copilot for reviewable narrative and puzzle beats;
@@ -141,12 +150,16 @@ Useful focused commands:
 
 ```powershell
 pnpm test
+pnpm test -- --coverage
 pnpm test:e2e
+pnpm test:e2e:packaged
 pnpm validate:sample
 pnpm validate:starter
 pnpm validate:provenance
 pnpm validate:provenance:strict
 pnpm build
+pnpm verify:windows-package
+pnpm --filter @pointclick/editor make
 ```
 
 The packaged Windows editor is written to:
@@ -187,9 +200,10 @@ packages/cli           Project validation commands
   intentionally ignores image inputs.
 - Hosted web demo and marketing site are not required for the first public
   release.
-- Generic web export, SDK publishing, and a full autonomous puzzle-AI system are outside
-  Creator Alpha. Cloud AI providers are experimental, optional, and must never
-  be required to use the editor.
+- Hosted web demo, marketing site, SDK publishing, and a full autonomous
+  puzzle-AI system are outside Creator Alpha. Static web export is available.
+  Cloud AI providers are experimental, optional, and must never be required to
+  use the editor.
 
 ## Docs
 

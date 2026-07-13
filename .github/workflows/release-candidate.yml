@@ -34,6 +34,7 @@ jobs:
       - name: Validate candidate
         run: |
           pnpm test
+          pnpm test -- --coverage
           pnpm typecheck
           pnpm validate:sample
           pnpm validate:starter
@@ -59,6 +60,9 @@ jobs:
 
       - name: Build Windows editor package
         run: pnpm --filter @pointclick/editor build
+
+      - name: Build Windows distribution artifacts
+        run: pnpm --filter @pointclick/editor make
 
       - name: Smoke-check package contents
         run: pnpm verify:windows-package
@@ -101,7 +105,7 @@ jobs:
         env:
           RELEASE_PACKAGED_PREVIEW: passed
           RELEASE_PACKAGED_PREVIEW_EVIDENCE: test-results/packaged/
-          RELEASE_SIGNING_STATUS: unsigned-beta
+          RELEASE_SIGNING_STATUS: unsigned-alpha
         run: node scripts/release-record.mjs --output release-artifacts/release-evidence.json --checksums release-artifacts/SHA256SUMS.txt
 
       - name: Upload unsigned candidate artifacts
