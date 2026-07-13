@@ -8,6 +8,7 @@ export type GameCommand =
   | { type: "inventory/clear-selection" }
   | { type: "pickup/collect"; pickupId: string; itemId: string }
   | { type: "character/walk"; x: number; y: number }
+  | { type: "movement/complete"; x: number; y: number }
   | { type: "scene/change"; sceneId: string; player: { x: number; y: number } }
   | { type: "actor/interact"; actorId: string; verb: Verb; itemId: string | null }
   | { type: "hotspot/interact"; hotspotId: string; verb: Verb; itemId: string | null }
@@ -22,6 +23,7 @@ export type DomainEvent =
   | { type: "inventory/selection-cleared" }
   | { type: "pickup/collected"; pickupId: string; itemId: string }
   | { type: "character/moved"; x: number; y: number }
+  | { type: "movement/completed"; x: number; y: number }
   | { type: "scene/changed"; sceneId: string; player: { x: number; y: number } }
   | { type: "actor/interacted"; actorId: string; verb: Verb; itemId: string | null }
   | { type: "hotspot/interacted"; hotspotId: string; verb: Verb; itemId: string | null }
@@ -49,6 +51,8 @@ export function decide(state: WorldState, command: GameCommand): DomainEvent[] {
         : [{ type: "pickup/collected", pickupId: command.pickupId, itemId: command.itemId }];
     case "character/walk":
       return [{ type: "character/moved", x: command.x, y: command.y }];
+    case "movement/complete":
+      return [{ type: "movement/completed", x: command.x, y: command.y }];
     case "scene/change":
       return state.sceneId === command.sceneId &&
         state.player.x === command.player.x &&
@@ -109,6 +113,8 @@ export function applyEvent(state: WorldState, event: DomainEvent): WorldState {
         sequence
       };
     case "character/moved":
+      return { ...state, player: { x: event.x, y: event.y }, sequence };
+    case "movement/completed":
       return { ...state, player: { x: event.x, y: event.y }, sequence };
     case "scene/changed":
       return { ...state, sceneId: event.sceneId, player: { ...event.player }, sequence };

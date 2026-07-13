@@ -866,6 +866,86 @@ export const ProjectChangeRecordSchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const SaveSlotIdSchema = Type.Union([
+  Type.Literal("manual-1"),
+  Type.Literal("manual-2"),
+  Type.Literal("manual-3"),
+  Type.Literal("autosave")
+]);
+
+export const SaveStateSnapshotSchema = Type.Object(
+  {
+    started: Type.Boolean(),
+    sceneId: Id,
+    player: Vector2Schema,
+    flags: Type.Record(Type.String(), FlagValueSchema),
+    activeVerb: VerbSchema,
+    inventory: Type.Array(Id),
+    selectedItemId: Type.Union([Id, Type.Null()]),
+    collectedPickups: Type.Array(Id),
+    activeFlowId: Type.Union([Id, Type.Null()]),
+    sequence: Type.Integer({ minimum: 0 })
+  },
+  { additionalProperties: false }
+);
+
+export const SaveFlowSessionSchema = Type.Object(
+  {
+    flowId: Id,
+    currentNodeId: Id,
+    done: Type.Boolean()
+  },
+  { additionalProperties: false }
+);
+
+export const SaveDocumentSchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    slot: SaveSlotIdSchema,
+    projectFingerprint: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+    locale: Type.String({ minLength: 2 }),
+    createdAt: Type.String({ format: "date-time" }),
+    updatedAt: Type.String({ format: "date-time" }),
+    checkpoint: Type.Object(
+      {
+        kind: Type.Literal("stable"),
+        worldState: Type.Unknown(),
+        flowSession: Type.Union([Type.Unknown(), Type.Null()]),
+        eventLog: Type.Array(Type.Unknown())
+      },
+      { additionalProperties: false }
+    ),
+    checksum: Type.String({ pattern: "^[a-f0-9]{64}$" })
+  },
+  { additionalProperties: false }
+);
+
+export const MovementStatusSchema = Type.Union([
+  Type.Literal("idle"),
+  Type.Literal("walking"),
+  Type.Literal("completed")
+]);
+
+export const PathProgressSchema = Type.Object(
+  {
+    status: MovementStatusSchema,
+    sceneId: Id,
+    waypoints: Type.Array(Vector2Schema),
+    waypointIndex: Type.Integer({ minimum: 0 }),
+    ratio: Type.Number({ minimum: 0, maximum: 1 })
+  },
+  { additionalProperties: false }
+);
+
+export const RuntimeLocaleSchema = Type.Object(
+  {
+    requested: Type.String({ minLength: 2 }),
+    active: Type.String({ minLength: 2 }),
+    fallback: Type.String({ minLength: 1 })
+  },
+  { additionalProperties: false }
+);
+
 export type Vector2 = Static<typeof Vector2Schema>;
 export type Rect = Static<typeof RectSchema>;
 export type Polygon2 = Static<typeof Polygon2Schema>;
@@ -918,6 +998,13 @@ export type ProjectChangeScope = Static<typeof ProjectChangeScopeSchema>;
 export type ProjectChangeSource = Static<typeof ProjectChangeSourceSchema>;
 export type ProjectChangeDocument = Static<typeof ProjectChangeDocumentSchema>;
 export type ProjectChangeRecord = Static<typeof ProjectChangeRecordSchema>;
+export type SaveSlotId = Static<typeof SaveSlotIdSchema>;
+export type SaveStateSnapshot = Static<typeof SaveStateSnapshotSchema>;
+export type SaveFlowSession = Static<typeof SaveFlowSessionSchema>;
+export type SaveDocument = Static<typeof SaveDocumentSchema>;
+export type MovementStatus = Static<typeof MovementStatusSchema>;
+export type PathProgress = Static<typeof PathProgressSchema>;
+export type RuntimeLocale = Static<typeof RuntimeLocaleSchema>;
 
 export interface ProjectBundle {
   manifest: ProjectManifest;

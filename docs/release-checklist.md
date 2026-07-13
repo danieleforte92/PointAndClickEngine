@@ -55,6 +55,26 @@ Notes:
   metadata uses the release version while remaining private. Run it after the
   build; ignored package output does not invalidate the clean-source check.
 
+## CI and Automation Controls
+
+Review the GitHub Actions run for the exact candidate commit before recording a
+release decision. The required stabilization controls are:
+
+- Windows quality runs unit tests, threshold-enforced coverage, typecheck,
+  fixture validation, release hygiene, package verification, and packaged smoke.
+- Ubuntu quality runs the same unit-test and coverage gate, typecheck, fixture
+  validation, and the web-player build.
+- The browser smoke job and packaged smoke job retain their Playwright/CDP
+  diagnostics when they fail; review those artifacts instead of dismissing a
+  failed check as an environment-only issue.
+- CodeQL is green for the candidate commit, and the dependency-security job
+  passes the high-severity audit.
+- Dependabot is enabled for both npm dependencies and GitHub Actions on a
+  weekly schedule.
+- Every `uses:` entry under `.github/workflows/` points to a full 40-character
+  commit SHA. The repository-controls CI job enforces this rule for future
+  changes.
+
 ## Manual Smoke Test
 
 1. Start the editor:

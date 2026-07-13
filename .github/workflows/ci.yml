@@ -7,7 +7,46 @@ on:
       - develop
       - master
 
+permissions:
+  contents: read
+
 jobs:
+  repository-controls:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Verify immutable GitHub Action pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          invalid_pins=()
+          while IFS= read -r line; do
+            reference="${line##*@}"
+            reference="${reference%%[[:space:]]*}"
+            if [[ ! "$reference" =~ ^[0-9a-fA-F]{40}$ ]]; then
+              invalid_pins+=("$line")
+            fi
+          done < <(grep -R -n -E '^[[:space:]]*uses:' .github/workflows || true)
+
+          if (( ${#invalid_pins[@]} > 0 )); then
+            printf 'Every workflow action must use a full 40-character commit SHA:\n'
+            printf ' - %s\n' "${invalid_pins[@]}"
+            exit 1
+          fi
+
+      - name: Verify dependency update automation
+        shell: bash
+        run: |
+          set -euo pipefail
+          config=.github/dependabot.yml
+          test -f "$config"
+          grep -qE 'package-ecosystem:[[:space:]]*npm' "$config"
+          grep -qE 'package-ecosystem:[[:space:]]*github-actions' "$config"
+          weekly_schedules="$(grep -cE 'interval:[[:space:]]*weekly' "$config" || true)"
+          test "$weekly_schedules" -ge 2
+
   quality:
     runs-on: windows-latest
     steps:
@@ -60,6 +99,14 @@ jobs:
         with:
           name: packaged-e2e-diagnostics
           path: test-results/packaged/
+          if-no-files-found: ignore
+
+      - name: Upload Windows coverage diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-windows
+          path: coverage/
           if-no-files-found: ignore
 
   e2e:
@@ -117,6 +164,9 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      - name: Coverage
+        run: pnpm run test -- --coverage
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -127,6 +177,16 @@ jobs:
 
       - name: Build web player
         run: pnpm --filter @pointclick/player-web build
+
+      - name: Upload Ubuntu quality diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: quality-ubuntu-diagnostics
+          path: |
+            coverage/
+            test-results/
+          if-no-files-found: ignore
 
   dependency-security:
     runs-on: ubuntu-latest

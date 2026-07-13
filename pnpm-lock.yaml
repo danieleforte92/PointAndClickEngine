@@ -257,12 +257,26 @@ importers:
       '@pointclick/flows':
         specifier: workspace:*
         version: link:../flows
+      '@pointclick/save':
+        specifier: workspace:*
+        version: link:../save
     devDependencies:
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
 
+  packages/save: {}
+
   packages/ui-theme: {}
+
+  packages/web-export:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.2
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
 
 packages:
 

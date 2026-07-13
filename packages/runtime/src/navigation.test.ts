@@ -3,6 +3,7 @@ import type { Polygon2 } from "@pointclick/contracts";
 import {
   closestPointOnPolygon,
   createNavigationGrid,
+  NavigationGridCache,
   findPath,
   isDegeneratePolygon,
   nearestWalkableCell,
@@ -88,5 +89,52 @@ describe("navigation pathfinding", () => {
     expect(resolution?.goal.x).toBe(80);
     expect(resolution?.goal.y).toBe(470);
     expect(resolution?.path.length).toBeGreaterThan(0);
+  });
+
+  it("rejects diagonal corner cutting", () => {
+    const grid = {
+      cellSize: 1,
+      height: 2,
+      origin: { x: 0, y: 0 },
+      walkable: [true, false, false, true],
+      width: 2
+    };
+
+    expect(findPath(grid, { x: 0, y: 0 }, { x: 1, y: 1 })).toBeNull();
+  });
+
+  it("caches grids by scene and invalidates changed inputs", () => {
+    const cache = new NavigationGridCache();
+    const first = cache.get("dock", dockPolygon, 24);
+    const second = cache.get("dock", dockPolygon, 24);
+
+    expect(second).toBe(first);
+    expect(cache.buildCount).toBe(1);
+
+    const differentCellSize = cache.get("dock", dockPolygon, 20);
+    expect(differentCellSize).not.toBe(first);
+    expect(cache.buildCount).toBe(2);
+
+    const changedWalkArea = {
+      points: dockPolygon.points.map((point, index) => ({
+        x: point.x + (index === 0 ? 1 : 0),
+        y: point.y
+      }))
+    };
+    const changedAreaGrid = cache.get("dock", changedWalkArea, 20);
+    expect(changedAreaGrid).not.toBe(differentCellSize);
+    expect(cache.buildCount).toBe(3);
+
+    cache.invalidate("dock");
+    cache.get("dock", dockPolygon, 20);
+    expect(cache.buildCount).toBe(4);
+  });
+
+  it("returns deterministic waypoints ending at the resolved goal", () => {
+    const first = resolveWalkTarget(dockPolygon, { x: 510, y: 590 }, { x: 20, y: 390 }, 24);
+    const second = resolveWalkTarget(dockPolygon, { x: 510, y: 590 }, { x: 20, y: 390 }, 24);
+
+    expect(first?.waypoints).toEqual(second?.waypoints);
+    expect(first?.waypoints.at(-1)).toEqual(first?.goal);
   });
 });

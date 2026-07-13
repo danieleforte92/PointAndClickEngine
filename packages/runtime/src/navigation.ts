@@ -13,14 +13,40 @@ export interface GridCell {
   y: number;
 }
 
+export interface MovementPlan {
+  goal: Vector2;
+  nextWaypointIndex: number;
+  path: GridCell[];
+  position: Vector2;
+  sceneId: string;
+  start: Vector2;
+  waypoints: Vector2[];
+}
+
+export interface PathProgress {
+  /** Public presentation status; movement is never part of WorldState. */
+  status: "walking";
+  sceneId: string;
+  waypointIndex: number;
+  ratio: number;
+  completedWaypoints: number;
+  currentWaypointIndex: number | null;
+  goal: Vector2;
+  path: GridCell[];
+  position: Vector2;
+  totalWaypoints: number;
+  waypoints: Vector2[];
+}
+
 export interface NavigationResolution {
   goal: Vector2;
   goalCell: GridCell;
   path: GridCell[];
   startCell: GridCell;
+  waypoints: Vector2[];
 }
 
-const defaultCellSize = 24;
+export const DEFAULT_NAVIGATION_CELL_SIZE = 24;
 const epsilon = 1e-6;
 const neighborOffsets: ReadonlyArray<GridCell> = [
   { x: 1, y: 0 },
@@ -60,6 +86,67 @@ function inBounds(grid: NavigationGrid, cell: GridCell): boolean {
 
 function isWalkable(grid: NavigationGrid, cell: GridCell): boolean {
   return inBounds(grid, cell) && grid.walkable[cellIndex(grid, cell)] === true;
+}
+
+function isValidCellSize(cellSize: number): boolean {
+  return Number.isFinite(cellSize) && cellSize > 0;
+}
+
+function navigationGridSignature(polygon: Polygon2, cellSize: number): string {
+  return JSON.stringify([
+    cellSize,
+    polygon.points.map((point) => [point.x, point.y])
+  ]);
+}
+
+export class NavigationGridCache {
+  private readonly entries = new Map<
+    string,
+    { grid: NavigationGrid | null; signature: string }
+  >();
+
+  private builds = 0;
+
+  get(sceneId: string, polygon: Polygon2, cellSize = DEFAULT_NAVIGATION_CELL_SIZE): NavigationGrid | null {
+    const signature = navigationGridSignature(polygon, cellSize);
+    const cached = this.entries.get(sceneId);
+    if (cached?.signature === signature) {
+      return cached.grid;
+    }
+
+    const grid = createNavigationGrid(polygon, cellSize);
+    this.entries.set(sceneId, { grid, signature });
+    this.builds += 1;
+    return grid;
+  }
+
+  invalidate(sceneId?: string): void {
+    if (sceneId === undefined) {
+      this.entries.clear();
+      return;
+    }
+    this.entries.delete(sceneId);
+  }
+
+  clear(): void {
+    this.entries.clear();
+  }
+
+  has(sceneId: string): boolean {
+    return this.entries.has(sceneId);
+  }
+
+  get size(): number {
+    return this.entries.size;
+  }
+
+  get buildCount(): number {
+    return this.builds;
+  }
+}
+
+export function createNavigationGridCache(): NavigationGridCache {
+  return new NavigationGridCache();
 }
 
 export function polygonBounds(polygon: Polygon2) {
@@ -150,9 +237,9 @@ export function closestPointOnPolygon(point: Vector2, polygon: Polygon2): Vector
 
 export function createNavigationGrid(
   polygon: Polygon2,
-  cellSize = defaultCellSize
+  cellSize = DEFAULT_NAVIGATION_CELL_SIZE
 ): NavigationGrid | null {
-  if (isDegeneratePolygon(polygon)) return null;
+  if (isDegeneratePolygon(polygon) || !isValidCellSize(cellSize)) return null;
 
   const bounds = polygonBounds(polygon);
   const width = Math.max(1, Math.floor((bounds.maxX - bounds.minX) / cellSize) + 1);
@@ -210,6 +297,18 @@ function heuristic(left: GridCell, right: GridCell): number {
   return diagonal * Math.SQRT2 + straight;
 }
 
+function canTraverse(grid: NavigationGrid, current: GridCell, offset: GridCell): boolean {
+  const neighbor = { x: current.x + offset.x, y: current.y + offset.y };
+  if (!isWalkable(grid, neighbor)) return false;
+
+  if (offset.x === 0 || offset.y === 0) return true;
+
+  return (
+    isWalkable(grid, { x: current.x + offset.x, y: current.y }) &&
+    isWalkable(grid, { x: current.x, y: current.y + offset.y })
+  );
+}
+
 export function findPath(grid: NavigationGrid, start: GridCell, goal: GridCell): GridCell[] | null {
   if (!isWalkable(grid, start) || !isWalkable(grid, goal)) return null;
 
@@ -246,7 +345,7 @@ export function findPath(grid: NavigationGrid, start: GridCell, goal: GridCell):
 
     for (const offset of neighborOffsets) {
       const neighbor = { x: current.x + offset.x, y: current.y + offset.y };
-      if (!isWalkable(grid, neighbor)) continue;
+      if (!canTraverse(grid, current, offset)) continue;
 
       const neighborIndex = cellIndex(grid, neighbor);
       const tentative = (gScore.get(currentIndex) ?? Number.POSITIVE_INFINITY) + movementCost(offset);
@@ -268,16 +367,23 @@ export function findPath(grid: NavigationGrid, start: GridCell, goal: GridCell):
   return null;
 }
 
-export function resolveWalkTarget(
+function pathWaypoints(grid: NavigationGrid, path: readonly GridCell[], goal: Vector2): Vector2[] {
+  const waypoints = path.slice(1).map((cell) => cellCenter(grid, cell));
+  if (waypoints.length === 0) {
+    return [{ ...goal }];
+  }
+
+  waypoints[waypoints.length - 1] = { ...goal };
+  return waypoints;
+}
+
+export function resolveWalkTargetOnGrid(
+  grid: NavigationGrid,
   polygon: Polygon2,
   start: Vector2,
-  target: Vector2,
-  cellSize = defaultCellSize
+  target: Vector2
 ): NavigationResolution | null {
-  const grid = createNavigationGrid(polygon, cellSize);
-  if (!grid) return null;
-
-  const goal = pointInPolygon(target, polygon) ? target : closestPointOnPolygon(target, polygon);
+  const goal = pointInPolygon(target, polygon) ? { ...target } : closestPointOnPolygon(target, polygon);
   const startCell = nearestWalkableCell(grid, start);
   const goalCell = nearestWalkableCell(grid, goal);
   if (!startCell || !goalCell) return null;
@@ -289,6 +395,18 @@ export function resolveWalkTarget(
     goal,
     goalCell,
     path,
-    startCell
+    startCell,
+    waypoints: pathWaypoints(grid, path, goal)
   };
+}
+
+export function resolveWalkTarget(
+  polygon: Polygon2,
+  start: Vector2,
+  target: Vector2,
+  cellSize = DEFAULT_NAVIGATION_CELL_SIZE
+): NavigationResolution | null {
+  const grid = createNavigationGrid(polygon, cellSize);
+  if (!grid) return null;
+  return resolveWalkTargetOnGrid(grid, polygon, start, target);
 }

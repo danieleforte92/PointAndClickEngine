@@ -1,5 +1,5 @@
 {
-  "name": "@pointclick/runtime",
+  "name": "@pointclick/web-export",
   "version": "0.1.1-alpha.1",
   "private": true,
   "type": "module",
@@ -9,13 +9,8 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
   },
-  "dependencies": {
-    "@pointclick/contracts": "workspace:*",
-    "@pointclick/core": "workspace:*",
-    "@pointclick/flows": "workspace:*",
-    "@pointclick/save": "workspace:*"
-  },
   "devDependencies": {
+    "@types/node": "^24.0.0",
     "typescript": "^5.8.3"
   }
 }

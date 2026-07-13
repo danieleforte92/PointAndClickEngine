@@ -12,6 +12,21 @@ describe("deterministic command/event core", () => {
     expect(events.reduce(applyEvent, initial).sequence).toBe(2);
   });
 
+  it("records movement completion as a stable player transition", () => {
+    const initial = createInitialState("dock", { x: 10, y: 20 });
+    const result = executeCommand(initial, {
+      type: "movement/complete",
+      x: 90,
+      y: 120
+    });
+
+    expect(result.events).toEqual([
+      { type: "movement/completed", x: 90, y: 120 }
+    ]);
+    expect(result.state.player).toEqual({ x: 90, y: 120 });
+    expect(replay(initial, result.events)).toEqual(result.state);
+  });
+
   it("does not emit duplicate idempotent state changes", () => {
     const initial = createInitialState("dock", { x: 0, y: 0 });
     const first = executeCommand(initial, { type: "flag/set", key: "door.open", value: true });

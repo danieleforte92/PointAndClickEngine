@@ -335,8 +335,40 @@ export function PlayerApp() {
     if (!host || !bundle || !engine || !scene || !rendererReady) return;
 
     let disposed = false;
+    let movementAnimationFrame: number | null = null;
     const activeBundle = bundle;
     const activeEngine = engine;
+    const publishFrame = (nextFrame: RuntimeFrame) => {
+      frameRef.current = nextFrame;
+      rendererRef.current?.renderPlayer(
+        nextFrame.pathProgress?.position ?? nextFrame.state.player,
+      );
+      rendererRef.current?.renderCollectedPickups(
+        nextFrame.state.collectedPickups,
+      );
+      rendererRef.current?.renderVisibleActors(
+        activeEngine.visibleActors().map((actor) => actor.id),
+      );
+      setFrame(nextFrame);
+    };
+    const publishAndAnimate = (initialFrame: RuntimeFrame) => {
+      if (movementAnimationFrame !== null) {
+        cancelAnimationFrame(movementAnimationFrame);
+        movementAnimationFrame = null;
+      }
+      publishFrame(initialFrame);
+      if (!activeEngine.isMoving) return;
+
+      const advance = () => {
+        movementAnimationFrame = null;
+        if (disposed || !activeEngine.isMoving) return;
+        publishFrame(activeEngine.tickMovement(4));
+        if (activeEngine.isMoving) {
+          movementAnimationFrame = requestAnimationFrame(advance);
+        }
+      };
+      movementAnimationFrame = requestAnimationFrame(advance);
+    };
     const renderer = new PixiSceneRenderer(
       scene,
       {
@@ -351,35 +383,19 @@ export function PlayerApp() {
                   ...activeEngine.selectVerb("walk"),
                   feedback: "Switched to Walk.",
                 };
-          frameRef.current = nextFrame;
-          renderer.renderPlayer(nextFrame.state.player);
-          renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
-          renderer.renderVisibleActors(activeEngine.visibleActors().map((actor) => actor.id));
-          setFrame(nextFrame);
+          publishAndAnimate(nextFrame);
         },
         onActor: (actorId) => {
           const nextFrame = activeEngine.interactActor(actorId);
-          frameRef.current = nextFrame;
-          renderer.renderPlayer(nextFrame.state.player);
-          renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
-          renderer.renderVisibleActors(activeEngine.visibleActors().map((actor) => actor.id));
-          setFrame(nextFrame);
+          publishAndAnimate(nextFrame);
         },
         onHotspot: (hotspotId) => {
           const nextFrame = activeEngine.interactHotspot(hotspotId);
-          frameRef.current = nextFrame;
-          renderer.renderPlayer(nextFrame.state.player);
-          renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
-          renderer.renderVisibleActors(activeEngine.visibleActors().map((actor) => actor.id));
-          setFrame(nextFrame);
+          publishAndAnimate(nextFrame);
         },
         onPickup: (pickupId) => {
           const nextFrame = activeEngine.interactPickup(pickupId);
-          frameRef.current = nextFrame;
-          renderer.renderPlayer(nextFrame.state.player);
-          renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
-          renderer.renderVisibleActors(activeEngine.visibleActors().map((actor) => actor.id));
-          setFrame(nextFrame);
+          publishAndAnimate(nextFrame);
         },
       },
       {
@@ -408,6 +424,9 @@ export function PlayerApp() {
 
     return () => {
       disposed = true;
+      if (movementAnimationFrame !== null) {
+        cancelAnimationFrame(movementAnimationFrame);
+      }
       resizeObserver?.disconnect();
       renderer.destroy();
       rendererRef.current = null;

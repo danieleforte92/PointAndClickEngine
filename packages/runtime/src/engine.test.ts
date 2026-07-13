@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FlowDocument, ProjectBundle } from "@pointclick/contracts";
+import { MemorySaveStorage } from "@pointclick/save";
 import { AdventureEngine } from "./engine";
 
 function lineFlow(id: string, textKey: string): FlowDocument {
@@ -157,16 +158,22 @@ function testBundle(): ProjectBundle {
 }
 
 describe("AdventureEngine interactions", () => {
-  it("moves to hotspot interaction spots before resolving actions", () => {
+  it("keeps hotspot interactions pending until movement completes", () => {
     const engine = new AdventureEngine(testBundle());
     engine.start();
     engine.selectVerb("look");
 
-    const frame = engine.interactHotspot("door");
+    const pending = engine.interactHotspot("door");
+
+    expect(pending.state.player).toEqual({ x: 10, y: 100 });
+    expect(pending.events).toEqual([]);
+    expect(pending.pathProgress).not.toBeNull();
+
+    const frame = engine.completeMovement();
 
     expect(frame.state.player).toEqual({ x: 100, y: 100 });
     expect(frame.events.map((event) => event.type)).toEqual([
-      "character/moved",
+      "movement/completed",
       "hotspot/interacted",
       "flow/started"
     ]);
@@ -178,11 +185,14 @@ describe("AdventureEngine interactions", () => {
     engine.start();
     engine.selectVerb("look");
 
-    const frame = engine.interactActor("radio");
+    const pending = engine.interactActor("radio");
+    expect(pending.events).toEqual([]);
+
+    const frame = engine.completeMovement();
 
     expect(frame.state.player).toEqual({ x: 50, y: 100 });
     expect(frame.events.map((event) => event.type)).toEqual([
-      "character/moved",
+      "movement/completed",
       "actor/interacted",
       "flow/started"
     ]);
@@ -197,6 +207,7 @@ describe("AdventureEngine interactions", () => {
 
     engine.selectVerb("use");
     engine.interactPickup("key-pickup");
+    engine.completeMovement();
 
     expect(engine.visibleActors().map((actor) => actor.id)).toEqual(["radio", "locked-panel"]);
   });
@@ -218,12 +229,48 @@ describe("AdventureEngine interactions", () => {
     engine.selectVerb("use");
 
     const first = engine.interactPickup("key-pickup");
+    const firstCompleted = engine.completeMovement();
     const second = engine.interactPickup("key-pickup-second");
+    const secondCompleted = engine.completeMovement();
 
-    expect(first.state.inventory).toEqual(["brass-key"]);
-    expect(first.state.collectedPickups).toEqual(["key-pickup"]);
-    expect(second.events.map((event) => event.type)).toContain("pickup/collected");
-    expect(second.state.inventory).toEqual(["brass-key"]);
-    expect(second.state.collectedPickups).toEqual(["key-pickup", "key-pickup-second"]);
+    expect(first.events).toEqual([]);
+    expect(firstCompleted.state.inventory).toEqual(["brass-key"]);
+    expect(firstCompleted.state.collectedPickups).toEqual(["key-pickup"]);
+    expect(second.events).toEqual([]);
+    expect(secondCompleted.events.map((event) => event.type)).toContain("pickup/collected");
+    expect(secondCompleted.state.inventory).toEqual(["brass-key"]);
+    expect(secondCompleted.state.collectedPickups).toEqual(["key-pickup", "key-pickup-second"]);
+  });
+
+  it("exposes locale fallback and restores only stable gameplay state", async () => {
+    const fingerprint = "a".repeat(64);
+    const engine = new AdventureEngine(testBundle(), "it-IT");
+    engine.start();
+    engine.selectVerb("look");
+
+    const pending = engine.interactHotspot("door");
+    expect(pending.pathProgress?.status).toBe("walking");
+    expect(() => engine.createSaveDocument("manual-1", fingerprint)).toThrow(
+      /movement has completed/
+    );
+
+    engine.completeMovement();
+    expect(engine.localeInfo).toEqual({
+      requested: "it-IT",
+      active: "en",
+      fallback: "engine"
+    });
+    engine.setLocale("en-US");
+    expect(engine.activeLocale).toBe("en");
+
+    const storage = new MemorySaveStorage();
+    const saved = await engine.save(storage, "manual-1", fingerprint);
+    const restored = new AdventureEngine(testBundle());
+    await restored.restore(storage, "manual-1", fingerprint);
+
+    expect(saved.checkpoint.kind).toBe("stable");
+    expect(restored.state).toEqual(engine.state);
+    expect(restored.isMoving).toBe(false);
+    expect(restored.locale).toBe("en");
   });
 });
