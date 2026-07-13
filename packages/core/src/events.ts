@@ -6,6 +6,8 @@ export type GameCommand =
   | { type: "verb/select"; verb: Verb }
   | { type: "inventory/select"; itemId: string }
   | { type: "inventory/clear-selection" }
+  | { type: "inventory/add"; itemId: string }
+  | { type: "inventory/remove"; itemId: string }
   | { type: "pickup/collect"; pickupId: string; itemId: string }
   | { type: "character/walk"; x: number; y: number }
   | { type: "movement/complete"; x: number; y: number }
@@ -21,6 +23,8 @@ export type DomainEvent =
   | { type: "verb/selected"; verb: Verb }
   | { type: "inventory/item-selected"; itemId: string }
   | { type: "inventory/selection-cleared" }
+  | { type: "inventory/item-added"; itemId: string }
+  | { type: "inventory/item-removed"; itemId: string }
   | { type: "pickup/collected"; pickupId: string; itemId: string }
   | { type: "character/moved"; x: number; y: number }
   | { type: "movement/completed"; x: number; y: number }
@@ -45,6 +49,14 @@ export function decide(state: WorldState, command: GameCommand): DomainEvent[] {
         : [{ type: "inventory/item-selected", itemId: command.itemId }];
     case "inventory/clear-selection":
       return state.selectedItemId === null ? [] : [{ type: "inventory/selection-cleared" }];
+    case "inventory/add":
+      return state.inventory.includes(command.itemId)
+        ? []
+        : [{ type: "inventory/item-added", itemId: command.itemId }];
+    case "inventory/remove":
+      return !state.inventory.includes(command.itemId)
+        ? []
+        : [{ type: "inventory/item-removed", itemId: command.itemId }];
     case "pickup/collect":
       return state.collectedPickups.includes(command.pickupId)
         ? []
@@ -103,6 +115,21 @@ export function applyEvent(state: WorldState, event: DomainEvent): WorldState {
       return { ...state, selectedItemId: event.itemId, sequence };
     case "inventory/selection-cleared":
       return { ...state, selectedItemId: null, sequence };
+    case "inventory/item-added":
+      return {
+        ...state,
+        inventory: state.inventory.includes(event.itemId)
+          ? state.inventory
+          : [...state.inventory, event.itemId],
+        sequence
+      };
+    case "inventory/item-removed":
+      return {
+        ...state,
+        inventory: state.inventory.filter((itemId) => itemId !== event.itemId),
+        selectedItemId: state.selectedItemId === event.itemId ? null : state.selectedItemId,
+        sequence
+      };
     case "pickup/collected":
       return {
         ...state,

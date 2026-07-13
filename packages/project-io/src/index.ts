@@ -862,6 +862,16 @@ export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[
           )
         );
       }
+      if (node.type === "sub-flow" && !bundle.flows[node.flowId]) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "flow.sub-flow-missing-flow",
+            `Flow "${flow.id}" enters missing sub-flow "${node.flowId}".`,
+            { documentId: flow.id, path: `flows/${flow.id}/nodes/${node.id}/flowId` }
+          )
+        );
+      }
       if (node.type !== "line" || !defaultLocale) continue;
       if (!(node.textKey in defaultLocale.strings)) {
         diagnostics.push(
@@ -870,6 +880,28 @@ export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[
             "locale.missing-flow-text",
             `Missing localized string "${node.textKey}" in default locale.`,
             { documentId: flow.id, path: `flows/${flow.id}/nodes/${node.id}/textKey` }
+          )
+        );
+      }
+    }
+    for (const trigger of flow.sceneEntryTriggers ?? []) {
+      if (!bundle.scenes[trigger.sceneId]) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "flow.scene-entry-missing-scene",
+            `Flow "${flow.id}" has a scene-entry trigger for missing scene "${trigger.sceneId}".`,
+            { documentId: flow.id, path: `flows/${flow.id}/sceneEntryTriggers/${trigger.sceneId}` }
+          )
+        );
+      }
+      if (!bundle.flows[trigger.flowId]) {
+        diagnostics.push(
+          createDiagnostic(
+            "error",
+            "flow.scene-entry-missing-flow",
+            `Scene-entry trigger references missing flow "${trigger.flowId}".`,
+            { documentId: flow.id, path: `flows/${flow.id}/sceneEntryTriggers/${trigger.sceneId}` }
           )
         );
       }
@@ -2460,6 +2492,22 @@ function validateFlowReferences(flow: FlowDocument): void {
       hasEnd = true;
       continue;
     }
+    if (node.type === "choice") {
+      for (const choice of node.choices) {
+        if (!seen.has(choice.next)) {
+          throw new Error(
+            `Flow "${flow.id}" choice "${node.id}/${choice.id}" points to missing next "${choice.next}"`
+          );
+        }
+      }
+      continue;
+    }
+    if (node.type === "condition") {
+      if (!seen.has(node.ifTrue) || !seen.has(node.ifFalse)) {
+        throw new Error(`Flow "${flow.id}" condition node "${node.id}" points to a missing branch`);
+      }
+      continue;
+    }
     if (!seen.has(node.next)) {
       throw new Error(`Flow "${flow.id}" node "${node.id}" points to missing next "${node.next}"`);
     }
@@ -3455,3 +3503,5 @@ export async function applyProjectCommand(
   }
   return after;
 }
+
+export * from "./migration";

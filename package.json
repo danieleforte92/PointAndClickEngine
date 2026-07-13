@@ -30,6 +30,7 @@
     "history": "tsx packages/cli/src/index.ts history",
     "project:diff": "tsx packages/cli/src/index.ts diff",
     "project:impact": "tsx packages/cli/src/index.ts impact",
+    "export:web": "tsx packages/cli/src/index.ts export web",
     "validate:provenance": "node scripts/validate-provenance.mjs",
     "validate:provenance:strict": "node scripts/validate-provenance.mjs --strict",
     "check:release": "node scripts/check-release.mjs && node scripts/validate-provenance.mjs",

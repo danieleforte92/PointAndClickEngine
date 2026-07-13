@@ -1,5 +1,6 @@
 import type {
   ConditionExpression,
+  FlowChoice,
   FlowDocument,
   Hotspot,
   HotspotActions,
@@ -20,8 +21,10 @@ import {
 } from "@pointclick/core";
 import {
   advanceFlow,
+  chooseFlowChoice,
   createFlowSession,
   type DialogueLine,
+  type FlowMachineOptions,
   type FlowSession
 } from "@pointclick/flows";
 import {
@@ -47,6 +50,14 @@ export interface RuntimeFrame {
   dialogue: (DialogueLine & { text: string }) | null;
   feedback: string | null;
   pathProgress: PathProgress | null;
+  promptKey: string | null;
+  choices: FlowChoice[];
+  presentationCues: Array<{
+    type: "camera-shake" | "fade" | "sound" | "emote";
+    key?: string;
+    value?: string;
+  }>;
+  waitUntil: number | null;
 }
 
 type PendingInteraction =
@@ -146,7 +157,8 @@ export class AdventureEngine {
 
   start(): RuntimeFrame {
     const events = this.dispatch({ type: "game/start" });
-    return this.frame(events, null, null);
+    this.beginSceneEntryFlow(this.world.sceneId, events);
+    return this.flowSession ? this.advanceActiveFlow(events) : this.frame(events, null, null);
   }
 
   walkTo(x: number, y: number): RuntimeFrame {
@@ -369,13 +381,35 @@ export class AdventureEngine {
     return this.advanceActiveFlow([]);
   }
 
+  chooseDialogue(choiceId: string): RuntimeFrame {
+    if (!this.flowSession) {
+      return this.frame([], null, "No dialogue choice is active.");
+    }
+    const flow = this.flow(this.flowSession.flowId);
+    const step = chooseFlowChoice(
+      flow,
+      this.flowSession,
+      choiceId,
+      this.world,
+      this.flowMachineOptions()
+    );
+    return this.presentFlowStep(step, []);
+  }
+
   private advanceActiveFlow(events: DomainEvent[]): RuntimeFrame {
     if (!this.flowSession) {
       return this.frame(events, null, null);
     }
 
     const flow = this.flow(this.flowSession.flowId);
-    const step = advanceFlow(flow, this.flowSession, this.world);
+    const step = advanceFlow(flow, this.flowSession, this.world, this.flowMachineOptions());
+    return this.presentFlowStep(step, events);
+  }
+
+  private presentFlowStep(
+    step: ReturnType<typeof advanceFlow>,
+    events: DomainEvent[]
+  ): RuntimeFrame {
     this.flowSession = step.session;
     for (const command of step.commands) {
       events.push(...this.dispatch(command));
@@ -392,29 +426,64 @@ export class AdventureEngine {
             ...step.line,
             text: this.localize(step.line.textKey)
           }
-        : null,
-      null
+      : null,
+      null,
+      {
+        promptKey: step.promptKey,
+        choices: step.choices,
+        presentationCues: step.cues,
+        waitUntil: step.waitUntil
+      }
     );
+  }
+
+  private flowMachineOptions(): FlowMachineOptions {
+    return { flows: this.bundle.flows };
   }
 
   private dispatch(command: GameCommand): DomainEvent[] {
     const result = executeCommand(this.world, command);
     this.world = result.state;
     this.eventLog.push(...result.events);
+    for (const event of result.events) {
+      if (event.type === "scene/changed") {
+        this.beginSceneEntryFlow(event.sceneId, result.events);
+      }
+    }
     return [...result.events];
+  }
+
+  private beginSceneEntryFlow(sceneId: string, events: DomainEvent[]): void {
+    if (this.flowSession) return;
+    const flow = Object.values(this.bundle.flows).find((candidate) =>
+      candidate.sceneEntryTriggers?.some((trigger) => trigger.sceneId === sceneId)
+    );
+    if (!flow) return;
+    this.flowSession = createFlowSession(flow);
+    events.push(...this.dispatch({ type: "flow/start", flowId: flow.id }));
   }
 
   private frame(
     events: DomainEvent[],
     dialogue: (DialogueLine & { text: string }) | null,
-    feedback: string | null
+    feedback: string | null,
+    presentation: {
+      promptKey?: string | null;
+      choices?: FlowChoice[];
+      presentationCues?: RuntimeFrame["presentationCues"];
+      waitUntil?: number | null;
+    } = {}
   ): RuntimeFrame {
     return {
       state: this.world,
       events,
       dialogue,
       feedback,
-      pathProgress: this.pathProgress
+      pathProgress: this.pathProgress,
+      promptKey: presentation.promptKey ?? null,
+      choices: presentation.choices ?? [],
+      presentationCues: presentation.presentationCues ?? [],
+      waitUntil: presentation.waitUntil ?? null
     };
   }
 
@@ -423,7 +492,11 @@ export class AdventureEngine {
       ...next,
       events: [...previous.events, ...next.events],
       dialogue: next.dialogue ?? previous.dialogue,
-      feedback: next.feedback ?? previous.feedback
+      feedback: next.feedback ?? previous.feedback,
+      promptKey: next.promptKey ?? previous.promptKey,
+      choices: next.choices.length > 0 ? next.choices : previous.choices,
+      presentationCues: [...previous.presentationCues, ...next.presentationCues],
+      waitUntil: next.waitUntil ?? previous.waitUntil
     };
   }
 

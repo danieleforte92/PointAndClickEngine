@@ -273,4 +273,19 @@ describe("AdventureEngine interactions", () => {
     expect(restored.isMoving).toBe(false);
     expect(restored.locale).toBe("en");
   });
+
+  it("starts a scene-entry trigger when the initial scene is entered", () => {
+    const bundle = testBundle();
+    const entryFlow = {
+      ...lineFlow("room-entry", "dialogue.look-radio"),
+      sceneEntryTriggers: [{ sceneId: "room", flowId: "room-entry" }]
+    };
+    bundle.flows[entryFlow.id] = entryFlow;
+    bundle.manifest.flows.push({ id: entryFlow.id, path: "flows/room-entry.flow.json" });
+
+    const frame = new AdventureEngine(bundle).start();
+
+    expect(frame.dialogue?.text).toBe("The radio hums.");
+    expect(frame.events.map((event) => event.type)).toContain("flow/started");
+  });
 });

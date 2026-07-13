@@ -3,6 +3,7 @@ import { type Static, Type } from "@sinclair/typebox";
 const Id = Type.String({ minLength: 1, pattern: "^[a-z0-9][a-z0-9-]*$" });
 const HexColor = Type.String({ pattern: "^#[0-9a-fA-F]{6}$" });
 const ProjectPath = Type.String({ minLength: 1, pattern: "^(?!/)(?![A-Za-z]:)(?!.*\\.\\.).+$" });
+export const ProjectSchemaVersionSchema = Type.Union([Type.Literal(1), Type.Literal(2)]);
 export const HotspotCursorSchema = Type.Union([
   Type.Literal("look"),
   Type.Literal("talk"),
@@ -71,7 +72,7 @@ const ManifestDocumentReferenceSchema = Type.Object(
 
 export const ProjectManifestSchema = Type.Object(
   {
-    schemaVersion: Type.Literal(1),
+    schemaVersion: ProjectSchemaVersionSchema,
     id: Id,
     title: Type.String({ minLength: 1 }),
     initialSceneId: Id,
@@ -283,7 +284,7 @@ export const SceneGenerationGuideSchema = Type.Object(
 
 export const Layered2DSceneSchema = Type.Object(
   {
-    schemaVersion: Type.Literal(1),
+    schemaVersion: ProjectSchemaVersionSchema,
     id: Id,
     name: Type.String({ minLength: 1 }),
     type: Type.Literal("layered-2d"),
@@ -310,7 +311,7 @@ export const Layered2DSceneSchema = Type.Object(
 
 export const Hybrid3DSceneSchema = Type.Object(
   {
-    schemaVersion: Type.Literal(1),
+    schemaVersion: ProjectSchemaVersionSchema,
     id: Id,
     name: Type.String({ minLength: 1 }),
     type: Type.Literal("hybrid-3d"),
@@ -363,6 +364,92 @@ const FlowChangeSceneNodeSchema = Type.Object(
   { additionalProperties: false }
 );
 
+const FlowChoiceSchema = Type.Object(
+  {
+    id: Id,
+    labelKey: Type.String({ minLength: 1 }),
+    next: Id,
+    when: Type.Optional(ConditionExpressionSchema)
+  },
+  { additionalProperties: false }
+);
+
+const FlowChoiceNodeSchema = Type.Object(
+  {
+    id: Id,
+    type: Type.Literal("choice"),
+    promptKey: Type.String({ minLength: 1 }),
+    choices: Type.Array(FlowChoiceSchema, { minItems: 1 })
+  },
+  { additionalProperties: false }
+);
+
+const FlowConditionNodeSchema = Type.Object(
+  {
+    id: Id,
+    type: Type.Literal("condition"),
+    when: ConditionExpressionSchema,
+    ifTrue: Id,
+    ifFalse: Id
+  },
+  { additionalProperties: false }
+);
+
+const FlowSubFlowNodeSchema = Type.Object(
+  {
+    id: Id,
+    type: Type.Literal("sub-flow"),
+    flowId: Id,
+    next: Id
+  },
+  { additionalProperties: false }
+);
+
+const FlowInventoryNodeSchema = Type.Object(
+  {
+    id: Id,
+    type: Type.Literal("inventory"),
+    action: Type.Union([Type.Literal("add"), Type.Literal("remove")]),
+    itemId: Id,
+    next: Id
+  },
+  { additionalProperties: false }
+);
+
+const FlowWaitNodeSchema = Type.Object(
+  {
+    id: Id,
+    type: Type.Literal("wait"),
+    durationMs: Type.Integer({ minimum: 0 }),
+    next: Id
+  },
+  { additionalProperties: false }
+);
+
+const FlowPresentationCueSchema = Type.Object(
+  {
+    type: Type.Union([
+      Type.Literal("camera-shake"),
+      Type.Literal("fade"),
+      Type.Literal("sound"),
+      Type.Literal("emote")
+    ]),
+    key: Type.Optional(Type.String({ minLength: 1 })),
+    value: Type.Optional(Type.String())
+  },
+  { additionalProperties: false }
+);
+
+const FlowCueNodeSchema = Type.Object(
+  {
+    id: Id,
+    type: Type.Literal("cue"),
+    cue: FlowPresentationCueSchema,
+    next: Id
+  },
+  { additionalProperties: false }
+);
+
 const FlowEndNodeSchema = Type.Object(
   {
     id: Id,
@@ -375,23 +462,38 @@ export const FlowNodeSchema = Type.Union([
   FlowLineNodeSchema,
   FlowSetFlagNodeSchema,
   FlowChangeSceneNodeSchema,
+  FlowChoiceNodeSchema,
+  FlowConditionNodeSchema,
+  FlowSubFlowNodeSchema,
+  FlowInventoryNodeSchema,
+  FlowWaitNodeSchema,
+  FlowCueNodeSchema,
   FlowEndNodeSchema
 ]);
 
+export const SceneEntryTriggerSchema = Type.Object(
+  {
+    sceneId: Id,
+    flowId: Id
+  },
+  { additionalProperties: false }
+);
+
 export const FlowDocumentSchema = Type.Object(
   {
-    schemaVersion: Type.Literal(1),
+    schemaVersion: ProjectSchemaVersionSchema,
     id: Id,
     name: Type.String({ minLength: 1 }),
     startNodeId: Id,
-    nodes: Type.Array(FlowNodeSchema, { minItems: 1 })
+    nodes: Type.Array(FlowNodeSchema, { minItems: 1 }),
+    sceneEntryTriggers: Type.Optional(Type.Array(SceneEntryTriggerSchema))
   },
   { additionalProperties: false }
 );
 
 export const LocaleDocumentSchema = Type.Object(
   {
-    schemaVersion: Type.Literal(1),
+    schemaVersion: ProjectSchemaVersionSchema,
     locale: Type.String({ minLength: 2 }),
     strings: Type.Record(Type.String(), Type.String())
   },
@@ -400,7 +502,7 @@ export const LocaleDocumentSchema = Type.Object(
 
 export const ItemDocumentSchema = Type.Object(
   {
-    schemaVersion: Type.Literal(1),
+    schemaVersion: ProjectSchemaVersionSchema,
     id: Id,
     name: Type.String({ minLength: 1 }),
     labelKey: Type.String({ minLength: 1 })
@@ -469,7 +571,7 @@ export const AssetGenerationMetadataSchema = Type.Object(
 
 export const AssetDocumentSchema = Type.Object(
   {
-    schemaVersion: Type.Literal(1),
+    schemaVersion: ProjectSchemaVersionSchema,
     id: Id,
     kind: AssetKindSchema,
     path: ProjectPath,
@@ -511,7 +613,7 @@ export const WorkflowTemplateBindingSchema = Type.Object(
 
 export const WorkflowTemplateDocumentSchema = Type.Object(
   {
-    schemaVersion: Type.Literal(1),
+    schemaVersion: ProjectSchemaVersionSchema,
     id: Id,
     name: Type.String({ minLength: 1 }),
     family: WorkflowFamilySchema,
@@ -534,7 +636,7 @@ export const WorkflowTemplateDocumentSchema = Type.Object(
 
 export const StyleBibleDocumentSchema = Type.Object(
   {
-    schemaVersion: Type.Literal(1),
+    schemaVersion: ProjectSchemaVersionSchema,
     id: Id,
     name: Type.String({ minLength: 1 }),
     medium: Type.String({ minLength: 1 }),
@@ -560,7 +662,7 @@ export const AssetGenerationRecipeAssetTypeSchema = Type.Union([
 
 export const AssetGenerationRecipeDocumentSchema = Type.Object(
   {
-    schemaVersion: Type.Literal(1),
+    schemaVersion: ProjectSchemaVersionSchema,
     id: Id,
     sceneId: Type.Optional(Id),
     promptPackId: Type.Optional(Id),
@@ -622,7 +724,7 @@ export const AnimationPackClipSchema = Type.Object(
 
 export const AnimationPackDocumentSchema = Type.Object(
   {
-    schemaVersion: Type.Literal(1),
+    schemaVersion: ProjectSchemaVersionSchema,
     id: Id,
     name: Type.String({ minLength: 1 }),
     assetId: Id,
@@ -810,7 +912,7 @@ export const PromptPackProvenanceSchema = Type.Object(
 
 export const PromptPackDocumentSchema = Type.Object(
   {
-    schemaVersion: Type.Literal(1),
+    schemaVersion: ProjectSchemaVersionSchema,
     id: Id,
     name: Type.String({ minLength: 1 }),
     sceneId: Id,
@@ -932,7 +1034,18 @@ export const PathProgressSchema = Type.Object(
     sceneId: Id,
     waypoints: Type.Array(Vector2Schema),
     waypointIndex: Type.Integer({ minimum: 0 }),
-    ratio: Type.Number({ minimum: 0, maximum: 1 })
+    ratio: Type.Number({ minimum: 0, maximum: 1 }),
+    completedWaypoints: Type.Integer({ minimum: 0 }),
+    currentWaypointIndex: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
+    goal: Vector2Schema,
+    path: Type.Array(
+      Type.Object(
+        { x: Type.Integer(), y: Type.Integer() },
+        { additionalProperties: false }
+      )
+    ),
+    position: Vector2Schema,
+    totalWaypoints: Type.Integer({ minimum: 0 })
   },
   { additionalProperties: false }
 );
@@ -952,6 +1065,7 @@ export type Polygon2 = Static<typeof Polygon2Schema>;
 export type FlagValue = Static<typeof FlagValueSchema>;
 export type ConditionExpression = Static<typeof ConditionExpressionSchema>;
 export type Verb = Static<typeof VerbSchema>;
+export type ProjectSchemaVersion = Static<typeof ProjectSchemaVersionSchema>;
 export type ProjectManifest = Static<typeof ProjectManifestSchema>;
 export type SceneShape = Static<typeof SceneShapeSchema>;
 export type CursorValue = Static<typeof HotspotCursorSchema>;
@@ -972,6 +1086,9 @@ export type Hybrid3DScene = Static<typeof Hybrid3DSceneSchema>;
 export type SceneDocument = Static<typeof SceneDocumentSchema>;
 export type FlowNode = Static<typeof FlowNodeSchema>;
 export type FlowDocument = Static<typeof FlowDocumentSchema>;
+export type FlowChoice = Static<typeof FlowChoiceSchema>;
+export type FlowPresentationCue = Static<typeof FlowPresentationCueSchema>;
+export type SceneEntryTrigger = Static<typeof SceneEntryTriggerSchema>;
 export type LocaleDocument = Static<typeof LocaleDocumentSchema>;
 export type ItemDocument = Static<typeof ItemDocumentSchema>;
 export type AssetDocument = Static<typeof AssetDocumentSchema>;

@@ -113,6 +113,16 @@ describe("deterministic command/event core", () => {
     expect(second.state.collectedPickups).toEqual(["dock-hook-a", "dock-hook-b"]);
   });
 
+  it("adds and removes inventory items through replayable commands", () => {
+    const initial = createInitialState("dock", { x: 0, y: 0 });
+    const added = executeCommand(initial, { type: "inventory/add", itemId: "key" });
+    const removed = executeCommand(added.state, { type: "inventory/remove", itemId: "key" });
+
+    expect(added.events).toEqual([{ type: "inventory/item-added", itemId: "key" }]);
+    expect(removed.events).toEqual([{ type: "inventory/item-removed", itemId: "key" }]);
+    expect(replay(initial, [...added.events, ...removed.events])).toEqual(removed.state);
+  });
+
   it("records actor interactions as replayable events", () => {
     const initial = createInitialState("dock", { x: 0, y: 0 });
     const result = executeCommand(initial, {

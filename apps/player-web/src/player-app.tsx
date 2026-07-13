@@ -475,6 +475,20 @@ export function PlayerApp() {
     writeSurfaceMode(mode);
   };
 
+  const changeLocale = (locale: string) => {
+    if (!engine) return;
+    const nextFrame = engine.setLocale(locale);
+    frameRef.current = nextFrame;
+    setFrame(nextFrame);
+  };
+
+  const chooseDialogue = (choiceId: string) => {
+    if (!engine) return;
+    const nextFrame = engine.chooseDialogue(choiceId);
+    frameRef.current = nextFrame;
+    setFrame(nextFrame);
+  };
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || isEditableTarget(event.target) || !engine)
@@ -571,6 +585,20 @@ export function PlayerApp() {
                 <span>Scene</span>
                 <strong>{scene.name}</strong>
               </div>
+              <label className="locale-picker">
+                <span>Locale</span>
+                <select
+                  aria-label="Game locale"
+                  value={engine.locale}
+                  onChange={(event) => changeLocale(event.target.value)}
+                >
+                  {Object.keys(bundle.locales).map((locale) => (
+                    <option key={locale} value={locale}>
+                      {locale}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <div className="surface-mode-toggle">
                 <button
                   aria-pressed={surfaceMode === "showcase"}
@@ -753,6 +781,14 @@ export function PlayerApp() {
           <span>Selected item</span>
           <strong>{selectedItemLabel}</strong>
         </div>
+        <div className="event-readout">
+          <span>Path</span>
+          <strong>
+            {frame.pathProgress
+              ? `${Math.round(frame.pathProgress.ratio * 100)}%`
+              : "idle"}
+          </strong>
+        </div>
       </footer> : null}
 
       {frame.feedback ? (
@@ -761,7 +797,7 @@ export function PlayerApp() {
         </div>
       ) : null}
 
-      {frame.dialogue ? (
+      {frame.dialogue && frame.choices.length === 0 ? (
         <button
           aria-live="polite"
           className="dialogue-card"
@@ -774,6 +810,22 @@ export function PlayerApp() {
           <span className="line">{frame.dialogue.text}</span>
           <span className="continue">Continue</span>
         </button>
+      ) : null}
+      {frame.promptKey ? (
+        <section className="dialogue-choices" aria-label="Dialogue choices">
+          <p>{localize(bundle, frame.promptKey, frame.promptKey)}</p>
+          <div>
+            {frame.choices.map((choice) => (
+              <button
+                key={choice.id}
+                type="button"
+                onClick={() => chooseDialogue(choice.id)}
+              >
+                {localize(bundle, choice.labelKey, choice.labelKey)}
+              </button>
+            ))}
+          </div>
+        </section>
       ) : null}
     </main>
   );

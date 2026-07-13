@@ -155,6 +155,12 @@ importers:
         specifier: ^5.8.3
         version: 5.9.3
 
+  packages/audio:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
   packages/authoring:
     dependencies:
       '@pointclick/contracts':
@@ -173,6 +179,9 @@ importers:
       '@pointclick/project-io':
         specifier: workspace:*
         version: link:../project-io
+      '@pointclick/web-export':
+        specifier: workspace:*
+        version: link:../web-export
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
