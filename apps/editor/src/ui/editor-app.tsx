@@ -21,7 +21,11 @@ import type {
   ScenePickup,
   WorkflowTemplateDocument
 } from "@pointclick/contracts";
-import type { AuthoringSuggestion } from "@pointclick/authoring";
+import {
+  buildFlowGraph,
+  validateFlowGraph,
+  type AuthoringSuggestion
+} from "@pointclick/authoring";
 import {
   startTransition,
   useCallback,
@@ -2656,6 +2660,15 @@ export function EditorApp() {
     () => (currentFlowDraft ? currentFlowDraft.nodes.map((node) => node.id) : []),
     [currentFlowDraft]
   );
+  const flowGraph = useMemo(
+    () => (selectedFlow ? buildFlowGraph(selectedFlow) : null),
+    [selectedFlow]
+  );
+  const flowGraphDiagnostics = useMemo(() => {
+    if (!selectedFlow) return [];
+    const flowLookup = Object.fromEntries((project?.flows ?? []).map((flow) => [flow.id, flow]));
+    return validateFlowGraph(selectedFlow, flowLookup);
+  }, [project?.flows, selectedFlow]);
   const availableFlowIds = useMemo(
     () => (project ? project.flows.map((flow) => flow.id) : []),
     [project]
@@ -11713,6 +11726,44 @@ export function EditorApp() {
                     ))}
                   </select>
                 </label>
+                {flowGraph ? (
+                  <section className="flow-graph-panel" aria-label="Flow graph overview">
+                    <div className="flow-graph-header">
+                      <div>
+                        <span className="overview-label">Flow graph</span>
+                        <strong>{flowGraph.nodes.length} nodes / {flowGraph.edges.length} edges</strong>
+                      </div>
+                      <span className="capability-badge compact good">Deterministic IR</span>
+                    </div>
+                    <div className="flow-graph-nodes" role="list" aria-label="Flow graph nodes">
+                      {flowGraph.nodes.map((node) => (
+                        <span className="flow-graph-node" key={`graph-node-${node.id}-${node.index}`} role="listitem">
+                          <strong>{node.index + 1}</strong>
+                          <span>{node.id}</span>
+                          <small>{node.type}</small>
+                        </span>
+                      ))}
+                    </div>
+                    <div className="flow-graph-edges" aria-label="Flow graph edges">
+                      {flowGraph.edges.map((edge, index) => (
+                        <span key={`graph-edge-${edge.from}-${edge.to}-${index}`}>
+                          {edge.from} → {edge.to}{edge.label ? ` (${edge.label})` : ""}
+                        </span>
+                      ))}
+                    </div>
+                    {flowGraphDiagnostics.length ? (
+                      <ul className="flow-graph-diagnostics" aria-label="Flow graph diagnostics">
+                        {flowGraphDiagnostics.map((diagnostic, index) => (
+                          <li key={`graph-diagnostic-${diagnostic.code}-${diagnostic.nodeId ?? index}`}>
+                            <strong>{diagnostic.severity}</strong> {diagnostic.message}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="inspector-copy">No graph validation issues.</p>
+                    )}
+                  </section>
+                ) : null}
                 <div className="flow-nodes">
                   {currentFlowDraft.nodes.map((node, index) => (
                     <div className="flow-node-card" key={`${node.type}-${index}-${node.id}`}>
