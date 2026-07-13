@@ -18,7 +18,7 @@
     "@pointclick/contracts": "workspace:*",
     "@pointclick/project-io": "workspace:*",
     "@pointclick/ui-theme": "workspace:*",
-    "lucide-react": "^1.21.0",
+    "lucide-react": "^1.24.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
