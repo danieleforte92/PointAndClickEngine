@@ -10,10 +10,10 @@ Release page: publish this candidate as GitHub prerelease tag `v0.1.1-alpha.1`.
 
 ## Public Walkthrough
 
-- [Scene editor](docs/assets/scene_editor.jpg)
-- [Player showcase loop](docs/assets/player.jpg)
-- [AI Studio with Advanced and Candidate Output](docs/assets/ai-studio-advanced.png)
-- [Asset Studio mock asset surface](docs/assets/asset_studio.jpg)
+- [Scene editor](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.1.1-alpha.1/docs/assets/scene_editor.jpg)
+- [Player showcase loop](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.1.1-alpha.1/docs/assets/player.jpg)
+- [AI Studio with Advanced and Candidate Output](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.1.1-alpha.1/docs/assets/ai-studio-advanced.png)
+- [Asset Studio mock asset surface](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.1.1-alpha.1/docs/assets/asset_studio.jpg)
 
 ## What To Try First
 
