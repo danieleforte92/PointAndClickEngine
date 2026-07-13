@@ -32,7 +32,7 @@ function presentationFor(mode: PlayerSurfaceMode): PlayerPresentation {
   return {
     mode,
     showDemoGuide: mode === "showcase",
-    showDiagnostics: mode !== "play",
+    showDiagnostics: import.meta.env.DEV && mode !== "play",
     showHeader: mode !== "play",
     showSurfaceToggle: mode !== "play"
   };
@@ -301,6 +301,11 @@ export function PlayerApp() {
         )
       : "None";
   const latestEventLabel = recentEvents[0] ?? "ready";
+  const captionText =
+    frame?.presentationCues
+      .map((cue) => (cue.key ? localize(bundle ?? sampleBundle, cue.key, cue.key) : cue.value))
+      .filter((value): value is string => Boolean(value))
+      .at(-1) ?? null;
   useEffect(() => {
     let cancelled = false;
 
@@ -508,6 +513,28 @@ export function PlayerApp() {
         return;
       }
 
+      const directionByKey = {
+        ArrowUp: { x: 0, y: -48 },
+        ArrowDown: { x: 0, y: 48 },
+        ArrowLeft: { x: -48, y: 0 },
+        ArrowRight: { x: 48, y: 0 }
+      } as const;
+      const direction = directionByKey[event.key as keyof typeof directionByKey];
+      if (direction) {
+        event.preventDefault();
+        const current = frameRef.current;
+        if (!current) return;
+        const planned = engine.walkTo(
+          current.state.player.x + direction.x,
+          current.state.player.y + direction.y,
+        );
+        const nextFrame = engine.isMoving ? engine.completeMovement() : planned;
+        frameRef.current = nextFrame;
+        rendererRef.current?.renderPlayer(nextFrame.state.player);
+        setFrame(nextFrame);
+        return;
+      }
+
       if (event.key.toLowerCase() === "c") {
         event.preventDefault();
         const nextMode = surfaceMode === "capture" ? "showcase" : "capture";
@@ -569,6 +596,9 @@ export function PlayerApp() {
 
   return (
     <main className={`player-shell ${surfaceMode}-mode`}>
+      <a className="skip-link" href="#game-stage">
+        Skip to game scene
+      </a>
       {presentation.showHeader ? (
         <header className="game-header">
           <div>
@@ -703,12 +733,22 @@ export function PlayerApp() {
         </>
       ) : null}
 
-      <section className="stage-frame" aria-label="Game scene">
+      <section
+        id="game-stage"
+        className="stage-frame"
+        aria-label="Game scene"
+        tabIndex={-1}
+      >
         <div className="stage-grain" />
         <div ref={hostRef} className="stage-host" />
         <div className="hint" aria-live="polite">
           {surfaceHint}
         </div>
+        {captionText ? (
+          <div className="captions" aria-live="polite" aria-label="Captions">
+            {captionText}
+          </div>
+        ) : null}
       </section>
 
       <section className="verb-bar" aria-label="Interaction verbs">

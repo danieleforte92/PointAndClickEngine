@@ -45,6 +45,22 @@ button:focus-visible {
   position: relative;
 }
 
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  top: 8px;
+  left: 8px;
+  padding: 8px 12px;
+  color: #251d18;
+  border-radius: 3px;
+  background: #efe2c3;
+  transform: translateY(-180%);
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+}
+
 .game-header,
 .game-footer {
   display: flex;
@@ -579,6 +595,19 @@ h1 {
   border-radius: 3px;
   background: rgba(4, 12, 18, 0.78);
   font-size: 0.8rem;
+}
+
+.captions {
+  position: absolute;
+  z-index: 4;
+  right: 18px;
+  bottom: 58px;
+  left: 18px;
+  padding: 8px 12px;
+  color: #fff;
+  text-align: center;
+  text-shadow: 0 1px 3px #000;
+  background: rgba(0, 0, 0, 0.58);
 }
 
 .speaker {
