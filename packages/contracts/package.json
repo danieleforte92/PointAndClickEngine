@@ -10,7 +10,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@sinclair/typebox": "^0.34.38",
+    "@sinclair/typebox": "^0.34.52",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1"
   },
