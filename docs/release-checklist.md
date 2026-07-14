@@ -1,8 +1,8 @@
-# Creator Alpha v0.4.0-alpha.1 Release Checklist
+# Creator Alpha v0.4.0-alpha.3 Release Checklist
 
 Use this checklist before tagging a public GitHub release.
 
-The target tag is `v0.4.0-alpha.1`. The Windows x64 package is intentionally unsigned;
+The target tag is `v0.4.0-alpha.3`. The Windows x64 package is intentionally unsigned;
 do not record signing as passed unless a separate authorized signing decision
 and evidence exist.
 
@@ -161,7 +161,7 @@ server.
 Generate the candidate evidence after the package exists:
 
 ```powershell
-node scripts/create-checksums.mjs apps/editor/out release-artifacts/SHA256SUMS.txt release-artifacts/PointClickStudio-v0.4.0-alpha.1-win32-x64.zip
+node scripts/create-checksums.mjs apps/editor/out release-artifacts/SHA256SUMS.txt release-artifacts/PointClickStudio-v0.4.0-alpha.3-win32-x64.zip
 node scripts/release-record.mjs --output release-artifacts/release-evidence.json --checksums release-artifacts/SHA256SUMS.txt
 ```
 
@@ -216,6 +216,7 @@ Include:
   image loader nodes; the built-in text-to-image path ignores image inputs.
 - OpenAI integration requires API platform access; ChatGPT subscriptions do not
   cover API calls.
-- The Windows x64 package is unsigned in Creator Alpha v0.4.0-alpha.1.
-- Full flow graph authoring, hosted demo, and public website are later
-  milestones; static web export is included in this candidate.
+- The Windows x64 package is unsigned in Creator Alpha v0.4.0-alpha.3.
+- Custom flow-node plugins, hosted demo, and public website are later
+  milestones; the built-in typed graph and static web export are included in
+  this candidate.

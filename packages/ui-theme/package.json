@@ -1,10 +1,16 @@
 {
   "name": "@pointclick/ui-theme",
-  "version": "0.4.0-alpha.1",
+  "version": "0.4.0-alpha.3",
   "private": true,
   "type": "module",
+  "scripts": {
+    "check:contract": "node ../../scripts/check-theme-contract.mjs"
+  },
   "exports": {
     "./storyboard.css": "./src/storyboard.css",
+    "./studio.css": "./src/studio.css",
+    "./player.css": "./src/player.css",
+    "./theme-contract.css": "./src/theme-contract.css",
     "./fonts.css": "./src/fonts.css"
   }
 }

@@ -82,10 +82,9 @@ import {
   type ChromaKeySummary
 } from "../chroma-key";
 import {
-  capabilityBadgeLabel,
-  capabilityStatusTone,
   workspaceCapabilities
 } from "../editor-capabilities";
+import { stageToolbarModelFor } from "../editor-workspace-model";
 import { createCreatorPathSteps, type CreatorPathStep } from "../creator-path";
 import {
   AiContextSummary,
@@ -112,7 +111,6 @@ import {
   buildHotspotFromDraft,
   buildNarrativeRelationIndex,
   buildFlowNodes,
-  buildRecoverySnapshot,
   clampScenePoint,
   cloneSessionState,
   commitHistory,
@@ -191,6 +189,26 @@ import {
   visualStylePresets
 } from "../prompt-pack-presets";
 import {
+  buildGuardrail,
+  buildSceneLayersFromDraft,
+  createDefaultActor,
+  createDefaultFlowDocument,
+  createDefaultHotspot,
+  createDefaultPickup,
+  createDefaultSceneDocument,
+  nextActorId,
+  nextAnimationPackId,
+  nextFlowId,
+  nextHotspotId,
+  nextItemId,
+  nextPickupId,
+  nextSceneId,
+  scenePointIsInside,
+  summarizeActorViewportIssues,
+  summarizeHotspotViewportIssues,
+  summarizePickupViewportIssues
+} from "../editor-authoring-model";
+import {
   composeTargetNegativePrompt,
   composeTargetPositivePrompt,
   resolvePromptForGenerationTarget
@@ -203,7 +221,18 @@ import {
   type StartImageGenerationRequest
 } from "../image-generation";
 import { workflowPresets } from "../workflow-presets";
+import { createEditorCommandBus } from "../editor-command-bus";
 import { createBrowserEditorGateway, type EditorGateway } from "../editor-gateway";
+import {
+  emptyProjectSettingsDraft,
+  hydrateEditorProject,
+  loadEditorProjectSession,
+  projectAnimationPackSelectionFor,
+  projectAssetSelectionFor,
+  projectLoadStatusFor,
+  projectSettingsDraftFor,
+  syncEditorRecovery
+} from "../editor-project-session";
 import {
   createEditorNavigationState,
   editorNavigationReducer,
@@ -229,6 +258,28 @@ import {
   type ProjectResourceHealth,
   type ProjectResourceKind
 } from "../project-resources";
+import {
+  assetHealth,
+  assetFromSnapshot,
+  assetUsage,
+  fallbackFlowLineText,
+  flowFromSnapshot,
+  formatValidationTimestamp,
+  healthSummary,
+  hotspotFromSnapshot,
+  inspectorDetailFor,
+  isHexColor,
+  itemFromSnapshot,
+  localeFromSnapshot,
+  parseWalkAreaDraft,
+  pickupFromSnapshot,
+  promptPackTargetLookup,
+  sceneBackgroundStyle,
+  sceneFromSnapshot,
+  sceneSelectionKindLabel,
+  sceneSelectionSummary,
+  validationTone
+} from "../editor-ui-model";
 
 const emptyHistory = createHistoryState(
   initializeEditorSession({
@@ -470,17 +521,6 @@ function createAnimationPackDraft(
   };
 }
 
-function nextAnimationPackId(snapshot: EditorProjectSnapshot | null): string {
-  const existing = new Set(snapshot?.animationPacks.map((animationPack) => animationPack.id) ?? []);
-  let counter = 0;
-  let candidate = "new-animation-pack";
-  while (existing.has(candidate)) {
-    counter += 1;
-    candidate = `new-animation-pack-${counter}`;
-  }
-  return candidate;
-}
-
 function parseFrameList(value: string): number[] | null {
   const frames = value
     .split(",")
@@ -491,324 +531,6 @@ function parseFrameList(value: string): number[] | null {
     return null;
   }
   return frames;
-}
-
-function sceneFromSnapshot(snapshot: EditorProjectSnapshot | null, sceneId: string | null) {
-  if (!snapshot || !sceneId) return null;
-  return sceneItems(snapshot.scenes).find((scene) => scene.id === sceneId) ?? null;
-}
-
-function hotspotFromSnapshot(
-  snapshot: EditorProjectSnapshot | null,
-  sceneId: string | null,
-  hotspotId: string | null
-) {
-  const scene = sceneFromSnapshot(snapshot, sceneId);
-  if (!scene || !hotspotId) return null;
-  return scene.hotspots.find((hotspot) => hotspot.id === hotspotId) ?? null;
-}
-
-function localeFromSnapshot(snapshot: EditorProjectSnapshot | null, localeId: string | null) {
-  if (!snapshot || !localeId) return null;
-  return snapshot.locales.find((locale) => locale.locale === localeId) ?? null;
-}
-
-function flowFromSnapshot(snapshot: EditorProjectSnapshot | null, flowId: string | null) {
-  if (!snapshot || !flowId) return null;
-  return snapshot.flows.find((flow) => flow.id === flowId) ?? null;
-}
-
-function itemFromSnapshot(snapshot: EditorProjectSnapshot | null, itemId: string | null) {
-  if (!snapshot || !itemId) return null;
-  return snapshot.items.find((item) => item.id === itemId) ?? null;
-}
-
-function pickupFromSnapshot(
-  snapshot: EditorProjectSnapshot | null,
-  sceneId: string | null,
-  pickupId: string | null
-) {
-  const scene = sceneFromSnapshot(snapshot, sceneId);
-  if (!scene || !pickupId) return null;
-  return scene.pickups.find((pickup) => pickup.id === pickupId) ?? null;
-}
-
-function assetFromSnapshot(snapshot: EditorProjectSnapshot | null, assetId: string | null) {
-  if (!snapshot || !assetId) return null;
-  return snapshot.assets.find((asset) => asset.id === assetId) ?? null;
-}
-
-function isHexColor(value: string): boolean {
-  return hexColorPattern.test(value);
-}
-
-function sceneBackgroundStyle(background: string, assetUrl?: string) {
-  if (isHexColor(background)) {
-    return { backgroundColor: background, backgroundImage: "none" };
-  }
-  return {
-    backgroundColor: "#24384a",
-    backgroundImage: assetUrl ? `url("${assetUrl}")` : "none",
-    backgroundPosition: "center",
-    backgroundRepeat: "no-repeat",
-    backgroundSize: "100% 100%"
-  };
-}
-
-type AssetUsageReference = {
-  detail: string;
-  entityId?: string;
-  sceneId?: string;
-  sceneName?: string;
-  type: string;
-};
-
-function assetUsage(asset: AssetDocument, snapshot: EditorProjectSnapshot | null) {
-  if (!snapshot) return [];
-  const usage: AssetUsageReference[] = [];
-  for (const scene of sceneItems(snapshot.scenes)) {
-    if (scene.background === asset.path) {
-      usage.push({ detail: "Scene background", sceneId: scene.id, sceneName: scene.name, type: "scene" });
-    }
-    if (scene.player?.assetId === asset.id) {
-      usage.push({ detail: "Player asset", entityId: "player", sceneId: scene.id, sceneName: scene.name, type: "player" });
-    }
-    for (const actor of scene.actors) {
-      if (actor.assetId === asset.id) {
-        usage.push({ detail: `Actor ${actor.id}`, entityId: actor.id, sceneId: scene.id, sceneName: scene.name, type: "actor" });
-      }
-    }
-    for (const pickup of scene.pickups) {
-      if (pickup.assetId === asset.id) {
-        usage.push({ detail: `Pickup ${pickup.id}`, entityId: pickup.id, sceneId: scene.id, sceneName: scene.name, type: "pickup" });
-      }
-    }
-  }
-  for (const animationPack of snapshot.animationPacks) {
-    if (animationPack.assetId === asset.id) {
-      usage.push({ detail: `Animation pack ${animationPack.id}`, type: "animation" });
-    }
-  }
-  for (const promptPack of snapshot.promptPacks) {
-    for (const target of promptPack.outputs.generationTargets) {
-      if (target.referenceAssetId === asset.id) {
-        usage.push({ detail: `Reference for ${promptPack.id}/${target.id}`, type: "prompt" });
-      }
-      if (target.maskAssetId === asset.id) {
-        usage.push({ detail: `Mask for ${promptPack.id}/${target.id}`, type: "prompt" });
-      }
-    }
-  }
-  return usage;
-}
-
-function assetHealth(asset: AssetDocument, snapshot: EditorProjectSnapshot | null) {
-  if (!snapshot) return "available";
-  return snapshot.diagnostics.some(
-    (diagnostic) =>
-      diagnostic.code === "asset.file-missing" && diagnostic.documentId === asset.id
-  )
-    ? "missing"
-    : "available";
-}
-
-function promptPackTargetLookup(
-  snapshot: EditorProjectSnapshot | null,
-  sceneId: string,
-  targetId: string
-): { promptPack: PromptPackDocument; target: PromptPackGenerationTarget } | null {
-  if (!snapshot) return null;
-  for (const promptPack of snapshot.promptPacks) {
-    if (promptPack.sceneId !== sceneId) continue;
-    const target = promptPack.outputs.generationTargets.find((entry) => entry.id === targetId);
-    if (target) return { promptPack, target };
-  }
-  return null;
-}
-
-function fallbackFlowLineText(flowId: string, nodeId: string, textKey: string) {
-  const keyLabel = textKey.trim() || `${flowId}.${nodeId}`;
-  return `Draft text for ${keyLabel}`;
-}
-
-function parseWalkAreaDraft(
-  walkAreaPoints: Array<{ x: string; y: string }>
-): { points: Array<{ x: number; y: number }> } | null {
-  const points = walkAreaPoints.map((point) => {
-    const x = parseNumber(point.x);
-    const y = parseNumber(point.y);
-    return x === null || y === null ? null : { x, y };
-  });
-
-  if (points.some((point) => point === null)) {
-    return null;
-  }
-
-  return {
-    points: points as Array<{ x: number; y: number }>
-  };
-}
-
-function healthSummary(
-  diagnostics: EditorProjectSnapshot["diagnostics"],
-  dirtyDraftCount: number
-) {
-  const errorCount = diagnostics.filter((diagnostic) => diagnostic.severity === "error").length;
-  const warningCount = diagnostics.filter((diagnostic) => diagnostic.severity === "warning").length;
-
-  if (errorCount > 0) {
-    return {
-      detail: `${dirtyDraftCount} dirty draft(s)`,
-      label: `${errorCount} error(s), ${warningCount} warning(s)`,
-      tone: "error" as const
-    };
-  }
-  if (warningCount > 0 || dirtyDraftCount > 0) {
-    return {
-      detail: `${dirtyDraftCount} dirty draft(s)`,
-      label: `${warningCount} warning(s), project needs review`,
-      tone: "warn" as const
-    };
-  }
-  return {
-    detail: "No draft changes pending",
-    label: "Project ready for preview",
-    tone: "good" as const
-  };
-}
-
-function formatValidationTimestamp(timestamp: string | null): string {
-  if (!timestamp) return "Not run yet";
-  const value = new Date(timestamp);
-  if (Number.isNaN(value.getTime())) return timestamp;
-  return value.toLocaleString("it-IT", {
-    dateStyle: "short",
-    timeStyle: "short"
-  });
-}
-
-function validationTone(report: EditorValidationReport | null): "good" | "warn" | "error" | "muted" {
-  if (!report) return "muted";
-  if (report.summary.errorCount > 0) return "error";
-  if (report.summary.warningCount > 0) return "warn";
-  return "good";
-}
-
-interface InspectorDetailState {
-  hasSelectedFlow: boolean;
-  hasSelectedHotspot: boolean;
-  hasSelectedItem: boolean;
-  hasSelectedLocale: boolean;
-  hasSelectedPickup: boolean;
-  hasSelectedScene: boolean;
-  isPlayerInspectorSelected: boolean;
-  sceneSelectionTarget: SceneSelectionTarget | null;
-  workspace: Workspace;
-}
-
-type WorkspaceCapability = (typeof workspaceCapabilities)[number];
-
-interface StageToolbarModelState {
-  hasSelectedScene: boolean;
-  selectedSceneActorCount: number;
-  selectedSceneHotspotCount: number;
-  selectedScenePickupCount: number;
-  selectedSceneToolLabel: string;
-  sceneLabel: string;
-  workspace: Workspace;
-  workspaceCapability: WorkspaceCapability;
-}
-
-interface StageToolbarModel {
-  badgeLabel: string;
-  badgeTone: "good" | "warn" | "error" | "muted";
-  detail: string;
-  primaryLabel: string;
-}
-
-function inspectorDetailFor({
-  hasSelectedFlow,
-  hasSelectedHotspot,
-  hasSelectedItem,
-  hasSelectedLocale,
-  hasSelectedPickup,
-  hasSelectedScene,
-  isPlayerInspectorSelected,
-  sceneSelectionTarget,
-  workspace
-}: InspectorDetailState): string {
-  if (workspace === "overview") return "Project";
-  if (workspace === "assets") return "Library";
-  if (workspace === "ai") return "AI";
-  if (workspace === "build") return "Validation";
-  if (workspace === "scene" && sceneSelectionTarget) return sceneSelectionKindLabel(sceneSelectionTarget.kind);
-  if (hasSelectedFlow) return "Flow";
-  if (hasSelectedLocale) return "Locale";
-  if (isPlayerInspectorSelected) return "Player";
-  if (hasSelectedHotspot) return "Hotspot";
-  if (hasSelectedPickup) return "Pickup";
-  if (hasSelectedItem) return "Item";
-  if (hasSelectedScene) return "Scene";
-  return "";
-}
-
-function sceneSelectionKindLabel(kind: SceneSelectionTarget["kind"]): string {
-  switch (kind) {
-    case "scene":
-      return "Scene";
-    case "background":
-      return "Background";
-    case "layer":
-      return "Layer";
-    case "walk-area":
-      return "Walk Area";
-    case "player-start":
-      return "Player";
-    case "actor":
-      return "Actor";
-    case "pickup":
-      return "Pickup";
-    case "hotspot":
-      return "Hotspot";
-    case "guide":
-      return "Guide";
-  }
-}
-
-function sceneSelectionSummary({
-  selectedActor,
-  selectedGenerationGuide,
-  selectedHotspot,
-  selectedPickup,
-  selectedScene,
-  selectedSceneLayer,
-  target
-}: {
-  selectedActor: SceneActor | null;
-  selectedGenerationGuide: SceneGenerationGuide | null;
-  selectedHotspot: Hotspot | null;
-  selectedPickup: ScenePickup | null;
-  selectedScene: Layered2DScene | null;
-  selectedSceneLayer: SceneLayerDraft | null;
-  target: SceneSelectionTarget | null;
-}) {
-  if (!target || !selectedScene) {
-    return {
-      detail: "Open a scene to select scene-local objects.",
-      title: "No scene selection"
-    };
-  }
-
-  const label = sceneSelectionKindLabel(target.kind);
-  if (target.kind === "scene") return { detail: selectedScene.id, title: selectedScene.name };
-  if (target.kind === "walk-area") return { detail: selectedScene.id, title: "Walk area polygon" };
-  if (target.kind === "player-start") return { detail: selectedScene.id, title: "Player start and movement" };
-  if (target.kind === "layer") return { detail: target.entityId ?? "layer", title: selectedSceneLayer?.name || target.entityId || label };
-  if (target.kind === "guide") return { detail: target.entityId ?? "guide", title: selectedGenerationGuide?.name || target.entityId || label };
-  if (target.kind === "actor") return { detail: target.entityId ?? "actor", title: selectedActor?.labelKey || target.entityId || label };
-  if (target.kind === "pickup") return { detail: target.entityId ?? "pickup", title: selectedPickup?.labelKey || target.entityId || label };
-  if (target.kind === "hotspot") return { detail: target.entityId ?? "hotspot", title: selectedHotspot?.labelKey || target.entityId || label };
-  return { detail: selectedScene.id, title: label };
 }
 
 interface ProviderBoundaryStatus {
@@ -1241,229 +963,6 @@ function ImageProviderConfigDialog({ provider, values, onApply, onCancel }: Imag
   );
 }
 
-function stageToolbarModelFor({
-  hasSelectedScene,
-  selectedSceneActorCount,
-  selectedSceneHotspotCount,
-  selectedScenePickupCount,
-  selectedSceneToolLabel,
-  sceneLabel,
-  workspace,
-  workspaceCapability
-}: StageToolbarModelState): StageToolbarModel {
-  if (workspace === "scene") {
-    return {
-      badgeLabel: selectedSceneToolLabel,
-      badgeTone: "warn",
-      detail: hasSelectedScene
-        ? `${selectedSceneHotspotCount} hotspot(s) / ${selectedScenePickupCount} pickup(s) / ${selectedSceneActorCount} actor(s)`
-        : workspaceCapability.summary,
-      primaryLabel: hasSelectedScene ? sceneLabel : workspaceCapability.label
-    };
-  }
-
-  return {
-    badgeLabel: capabilityBadgeLabel(workspaceCapability.status),
-    badgeTone: capabilityStatusTone(workspaceCapability.status),
-    detail:
-      workspace === "overview"
-        ? "Project command center and readiness"
-        : workspace === "narrative"
-          ? "Structured flow and locale editing"
-          : workspaceCapability.summary,
-    primaryLabel: workspaceCapability.label
-  };
-}
-
-function nextFlowId(snapshot: EditorProjectSnapshot): string {
-  const existing = new Set(snapshot.flows.map((flow) => flow.id));
-  let counter = 0;
-  let candidate = "new-flow";
-  while (existing.has(candidate)) {
-    counter += 1;
-    candidate = `new-flow-${counter}`;
-  }
-  return candidate;
-}
-
-function createDefaultFlowDocument(flowId: string): FlowDocument {
-  return {
-    id: flowId,
-    name: "New Flow",
-    nodes: [
-      {
-        id: "line-1",
-        next: "end-1",
-        speakerId: "speaker",
-        textKey: `dialogue.${flowId}.01`,
-        type: "line"
-      },
-      {
-        id: "end-1",
-        type: "end"
-      }
-    ],
-    schemaVersion: 1,
-    startNodeId: "line-1"
-  };
-}
-
-function nextItemId(snapshot: EditorProjectSnapshot): string {
-  const existing = new Set(snapshot.items.map((item) => item.id));
-  let counter = 0;
-  let candidate = "new-item";
-  while (existing.has(candidate)) {
-    counter += 1;
-    candidate = `new-item-${counter}`;
-  }
-  return candidate;
-}
-
-function nextSceneId(snapshot: EditorProjectSnapshot): string {
-  const existing = new Set(snapshot.scenes.map((scene) => scene.id));
-  let counter = 0;
-  let candidate = "new-scene";
-  while (existing.has(candidate)) {
-    counter += 1;
-    candidate = `new-scene-${counter}`;
-  }
-  return candidate;
-}
-
-function createDefaultSceneDocument(snapshot: EditorProjectSnapshot, sceneId: string): Layered2DScene {
-  const width = snapshot.manifest.viewport.width;
-  const height = snapshot.manifest.viewport.height;
-
-  return {
-    actors: [],
-    background: "#24384a",
-    hotspots: [],
-    id: sceneId,
-    name: "New Scene",
-    player: {
-      scaleFar: 0.62,
-      scaleNear: 1.08,
-      walkSpeed: 320
-    },
-    playerStart: {
-      x: Math.floor(width / 2),
-      y: Math.floor(height * 0.8)
-    },
-    pickups: [],
-    schemaVersion: 1,
-    shapes: [],
-    size: { width, height },
-    type: "layered-2d",
-    walkArea: {
-      points: [
-        { x: 0, y: 0 },
-        { x: width, y: 0 },
-        { x: width, y: height },
-        { x: 0, y: height }
-      ]
-    }
-  };
-}
-
-function nextHotspotId(scene: Layered2DScene): string {
-  const existing = new Set(scene.hotspots.map((hotspot) => hotspot.id));
-  let counter = 0;
-  let candidate = "new-hotspot";
-  while (existing.has(candidate)) {
-    counter += 1;
-    candidate = `new-hotspot-${counter}`;
-  }
-  return candidate;
-}
-
-function nextPickupId(scene: Layered2DScene): string {
-  const existing = new Set(scene.pickups.map((pickup) => pickup.id));
-  let counter = 0;
-  let candidate = "new-pickup";
-  while (existing.has(candidate)) {
-    counter += 1;
-    candidate = `new-pickup-${counter}`;
-  }
-  return candidate;
-}
-
-function nextActorId(scene: Layered2DScene): string {
-  const existing = new Set(scene.actors.map((actor) => actor.id));
-  let counter = 0;
-  let candidate = "new-actor";
-  while (existing.has(candidate)) {
-    counter += 1;
-    candidate = `new-actor-${counter}`;
-  }
-  return candidate;
-}
-
-function createDefaultHotspot(scene: Layered2DScene, hotspotId: string): Hotspot {
-  const width = Math.max(80, Math.floor(scene.size.width * 0.12));
-  const height = Math.max(80, Math.floor(scene.size.height * 0.14));
-  const x = Math.floor(scene.size.width / 2 - width / 2);
-  const y = Math.floor(scene.size.height * 0.45 - height / 2);
-  return {
-    actions: {
-      useItemFlows: []
-    },
-    bounds: {
-      x,
-      y,
-      width,
-      height
-    },
-    cursor: "look",
-    id: hotspotId,
-    interactSpot: {
-      x: Math.floor(x + width / 2),
-      y: Math.floor(y + height + 24)
-    },
-    labelKey: `hotspot.${hotspotId}`,
-    lookSpot: {
-      x: Math.floor(x + width / 2),
-      y: Math.floor(y)
-    }
-  };
-}
-
-function createDefaultPickup(scene: Layered2DScene, pickupId: string, itemId: string): ScenePickup {
-  const width = Math.max(48, Math.floor(scene.size.width * 0.06));
-  const height = Math.max(40, Math.floor(scene.size.height * 0.06));
-  return {
-    bounds: {
-      x: Math.floor(scene.size.width / 2 - width / 2),
-      y: Math.floor(scene.size.height * 0.78 - height / 2),
-      width,
-      height
-    },
-    id: pickupId,
-    itemId,
-    labelKey: `pickup.${pickupId}`
-  };
-}
-
-function createDefaultActor(scene: Layered2DScene, actorId: string): SceneActor {
-  const width = Math.max(72, Math.floor(scene.size.width * 0.08));
-  const height = Math.max(56, Math.floor(scene.size.height * 0.08));
-  const x = Math.floor(scene.size.width / 2 - width / 2);
-  const y = Math.floor(scene.size.height * 0.55 - height / 2);
-  return {
-    actions: {
-      useItemFlows: []
-    },
-    bounds: { x, y, width, height },
-    depth: 8,
-    id: actorId,
-    interactSpot: {
-      x: Math.floor(x + width / 2),
-      y: Math.floor(y + height + 24)
-    },
-    labelKey: `actor.${actorId}`,
-    role: "prop"
-  };
-}
-
 function validationSummaryLabel(report: EditorValidationReport | null): string {
   if (!report) return "No validation run yet";
   if (report.summary.errorCount > 0) {
@@ -1473,274 +972,6 @@ function validationSummaryLabel(report: EditorValidationReport | null): string {
     return `${report.summary.warningCount} warning(s), review recommended`;
   }
   return "Validation passed";
-}
-
-function buildGuardrail(
-  blockingIssues: string[],
-  warningIssues: string[],
-  readySummary: string,
-  readyDetail: string
-) {
-  return {
-    badge: blockingIssues.length > 0 ? "blocking" : warningIssues.length > 0 ? "review" : "ready",
-    blockingIssues,
-    detail: [...blockingIssues, ...warningIssues][0] ?? readyDetail,
-    summary:
-      blockingIssues.length > 0
-        ? `${blockingIssues.length} blocking issue(s)`
-        : warningIssues.length > 0
-          ? `${warningIssues.length} warning(s)`
-          : readySummary,
-    tone:
-      blockingIssues.length > 0
-        ? ("error" as const)
-        : warningIssues.length > 0
-          ? ("warn" as const)
-          : ("good" as const),
-    warningIssues
-  };
-}
-
-function summarizeHotspotViewportIssues(
-  hotspot: Hotspot,
-  scene: Layered2DScene,
-  availableFlowIdsSet: Set<string>,
-  availableItemIdsSet: Set<string>,
-  defaultLocaleId: string,
-  defaultLocaleStrings: LocaleDocument["strings"] | null
-) {
-  const blockingIssues: string[] = [];
-  const warningIssues: string[] = [];
-  const labelKey = hotspot.labelKey.trim();
-
-  if (!labelKey) {
-    blockingIssues.push("Display label is required.");
-  } else if (!defaultLocaleStrings) {
-    warningIssues.push(`Default locale "${defaultLocaleId}" is unavailable.`);
-  } else if (!(labelKey in defaultLocaleStrings)) {
-    warningIssues.push(`Label key "${labelKey}" is missing in ${defaultLocaleId}.`);
-  }
-
-  for (const [verb, flowId] of [
-    ["Look", hotspot.actions.lookFlowId?.trim() ?? ""],
-    ["Talk", hotspot.actions.talkFlowId?.trim() ?? ""],
-    ["Use", hotspot.actions.useFlowId?.trim() ?? ""]
-  ] as const) {
-    if (flowId && !availableFlowIdsSet.has(flowId)) {
-      blockingIssues.push(`${verb} flow "${flowId}" no longer exists.`);
-    }
-  }
-
-  hotspot.actions.useItemFlows.forEach((entry, index) => {
-    const itemId = entry.itemId.trim();
-    const flowId = entry.flowId.trim();
-    if (!itemId || !flowId) {
-      blockingIssues.push(`Override ${index + 1} must include both an item and a flow.`);
-      return;
-    }
-    if (!availableItemIdsSet.has(itemId)) {
-      blockingIssues.push(`Override ${index + 1} item "${itemId}" no longer exists.`);
-    }
-    if (!availableFlowIdsSet.has(flowId)) {
-      blockingIssues.push(`Override ${index + 1} flow "${flowId}" no longer exists.`);
-    }
-  });
-
-  if (!scenePointIsInside(hotspot.interactSpot, scene.size)) {
-    blockingIssues.push("Interact spot is outside the scene.");
-  }
-  if (!scenePointIsInside(hotspot.lookSpot, scene.size)) {
-    blockingIssues.push("Look spot is outside the scene.");
-  }
-
-  return {
-    detail: [...blockingIssues, ...warningIssues][0] ?? "Ready to save.",
-    hasIssues: blockingIssues.length > 0 || warningIssues.length > 0,
-    issueCount: blockingIssues.length + warningIssues.length,
-    tone:
-      blockingIssues.length > 0
-        ? ("error" as const)
-        : warningIssues.length > 0
-          ? ("warn" as const)
-          : ("good" as const)
-  };
-}
-
-function summarizePickupViewportIssues(
-  pickup: ScenePickup,
-  availableFlowIdsSet: Set<string>,
-  availableItemIdsSet: Set<string>,
-  defaultLocaleId: string,
-  defaultLocaleStrings: LocaleDocument["strings"] | null
-) {
-  const blockingIssues: string[] = [];
-  const warningIssues: string[] = [];
-  const itemId = pickup.itemId.trim();
-  const labelKey = pickup.labelKey.trim();
-  const pickupFlowId = pickup.pickupFlowId?.trim() ?? "";
-
-  if (!itemId) {
-    blockingIssues.push("Pickup item is required.");
-  } else if (!availableItemIdsSet.has(itemId)) {
-    blockingIssues.push(`Pickup item "${itemId}" no longer exists.`);
-  }
-
-  if (pickupFlowId && !availableFlowIdsSet.has(pickupFlowId)) {
-    blockingIssues.push(`Pickup flow "${pickupFlowId}" no longer exists.`);
-  }
-
-  if (!labelKey) {
-    blockingIssues.push("Pickup label key is required.");
-  } else if (!defaultLocaleStrings) {
-    warningIssues.push(`Default locale "${defaultLocaleId}" is unavailable.`);
-  } else if (!(labelKey in defaultLocaleStrings)) {
-    warningIssues.push(`Label key "${labelKey}" is missing in ${defaultLocaleId}.`);
-  }
-
-  return {
-    detail: [...blockingIssues, ...warningIssues][0] ?? "Ready to save.",
-    hasIssues: blockingIssues.length > 0 || warningIssues.length > 0,
-    issueCount: blockingIssues.length + warningIssues.length,
-    tone:
-      blockingIssues.length > 0
-        ? ("error" as const)
-        : warningIssues.length > 0
-          ? ("warn" as const)
-          : ("good" as const)
-  };
-}
-
-function scenePointIsInside(
-  point: ScenePointDraftValue | undefined,
-  size: { height: number; width: number }
-): boolean {
-  if (!point) return true;
-  return point.x >= 0 && point.x <= size.width && point.y >= 0 && point.y <= size.height;
-}
-
-function buildSceneLayersFromDraft(
-  drafts: SceneLayerDraft[],
-  availableAssetIdsSet: Set<string>
-): { layers: SceneLayer[]; error: string | null } {
-  const layers: SceneLayer[] = [];
-  const ids = new Set<string>();
-
-  for (const [index, draft] of drafts.entries()) {
-    const label = draft.name.trim() || draft.id.trim() || `Layer ${index + 1}`;
-    const id = draft.id.trim();
-    const name = draft.name.trim();
-    const assetId = draft.assetId.trim();
-    const depth = parseNumber(draft.depth);
-    const opacity = parseNumber(draft.opacity);
-    const x = parseNumber(draft.x);
-    const y = parseNumber(draft.y);
-    const width = parsePositiveNumber(draft.width);
-    const height = parsePositiveNumber(draft.height);
-
-    if (!id) return { layers, error: `${label}: layer id is required` };
-    if (ids.has(id)) return { layers, error: `${label}: layer id must be unique` };
-    if (!name) return { layers, error: `${label}: layer name is required` };
-    if (!assetId) return { layers, error: `${label}: asset is required` };
-    if (!availableAssetIdsSet.has(assetId)) return { layers, error: `${label}: asset "${assetId}" no longer exists` };
-    if (depth === null) return { layers, error: `${label}: depth must be a number` };
-    if (opacity === null || opacity < 0 || opacity > 1) return { layers, error: `${label}: opacity must be between 0 and 1` };
-    if (x === null || y === null || width === null || height === null) {
-      return { layers, error: `${label}: bounds must use valid positive numbers` };
-    }
-
-    ids.add(id);
-    layers.push({
-      assetId,
-      bounds: { x, y, width, height },
-      depth,
-      id,
-      locked: draft.locked,
-      name,
-      opacity,
-      visible: draft.visible
-    });
-  }
-
-  return { layers, error: null };
-}
-
-function summarizeActorViewportIssues(
-  actor: SceneActor,
-  scene: Layered2DScene,
-  availableAssetIdsSet: Set<string>,
-  availableAnimationPackIdsSet: Set<string>,
-  availableFlowIdsSet: Set<string>,
-  availableItemIdsSet: Set<string>,
-  defaultLocaleId: string,
-  defaultLocaleStrings: LocaleDocument["strings"] | null
-) {
-  const blockingIssues: string[] = [];
-  const warningIssues: string[] = [];
-  const labelKey = actor.labelKey.trim();
-
-  if (actor.assetId && !availableAssetIdsSet.has(actor.assetId)) {
-    blockingIssues.push(`Actor asset "${actor.assetId}" no longer exists.`);
-  }
-
-  if (actor.animationPackId && !availableAnimationPackIdsSet.has(actor.animationPackId)) {
-    blockingIssues.push(`Actor animation pack "${actor.animationPackId}" no longer exists.`);
-  }
-
-  if (!labelKey) {
-    blockingIssues.push("Actor label key is required.");
-  } else if (!defaultLocaleStrings) {
-    warningIssues.push(`Default locale "${defaultLocaleId}" is unavailable.`);
-  } else if (!(labelKey in defaultLocaleStrings)) {
-    warningIssues.push(`Label key "${labelKey}" is missing in ${defaultLocaleId}.`);
-  }
-
-  for (const [verb, flowId] of [
-    ["Look", actor.actions.lookFlowId?.trim() ?? ""],
-    ["Talk", actor.actions.talkFlowId?.trim() ?? ""],
-    ["Use", actor.actions.useFlowId?.trim() ?? ""]
-  ] as const) {
-    if (flowId && !availableFlowIdsSet.has(flowId)) {
-      blockingIssues.push(`${verb} flow "${flowId}" no longer exists.`);
-    }
-  }
-
-  if (!actor.actions.lookFlowId && !actor.actions.talkFlowId && !actor.actions.useFlowId && actor.actions.useItemFlows.length === 0) {
-    warningIssues.push("Actor has no action flow yet.");
-  }
-
-  actor.actions.useItemFlows.forEach((entry, index) => {
-    const itemId = entry.itemId.trim();
-    const flowId = entry.flowId.trim();
-    if (!itemId || !flowId) {
-      blockingIssues.push(`Override ${index + 1} must include both an item and a flow.`);
-      return;
-    }
-    if (!availableItemIdsSet.has(itemId)) {
-      blockingIssues.push(`Override ${index + 1} item "${itemId}" no longer exists.`);
-    }
-    if (!availableFlowIdsSet.has(flowId)) {
-      blockingIssues.push(`Override ${index + 1} flow "${flowId}" no longer exists.`);
-    }
-  });
-
-  if (!scenePointIsInside(actor.interactSpot, scene.size)) {
-    blockingIssues.push("Interact spot is outside the scene.");
-  }
-  if (!scenePointIsInside(actor.lookSpot, scene.size)) {
-    blockingIssues.push("Look spot is outside the scene.");
-  }
-
-  return {
-    detail: [...blockingIssues, ...warningIssues][0] ?? "Ready to save.",
-    hasIssues: blockingIssues.length > 0 || warningIssues.length > 0,
-    issueCount: blockingIssues.length + warningIssues.length,
-    tone:
-      blockingIssues.length > 0
-        ? ("error" as const)
-        : warningIssues.length > 0
-          ? ("warn" as const)
-          : ("good" as const)
-  };
 }
 
 type ViewportInteraction =
@@ -2528,7 +1759,15 @@ export interface EditorAppProps {
 }
 
 export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
-  const gateway = useMemo(() => injectedGateway ?? createBrowserEditorGateway(), [injectedGateway]);
+  const editorGateway = useMemo(() => injectedGateway ?? createBrowserEditorGateway(), [injectedGateway]);
+  const commandBus = useMemo(() => createEditorCommandBus(editorGateway), [editorGateway]);
+  const gateway = useMemo<EditorGateway>(
+    () => ({
+      ...editorGateway,
+      applyCommand: commandBus.apply
+    }),
+    [commandBus, editorGateway]
+  );
   const [navigationState, dispatchNavigation] = useReducer(
     editorNavigationReducer,
     undefined,
@@ -2542,14 +1781,8 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     dispatchNavigation({ type: "workspace/change", workspace: nextWorkspace });
   }, []);
   const [status, setStatus] = useState("Loading project...");
-  const [project, setProject] = useState<EditorProjectSnapshot | null>(null);
-  const [projectSettingsDraft, setProjectSettingsDraft] = useState({
-    defaultLocale: "",
-    initialSceneId: "",
-    title: "",
-    viewportHeight: "",
-    viewportWidth: ""
-  });
+  const [project, setProjectState] = useState<EditorProjectSnapshot | null>(null);
+  const [projectSettingsDraft, setProjectSettingsDraft] = useState(emptyProjectSettingsDraft);
   const [history, setHistory] = useState<EditorHistoryState>(emptyHistory);
   const [pendingRecovery, setPendingRecovery] = useState<EditorRecoverySnapshot | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
@@ -2689,6 +1922,11 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
   const [selectedSceneLayerId, setSelectedSceneLayerId] = useState<string | null>(null);
   const [selectedGenerationGuideId, setSelectedGenerationGuideId] = useState<string | null>(null);
   const [selectedFlowNodeId, setSelectedFlowNodeId] = useState<string | null>(null);
+  const setProject = useCallback((snapshot: EditorProjectSnapshot) => {
+    setProjectState(snapshot);
+    setSelectedAssetId((current) => projectAssetSelectionFor(snapshot, current));
+    setSelectedAnimationPackId((current) => projectAnimationPackSelectionFor(snapshot, current));
+  }, []);
   const promptProviderConfigReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const imageProviderConfigReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const aiWorkspaceRef = useRef<HTMLDivElement | null>(null);
@@ -2756,31 +1994,8 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
   const session = history.present;
   const scenes = project ? sceneItems(project.scenes) : [];
   useEffect(() => {
-    if (!project) {
-      setProjectSettingsDraft({
-        defaultLocale: "",
-        initialSceneId: "",
-        title: "",
-        viewportHeight: "",
-        viewportWidth: ""
-      });
-      return;
-    }
-
-    setProjectSettingsDraft({
-      defaultLocale: project.manifest.defaultLocale,
-      initialSceneId: project.manifest.initialSceneId,
-      title: project.manifest.title,
-      viewportHeight: String(project.manifest.viewport.height),
-      viewportWidth: String(project.manifest.viewport.width)
-    });
-  }, [
-    project?.manifest.defaultLocale,
-    project?.manifest.initialSceneId,
-    project?.manifest.title,
-    project?.manifest.viewport.height,
-    project?.manifest.viewport.width
-  ]);
+    setProjectSettingsDraft(projectSettingsDraftFor(project));
+  }, [project]);
 
   const narrativeRelationIndex = useMemo(
     () => buildNarrativeRelationIndex(project?.scenes ?? [], project?.flows ?? []),
@@ -4998,25 +4213,20 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     setCropStatus("Crop path reset.");
   };
 
-  const loadRecoveryForProject = async (projectDirectory: string) => {
-    try {
-      return await gateway.loadRecovery(projectDirectory);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Recovery snapshot could not be loaded");
-      return null;
-    }
-  };
-
-  const hydrateProject = async (snapshot: EditorProjectSnapshot) => {
-    const baseHistory = createHistoryState(initializeEditorSession(snapshot));
-    const recovery = await loadRecoveryForProject(snapshot.directory);
+  const hydrateProject = async (
+    snapshot: EditorProjectSnapshot,
+    recovery?: EditorRecoverySnapshot | null
+  ) => {
+    const loaded =
+      recovery === undefined ? await loadEditorProjectSession(gateway, snapshot) : { recovery, snapshot };
+    const hydration = hydrateEditorProject(snapshot, loaded.recovery);
 
     startTransition(() => {
       setProject(snapshot);
-      setHistory(baseHistory);
-      setPendingRecovery(recovery);
-      setSelectedAssetId(snapshot.selectedAsset?.id ?? snapshot.assets[0]?.id ?? null);
-      setSelectedAnimationPackId(snapshot.selectedAnimationPack?.id ?? snapshot.animationPacks[0]?.id ?? null);
+      setHistory(hydration.history);
+      setPendingRecovery(hydration.pendingRecovery);
+      setSelectedAssetId(hydration.selectedAssetId);
+      setSelectedAnimationPackId(hydration.selectedAnimationPackId);
       setAnimationPackDraft(
         createAnimationPackDraft(
           snapshot.selectedAnimationPack ?? snapshot.animationPacks[0] ?? null,
@@ -5028,11 +4238,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setValidationStatus("Validation uses saved project files.");
     });
 
-    if (recovery) {
-      setStatus(`Loaded ${snapshot.manifest.title} - recovery available`);
-    } else {
-      setStatus(`Loaded ${snapshot.manifest.title}`);
-    }
+    setStatus(projectLoadStatusFor(snapshot, loaded.recovery));
   };
 
   useEffect(() => {
@@ -5040,9 +4246,9 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
 
     async function loadInitialProject() {
       try {
-        const snapshot = await gateway.loadProject();
+        const loaded = await loadEditorProjectSession(gateway);
         if (cancelled) return;
-        await hydrateProject(snapshot);
+        await hydrateProject(loaded.snapshot, loaded.recovery);
       } catch (error) {
         if (cancelled) return;
         setStatus(error instanceof Error ? error.message : "Failed to load project");
@@ -5090,8 +4296,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
 
   useEffect(() => {
     if (!project || pendingRecovery) return;
-    const snapshot = buildRecoverySnapshot(project.directory, project, history.present);
-    void (snapshot ? gateway.saveRecovery(snapshot) : gateway.clearRecovery(project.directory)).catch(() => {
+    void syncEditorRecovery(gateway, project, history.present, pendingRecovery).catch(() => {
       // Recovery issues should not block normal editing.
     });
   }, [history.present, pendingRecovery, project]);

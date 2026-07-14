@@ -1,33 +1,9 @@
-:root {
-  color: var(--pc-text);
-  background: var(--pc-surface-page);
-  font-family: var(--pc-font-ui);
-  font-synthesis: none;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body,
-#root {
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  overflow: hidden;
-}
-
-button,
-input,
-select,
-textarea {
-  font: inherit;
-}
-
-button {
-  color: inherit;
-}
+/*
+ * Legacy editor component styles remain in this file while the stylesheet is
+ * split into ordered, feature-owned partials. Keep the reset in a dedicated
+ * entrypoint so future extractions can move without changing the cascade.
+ */
+@import "./editor-reset.css";
 
 .studio-shell {
   height: 100%;
@@ -46,8 +22,8 @@ button {
   align-items: center;
   gap: 14px;
   padding: 0 18px;
-  border-bottom: 1px solid #2c3b45;
-  background: rgba(20, 29, 38, 0.96);
+  border-bottom: 1px solid var(--pc-border-subtle);
+  background: color-mix(in srgb, var(--pc-bg-app) 96%, transparent);
   -webkit-app-region: drag;
 }
 
@@ -67,9 +43,9 @@ button {
   height: 34px;
   display: grid;
   place-items: center;
-  color: #162029;
+  color: var(--pc-color-text-on-accent);
   border-radius: 4px 11px 4px 11px;
-  background: #d9a561;
+  background: linear-gradient(145deg, var(--pc-accent-brand-hover), var(--pc-accent-brand));
   font-family: Georgia, serif;
   font-size: 0.72rem;
   font-weight: 800;
@@ -87,7 +63,7 @@ button {
 
 .brand small {
   margin-top: 2px;
-  color: #7f9ba8;
+  color: var(--pc-text-muted);
   font-size: 0.66rem;
 }
 
@@ -118,7 +94,7 @@ button {
   align-items: center;
   gap: 7px;
   padding: 0 10px;
-  color: #819aa6;
+  color: var(--pc-text-muted);
   border-bottom: 2px solid transparent;
   background: transparent;
   font-size: 0.76rem;
@@ -142,8 +118,8 @@ button {
 
 .workspace-tabs button:hover,
 .workspace-tabs button.active {
-  color: #e5ecec;
-  border-bottom-color: #d9a561;
+  color: var(--pc-text-primary);
+  border-bottom-color: var(--pc-accent-brand);
 }
 
 .preview-actions {
@@ -164,9 +140,9 @@ button {
   gap: 5px;
   min-width: 0;
   padding: 4px;
-  border: 1px solid #2b3a44;
+  border: 1px solid var(--pc-border-subtle);
   border-radius: 6px;
-  background: #141e27;
+  background: var(--pc-bg-control);
 }
 
 .topbar-project-state {
@@ -5307,28 +5283,4 @@ button {
 
 .provider-config-footer p {
   margin: 0;
-}
-
-@media (max-width: 640px) {
-  .provider-config-backdrop {
-    padding: 12px;
-  }
-
-  .provider-config-body {
-    grid-template-columns: 1fr;
-  }
-
-  .provider-config-body .prompt-studio-field:not(.provider-consent-field) {
-    grid-column: 1;
-  }
-
-  .provider-config-header,
-  .provider-config-footer {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .provider-config-footer .build-actions {
-    justify-content: flex-end;
-  }
 }

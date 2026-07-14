@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.0-alpha.3 - 2026-07-14
+
+### Release alignment
+
+- Align all workspace package metadata, active documentation, and release
+  evidence paths on `0.4.0-alpha.3`.
+- Keep the player on its legacy theme entry point while the editor uses the
+  scoped studio theme contract.
+- Add repository checks for the editor budget, theme contract, and active
+  documentation links/version references.
+
+### Editor engineering
+
+- Add editor characterization coverage, pure authoring/UI model tests, and
+  ratcheted editor stylesheet and source budgets.
+
 ## 0.4.0-alpha.1 - 2026-07-13
 
 ### Added

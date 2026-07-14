@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "39ef05f9-c670-4c57-bc4f-8d5357a80627",
+  "sequence": 3,
+  "createdAt": "2026-07-14T14:29:30.229Z",
+  "source": "editor",
+  "operation": "flow/delete",
+  "summary": "flow/delete (new-flow)",
+  "scope": "narrative",
+  "affectedDocuments": [
+    {
+      "kind": "project",
+      "id": "clean-adventure",
+      "path": "adventure.project.json",
+      "beforeSha256": "f7f881bb35102317f7311e07fa568be11d516e95e346432c66e71e3e670dcb53",
+      "afterSha256": "6caca994094b92e54b18f9b51e4d45afe759c790ac6d16ff0e2a1189278ee298"
+    },
+    {
+      "kind": "flow",
+      "id": "new-flow",
+      "path": "flows/new-flow.flow.json",
+      "beforeSha256": "b4bd31256d4b1b49d682225457606b16808acdd76a8cebc7561d1a853cecdbff"
+    }
+  ],
+  "command": {
+    "type": "flow/delete",
+    "flowId": "new-flow"
+  }
+}

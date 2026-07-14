@@ -36,6 +36,9 @@ jobs:
           pnpm test
           pnpm test -- --coverage
           pnpm typecheck
+          pnpm check:editor-budget
+          pnpm check:theme-contract
+          pnpm check:docs
           pnpm validate:sample
           pnpm validate:starter
           pnpm audit --audit-level high

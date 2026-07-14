@@ -1,6 +1,6 @@
 {
   "name": "point-and-click-engine",
-  "version": "0.4.0-alpha.1",
+  "version": "0.4.0-alpha.3",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -23,6 +23,9 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:packaged": "node scripts/test-packaged.mjs",
+    "check:editor-budget": "node scripts/check-editor-budget.mjs",
+    "check:theme-contract": "node scripts/check-theme-contract.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
     "typecheck": "pnpm -r --if-present typecheck",
     "build": "pnpm -r --if-present build",
     "validate:sample": "tsx packages/cli/src/index.ts validate apps/sample-game/project",
@@ -38,7 +41,7 @@
     "test:release-scripts": "node --test scripts/release-scripts.test.mjs",
     "verify:windows-package": "node scripts/verify-windows-package.mjs",
     "release:record": "node scripts/release-record.mjs",
-    "check": "pnpm test && pnpm typecheck && pnpm validate:sample && pnpm validate:starter && pnpm build && pnpm check:release"
+    "check": "pnpm test && pnpm typecheck && pnpm check:editor-budget && pnpm check:theme-contract && pnpm check:docs && pnpm validate:sample && pnpm validate:starter && pnpm build && pnpm check:release"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0",
