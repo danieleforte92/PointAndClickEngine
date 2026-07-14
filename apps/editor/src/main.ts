@@ -64,6 +64,14 @@ import { LocalErrorLogger, installProcessErrorLogging } from "./error-logging";
 import { PreviewManager } from "./preview";
 import { registerEditorIpcHandlers } from "./ipc-registration";
 
+// The development Electron renderer can run in restricted Windows environments
+// where the GPU process cannot initialize. Keep packaged builds accelerated by
+// default while making the local editor reliable for manual testing.
+if (!app.isPackaged || process.env.POINTCLICK_DISABLE_GPU === "1") {
+  app.commandLine.appendSwitch("disable-gpu");
+  app.disableHardwareAcceleration();
+}
+
 let editorWindow: BrowserWindow | null = null;
 let playerUrl = process.env.POINTCLICK_PLAYER_URL ?? "http://127.0.0.1:5173";
 let loadedProjectDirectory = initialProjectPath();

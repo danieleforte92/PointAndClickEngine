@@ -45,3 +45,12 @@ preview, provenance decision, and any applicable signing decision are recorded
 in the release evidence. The strict provenance gate is intentionally separate
 from normal development checks so unreviewed local/starter assets do not block
 every contributor build.
+
+## CI and dependency controls
+
+The stabilization gate runs on both Windows and Ubuntu, including threshold-
+enforced unit-test coverage. CodeQL and a high-severity dependency audit are
+required checks for candidate changes. Dependabot monitors npm dependencies and
+GitHub Actions weekly. Workflow actions are pinned to immutable commit SHAs,
+and failed browser or packaged smoke checks must retain their diagnostics for
+review.

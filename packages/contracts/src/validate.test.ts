@@ -2,6 +2,26 @@ import { describe, expect, it } from "vitest";
 import { validateDocument } from "./validate";
 
 describe("project contracts", () => {
+  it("accepts a stable save document", () => {
+    expect(
+      validateDocument("save", {
+        schemaVersion: 1,
+        slot: "manual-1",
+        projectFingerprint: "a".repeat(64),
+        locale: "en",
+        createdAt: "2026-07-13T12:00:00.000Z",
+        updatedAt: "2026-07-13T12:00:00.000Z",
+        checkpoint: {
+          kind: "stable",
+          worldState: { sceneId: "dock", player: { x: 100, y: 600 } },
+          flowSession: null,
+          eventLog: []
+        },
+        checksum: "b".repeat(64)
+      })
+    ).toEqual({ valid: true, errors: [] });
+  });
+
   it("accepts a committed project change record", () => {
     expect(
       validateDocument("projectChange", {

@@ -3075,6 +3075,87 @@ button {
   gap: 12px;
 }
 
+.flow-graph-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #35515d;
+  border-radius: 4px 12px 4px 12px;
+  background: linear-gradient(135deg, rgba(22, 39, 48, 0.94), rgba(13, 24, 31, 0.94));
+}
+
+.flow-graph-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.flow-graph-header strong {
+  display: block;
+  margin-top: 3px;
+  color: #d7e3e5;
+  font-size: 0.8rem;
+}
+
+.flow-graph-nodes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 7px;
+}
+
+.flow-graph-node {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(182, 218, 228, 0.18);
+  border-radius: 3px 8px 3px 8px;
+  background: rgba(4, 12, 18, 0.46);
+}
+
+.flow-graph-node strong {
+  color: #ddb06f;
+  font: 0.68rem/1 var(--pc-font-mono, monospace);
+}
+
+.flow-graph-node span {
+  overflow: hidden;
+  color: #d7e3e5;
+  font-size: 0.76rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-graph-node small,
+.flow-graph-edges,
+.flow-graph-diagnostics {
+  color: #86aabb;
+  font: 0.68rem/1.4 var(--pc-font-mono, monospace);
+}
+
+.flow-graph-edges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  max-height: 92px;
+  overflow: auto;
+}
+
+.flow-graph-edges span {
+  padding: 3px 5px;
+  border-radius: 2px;
+  background: rgba(182, 218, 228, 0.08);
+}
+
+.flow-graph-diagnostics {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: #e3a16d;
+}
+
 .flow-node-header {
   display: flex;
   align-items: center;

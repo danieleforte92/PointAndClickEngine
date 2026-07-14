@@ -70,8 +70,9 @@ security, and essential UX maintenance remain allowed.
 ## Release engineering and community
 
 - Keep `develop` as the integration branch and `master` as the release branch.
-- Use semantic prereleases such as `0.1.1-alpha.1`, `0.2.0-alpha.1`, and
-  `0.4.0-beta.1`, with a human changelog and machine-readable release manifest.
+- Use semantic prereleases such as `0.1.1-alpha.1`, `0.2.0-alpha.1`,
+  `0.4.0-alpha.1`, and later `0.4.0-beta.1`, with a human changelog and
+  machine-readable release manifest.
 - Maintain public milestones for stabilization, runtime foundation, narrative
   authoring, and distribution, with focused issues labelled `runtime`,
   `editor`, `security`, `release`, `docs`, `good first issue`, and `help wanted`.

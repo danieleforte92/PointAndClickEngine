@@ -45,6 +45,22 @@ button:focus-visible {
   position: relative;
 }
 
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  top: 8px;
+  left: 8px;
+  padding: 8px 12px;
+  color: #251d18;
+  border-radius: 3px;
+  background: #efe2c3;
+  transform: translateY(-180%);
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+}
+
 .game-header,
 .game-footer {
   display: flex;
@@ -272,6 +288,25 @@ h1 {
   display: grid;
   gap: 10px;
   justify-items: end;
+}
+
+.locale-picker {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  color: var(--pc-paper-70, rgba(239, 226, 195, 0.7));
+  font: 0.68rem/1.2 var(--pc-font-mono, monospace);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.locale-picker select {
+  min-block-size: 32px;
+  padding: 0 8px;
+  color: inherit;
+  border: 1px solid rgba(221, 176, 111, 0.42);
+  border-radius: 2px;
+  background: rgba(22, 29, 32, 0.72);
 }
 
 .status strong {
@@ -512,6 +547,42 @@ h1 {
   animation: dialogue-in 180ms ease-out both;
 }
 
+.dialogue-choices {
+  position: fixed;
+  z-index: 20;
+  left: 50%;
+  bottom: clamp(22px, 6vh, 72px);
+  width: min(760px, calc(100vw - 34px));
+  padding: 18px 22px;
+  color: var(--pc-text-dark, #251d18);
+  border: 1px solid rgba(255, 255, 255, 0.44);
+  border-radius: 4px 22px 4px 22px;
+  background: var(--pc-surface-paper, #efe2c3);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.56);
+  transform: translateX(-50%);
+}
+
+.dialogue-choices p {
+  margin: 0 0 12px;
+  font-family: var(--pc-font-display, Georgia, serif);
+  font-size: 1.2rem;
+}
+
+.dialogue-choices > div {
+  display: grid;
+  gap: 8px;
+}
+
+.dialogue-choices button {
+  min-block-size: 42px;
+  padding: 8px 12px;
+  color: inherit;
+  text-align: left;
+  border: 1px solid rgba(112, 75, 48, 0.35);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
 .feedback-banner {
   position: fixed;
   left: 50%;
@@ -524,6 +595,19 @@ h1 {
   border-radius: 3px;
   background: rgba(4, 12, 18, 0.78);
   font-size: 0.8rem;
+}
+
+.captions {
+  position: absolute;
+  z-index: 4;
+  right: 18px;
+  bottom: 58px;
+  left: 18px;
+  padding: 8px 12px;
+  color: #fff;
+  text-align: center;
+  text-shadow: 0 1px 3px #000;
+  background: rgba(0, 0, 0, 0.58);
 }
 
 .speaker {
@@ -855,5 +939,302 @@ h1 {
   .verb-bar,
   .inventory-strip {
     flex-wrap: wrap;
+  }
+}
+
+/* Accessibility primitives and resilient player layout. These selectors are
+   intentionally DOM-agnostic so future player surfaces can reuse them without
+   changing the current showcase markup. */
+:root {
+  --pc-accessible-focus: #ffe0a3;
+  --pc-accessible-focus-surface: #171a1e;
+  --pc-accessible-state-border: #f0c878;
+}
+
+html,
+body,
+#root {
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+body {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  text-wrap: balance;
+}
+
+:where(button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])) {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:where(button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 3px solid var(--pc-accessible-focus);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 2px var(--pc-accessible-focus-surface);
+}
+
+:where(.surface-mode-toggle, .verb-bar, .inventory-strip):focus-within {
+  outline: 1px solid var(--pc-accessible-focus);
+  outline-offset: 4px;
+}
+
+.a11y-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.a11y-focus-target {
+  scroll-margin-block: 1rem;
+}
+
+.a11y-skip-link {
+  position: fixed;
+  z-index: 100;
+  top: 0.75rem;
+  left: 0.75rem;
+  padding: 0.65rem 0.9rem;
+  color: var(--pc-text-dark);
+  border: 2px solid var(--pc-accessible-state-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-surface-paper-soft);
+  transform: translateY(-180%);
+  transition: transform 150ms ease;
+}
+
+.a11y-skip-link:focus-visible {
+  transform: translateY(0);
+}
+
+.game-header,
+.demo-brief,
+.capture-strip,
+.verb-bar,
+.inventory-strip {
+  flex-wrap: wrap;
+}
+
+.game-header > *,
+.demo-brief > *,
+.capture-strip > *,
+.demo-step > *,
+.demo-state-strip > *,
+.event-feed-heading > *,
+.verb-bar > *,
+.inventory-strip > *,
+.inventory-items {
+  min-width: 0;
+}
+
+.demo-brief-copy,
+.capture-strip-copy,
+.capture-strip-meta,
+.story-signal,
+.event-feed,
+.event-readout,
+.event-feed li,
+.hint,
+.feedback-banner,
+.dialogue-card {
+  overflow-wrap: anywhere;
+}
+
+.surface-mode-toggle {
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+
+.surface-mode-toggle button,
+.verb-bar button,
+.inventory-items button {
+  min-block-size: 40px;
+}
+
+.surface-mode-toggle button:hover,
+.verb-bar button:hover,
+.inventory-items button:hover {
+  color: var(--pc-paper-50);
+  border-color: var(--pc-accessible-state-border);
+  background: var(--pc-ink-800);
+}
+
+.surface-mode-toggle button[aria-pressed="true"],
+.verb-bar button.active,
+.inventory-items button.selected {
+  color: var(--pc-text-dark);
+  border-color: var(--pc-accessible-state-border);
+  background: linear-gradient(180deg, #f0c878, var(--pc-amber-400));
+  box-shadow: inset 0 0 0 1px rgba(32, 27, 22, 0.22);
+  font-weight: 900;
+  text-decoration: underline;
+  text-decoration-thickness: 0.12em;
+  text-underline-offset: 0.16em;
+}
+
+:where(button, a)[aria-disabled="true"],
+:where(button, a):disabled {
+  color: var(--pc-text-muted);
+  border-color: var(--pc-border);
+  background: var(--pc-ink-850);
+  opacity: 0.78;
+}
+
+.stage-frame,
+.dialogue-card,
+.feedback-banner {
+  max-width: 100%;
+}
+
+.feedback-banner {
+  width: max-content;
+  max-width: calc(100vw - 2rem - env(safe-area-inset-left) - env(safe-area-inset-right));
+  text-align: center;
+}
+
+.dialogue-card {
+  width: min(
+    760px,
+    calc(100vw - 34px - env(safe-area-inset-left) - env(safe-area-inset-right))
+  );
+  bottom: calc(clamp(22px, 6vh, 72px) + env(safe-area-inset-bottom));
+}
+
+.player-shell.play-mode {
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+}
+
+@media (max-width: 760px) {
+  .demo-state-strip,
+  .story-signals {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .game-header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .status {
+    text-align: left;
+  }
+
+  .status-panel,
+  .surface-mode-toggle {
+    width: 100%;
+  }
+
+  .surface-mode-toggle button,
+  .verb-bar button {
+    flex: 1 1 7rem;
+  }
+
+  .inventory-strip > span {
+    min-width: 0;
+    flex: 1 0 100%;
+  }
+
+  .inventory-items {
+    width: 100%;
+  }
+
+  .dialogue-card {
+    padding: 16px 54px 18px 18px;
+  }
+}
+
+@media (max-width: 420px) {
+  .game-footer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+
+  .dialogue-card {
+    transform: translateX(-50%);
+  }
+
+  .stage-grain {
+    display: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .demo-brief,
+  .demo-step,
+  .demo-state-strip,
+  .story-signal,
+  .event-feed,
+  .capture-strip,
+  .verb-bar,
+  .inventory-strip,
+  .event-readout,
+  .stage-frame {
+    border-color: var(--pc-paper-200);
+  }
+
+  .surface-mode-toggle button,
+  .verb-bar button,
+  .inventory-items button {
+    border-color: var(--pc-paper-100);
+  }
+}
+
+@media (forced-colors: active) {
+  .demo-brief,
+  .demo-step,
+  .demo-state-strip,
+  .story-signal,
+  .event-feed,
+  .capture-strip,
+  .verb-bar,
+  .inventory-strip,
+  .event-readout,
+  .stage-frame,
+  .dialogue-card,
+  .feedback-banner,
+  .hint {
+    border-color: CanvasText;
+  }
+
+  :where(button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])):focus-visible {
+    outline-color: Highlight;
+    box-shadow: 0 0 0 2px Canvas;
+  }
+
+  .surface-mode-toggle button[aria-pressed="true"],
+  .verb-bar button.active,
+  .inventory-items button.selected {
+    color: HighlightText;
+    border-color: Highlight;
+    background: Highlight;
   }
 }

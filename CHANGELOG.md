@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.4.0-alpha.1 - 2026-07-13
+
+### Added
+
+- Deterministic waypoint navigation with pending interactions completed at
+  `movement/completed`.
+- Versioned save documents with manual slots, autosave, checkpoints, browser
+  storage, validation, corruption detection, and project fingerprint checks.
+- Schema-v2 migration with dry-run, backup, staging, rollback, and fixture
+  coverage.
+- Flow VM conditions, choices, sub-flows, inventory commands, waits, scene
+  triggers, presentation cues, graph diagnostics, and puzzle dependencies.
+- Audio mixer, captions, scene music/ambience, SFX, and optional voice lines.
+- Static web export with relative assets and browser save storage.
+- Keyboard/focus support, reduced-motion behavior, contrast-oriented player
+  surfaces, and onboarding improvements for creators.
+- Windows distribution validation for the portable package, ZIP, and Squirrel
+  installer outputs.
+
+### Fixed
+
+- Player event feedback now renders movement completion with stable coordinates.
+- Coverage runs are reproducible with the hoisted pnpm workspace layout.
+
+### Release engineering
+
+- Align the workspace candidate metadata on `0.4.0-alpha.1`.
+- Keep the Windows candidate explicitly unsigned and prerelease until signing
+  evidence is available.
+
 ## 0.1.1-alpha.1 - 2026-07-13
 
 ### Fixed

@@ -1,84 +1,77 @@
-# Creator Alpha v0.1.1-alpha.1 Release Notes
+# Creator Alpha v0.4.0-alpha.1 Release Notes
 
-Creator Alpha v0.1.1-alpha.1 is the stabilization prerelease for Point & Click
-Engine. It is a Windows-first technical alpha for contributors and early
-creators who are comfortable with local developer tools. The 0.1.x line keeps
-schema-v1 project compatibility; it is not a general web export, an SDK, or a
-promise of full puzzle AI.
+Creator Alpha v0.4.0-alpha.1 is the distribution and accessibility alpha for
+Point & Click Engine. It is a Windows-first prerelease for contributors and
+early creators who are comfortable with local developer tools. The candidate
+extends the runtime foundation and narrative authoring work with saves,
+migration, static web export, player accessibility, and verified packaging.
 
-Release page: publish this candidate as GitHub prerelease tag `v0.1.1-alpha.1`.
+Release page: publish this candidate as GitHub prerelease tag
+`v0.4.0-alpha.1`.
 
 ## Public Walkthrough
 
-- [Scene editor](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.1.1-alpha.1/docs/assets/scene_editor.jpg)
-- [Player showcase loop](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.1.1-alpha.1/docs/assets/player.jpg)
-- [AI Studio with Advanced and Candidate Output](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.1.1-alpha.1/docs/assets/ai-studio-advanced.png)
-- [Asset Studio mock asset surface](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.1.1-alpha.1/docs/assets/asset_studio.jpg)
+- [Scene editor](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.4.0-alpha.1/docs/assets/scene_editor.jpg)
+- [Player showcase loop](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.4.0-alpha.1/docs/assets/player.jpg)
+- [AI Studio with Advanced and Candidate Output](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.4.0-alpha.1/docs/assets/ai-studio-advanced.png)
+- [Asset Studio mock asset surface](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.4.0-alpha.1/docs/assets/asset_studio.jpg)
 
 ## What To Try First
 
 1. Run `corepack enable`, `pnpm install --frozen-lockfile`, and `pnpm dev` with
    Node.js 22.17.0 and pnpm 9.6.0.
-2. Open `apps/sample-game/project`.
-3. Move a scene hotspot, pickup, player start, or walk-area point.
-4. Generate a mock prompt pack in **AI Studio**, or open AI Studio from a scene
-   background, actor, pickup, or used image asset to keep the target selected.
-5. Import or drop an image asset in an inspector.
-6. Use **Remove Background** on a flat blue/green chroma image and save the
-   result as a new PNG asset.
-7. Run validation in **Build**, open any actionable diagnostic to jump to its
-   source object, then preview with **Play from here** and **Browser**.
+2. Open `apps/sample-game/project` and play the look, pickup, use, dialogue,
+   and scene-transition loop.
+3. Edit a walk area and test waypoint movement plus an interaction that waits
+   for `movement/completed`.
+4. Create manual saves, trigger autosave, restore a slot, and test browser or
+   Electron persistence.
+5. Run `pointclick migrate` on a v1 fixture in dry-run and backup mode, then
+   validate the migrated project.
+6. Inspect Flow graph diagnostics and puzzle dependencies in the editor.
+7. Export the sample as a static web build and open the generated output.
+8. Exercise keyboard focus, captions, reduced motion, contrast-oriented
+   controls, and a narrow browser viewport.
+9. Generate a mock prompt pack, import an image asset, and preview with
+   **Play from here** and **Browser**.
 
 ## Included
 
-- Electron editor for layered 2D scenes, hotspots, pickups, actors, player
-  setup, assets, prompt packs, and validation.
-- Web player and embedded packaged preview.
-- Git-friendly JSON project format with schema and semantic validation.
-- Public sample game, minimal starter project, and authoring docs.
+- Electron editor and web player for layered 2D scenes, hotspots, pickups,
+  actors, player setup, assets, prompt packs, and validation.
+- Deterministic navigation waypoints, pending interactions, and path progress.
+- Versioned saves with three manual slots, one autosave, stable checkpoints,
+  validation, corruption detection, project fingerprints, and storage adapters.
+- Schema-v2 migration with dry-run, backup, staging, rollback, and fixture
+  coverage.
+- Flow VM conditions, choices, sub-flows, inventory commands, waits, scene
+  triggers, presentation cues, graph diagnostics, and puzzle dependencies.
+- Audio assets, scene music/ambience, SFX, optional voice lines, captions,
+  mute, and channel volume controls.
+- Static web export with relative assets and browser save storage.
+- Keyboard navigation, focus management, reduced-motion behavior, and
+  accessibility-oriented player controls.
+- Windows package verification for the portable editor, ZIP, and Squirrel
+  installer outputs.
 - Local-first AI workflows with mock prompt generation, LM Studio, experimental
-  opt-in cloud providers, and ComfyUI image import.
-- Mock deterministic is the guaranteed offline path and requires no provider
-  account, key, model download, or network request.
-- Local deterministic narrative and puzzle suggestions that stay advisory;
-  creators author the resulting Flow JSON and gameplay logic explicitly.
-- AI workflow documents for style bibles, workflow templates, generation
-  recipes, and generated asset provenance.
-- ComfyUI preset install for SDXL standard 8GB background T2I, SDXL
-  Lightning/Turbo fast-draft background T2I, SDXL Lightning/Turbo 8GB
-  prop/character chroma, and SD 1.5 8GB masked inpaint, with recipe-first
-  generation and legacy workflow path fallback.
-- ComfyUI template binding patching for prompt, negative prompt, seed,
-  dimensions, checkpoint, output prefix, reference images, mask images, and
-  explicit output nodes.
-- Generated image asset provenance for workflow id, recipe id, workflow family,
-  prompt pack target, linked reference and mask assets, parent asset lineage,
-  dimensions, warnings, model, and seed.
-- Inspector asset import/drop, pickup image assets, and chroma cleanup for flat
-  blue/green backgrounds.
-- Project, Scenes, Narrative, AI Studio, Assets, and Build now share direct
-  navigation: summaries, scene selections, narrative triggers, AI targets, and
-  build diagnostics open the relevant object instead of acting as passive lists.
+  opt-in cloud providers, and ComfyUI image import. The deterministic mock
+  path remains usable without provider accounts, keys, or model downloads.
 
 ## Known Limitations
 
-- Windows is the primary packaged target.
-- The Windows x64 package is unsigned; no signing certificate or signing
-  evidence is configured for this Alpha.
-- Character Gym is an MVP editor workflow for spritesheet slicing, clip preview,
-  pack editing, and player/actor assignment. Generated animation-sheet
-  consistency still needs stronger presets.
+- This is an alpha candidate; Windows is the primary packaged target.
+- The Windows x64 package is unsigned. Signing requires a separate authorized
+  certificate and recorded evidence before a non-alpha stable release.
+- Flow authoring has diagnostics and dependency inspection but is not yet a
+  full node-graph editor.
+- Character Gym remains an MVP workflow and generated animation-sheet
+  consistency needs stronger presets.
 - Transparent PNG quality depends on the selected ComfyUI workflow or a clean
   flat chroma source for editor cleanup.
-- Reference and mask inputs require an installed ComfyUI template or legacy API
-  workflow with compatible image loader nodes; plain text-to-image paths do not
-  use image inputs.
-- Flow graph editing, hosted demo, marketing site, web export, and npm SDK
-  publishing are outside this release.
-- AI provider keys are optional; OpenAI requires API platform access and is not
-  covered by a ChatGPT subscription.
-- Cloud providers are experimental and opt-in. Creator Alpha remains useful
-  without an account, key, or paid provider.
+- Reference and mask inputs require a compatible installed ComfyUI template or
+  legacy API workflow; plain text-to-image paths do not use image inputs.
+- Hosted web demo, marketing site, SDK publishing, and autonomous puzzle AI are
+  outside this candidate. Cloud providers remain experimental and optional.
 
 ## Release Gate
 
@@ -91,6 +84,9 @@ pnpm test:e2e
 pnpm check:release:candidate
 pnpm validate:provenance:strict
 pnpm verify:windows-package
+pnpm --filter @pointclick/editor make
+pnpm test:e2e:packaged
 ```
 
-Also complete the manual smoke test in `docs/release-checklist.md`.
+Also complete the manual smoke test in `docs/release-checklist.md`. Do not
+claim signing or manual smoke completion without recording the actual evidence.

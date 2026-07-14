@@ -6,8 +6,11 @@ export type GameCommand =
   | { type: "verb/select"; verb: Verb }
   | { type: "inventory/select"; itemId: string }
   | { type: "inventory/clear-selection" }
+  | { type: "inventory/add"; itemId: string }
+  | { type: "inventory/remove"; itemId: string }
   | { type: "pickup/collect"; pickupId: string; itemId: string }
   | { type: "character/walk"; x: number; y: number }
+  | { type: "movement/complete"; x: number; y: number }
   | { type: "scene/change"; sceneId: string; player: { x: number; y: number } }
   | { type: "actor/interact"; actorId: string; verb: Verb; itemId: string | null }
   | { type: "hotspot/interact"; hotspotId: string; verb: Verb; itemId: string | null }
@@ -20,8 +23,11 @@ export type DomainEvent =
   | { type: "verb/selected"; verb: Verb }
   | { type: "inventory/item-selected"; itemId: string }
   | { type: "inventory/selection-cleared" }
+  | { type: "inventory/item-added"; itemId: string }
+  | { type: "inventory/item-removed"; itemId: string }
   | { type: "pickup/collected"; pickupId: string; itemId: string }
   | { type: "character/moved"; x: number; y: number }
+  | { type: "movement/completed"; x: number; y: number }
   | { type: "scene/changed"; sceneId: string; player: { x: number; y: number } }
   | { type: "actor/interacted"; actorId: string; verb: Verb; itemId: string | null }
   | { type: "hotspot/interacted"; hotspotId: string; verb: Verb; itemId: string | null }
@@ -43,12 +49,22 @@ export function decide(state: WorldState, command: GameCommand): DomainEvent[] {
         : [{ type: "inventory/item-selected", itemId: command.itemId }];
     case "inventory/clear-selection":
       return state.selectedItemId === null ? [] : [{ type: "inventory/selection-cleared" }];
+    case "inventory/add":
+      return state.inventory.includes(command.itemId)
+        ? []
+        : [{ type: "inventory/item-added", itemId: command.itemId }];
+    case "inventory/remove":
+      return !state.inventory.includes(command.itemId)
+        ? []
+        : [{ type: "inventory/item-removed", itemId: command.itemId }];
     case "pickup/collect":
       return state.collectedPickups.includes(command.pickupId)
         ? []
         : [{ type: "pickup/collected", pickupId: command.pickupId, itemId: command.itemId }];
     case "character/walk":
       return [{ type: "character/moved", x: command.x, y: command.y }];
+    case "movement/complete":
+      return [{ type: "movement/completed", x: command.x, y: command.y }];
     case "scene/change":
       return state.sceneId === command.sceneId &&
         state.player.x === command.player.x &&
@@ -99,6 +115,21 @@ export function applyEvent(state: WorldState, event: DomainEvent): WorldState {
       return { ...state, selectedItemId: event.itemId, sequence };
     case "inventory/selection-cleared":
       return { ...state, selectedItemId: null, sequence };
+    case "inventory/item-added":
+      return {
+        ...state,
+        inventory: state.inventory.includes(event.itemId)
+          ? state.inventory
+          : [...state.inventory, event.itemId],
+        sequence
+      };
+    case "inventory/item-removed":
+      return {
+        ...state,
+        inventory: state.inventory.filter((itemId) => itemId !== event.itemId),
+        selectedItemId: state.selectedItemId === event.itemId ? null : state.selectedItemId,
+        sequence
+      };
     case "pickup/collected":
       return {
         ...state,
@@ -109,6 +140,8 @@ export function applyEvent(state: WorldState, event: DomainEvent): WorldState {
         sequence
       };
     case "character/moved":
+      return { ...state, player: { x: event.x, y: event.y }, sequence };
+    case "movement/completed":
       return { ...state, player: { x: event.x, y: event.y }, sequence };
     case "scene/changed":
       return { ...state, sceneId: event.sceneId, player: { ...event.player }, sequence };

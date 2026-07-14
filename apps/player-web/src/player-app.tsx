@@ -28,11 +28,15 @@ export type PlayerPresentation = {
   showSurfaceToggle: boolean;
 };
 
+const isDevelopmentBuild = Boolean(
+  (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV,
+);
+
 function presentationFor(mode: PlayerSurfaceMode): PlayerPresentation {
   return {
     mode,
     showDemoGuide: mode === "showcase",
-    showDiagnostics: mode !== "play",
+    showDiagnostics: isDevelopmentBuild && mode !== "play",
     showHeader: mode !== "play",
     showSurfaceToggle: mode !== "play"
   };
@@ -226,6 +230,7 @@ function formatEvent(
       return `pickup collected: ${localize(bundle, item?.labelKey ?? "", item?.name ?? event.itemId)}`;
     }
     case "character/moved":
+    case "movement/completed":
       return `character moved: ${Math.round(event.x)}, ${Math.round(event.y)}`;
     case "scene/changed":
       return `scene changed: ${bundle.scenes[event.sceneId]?.name ?? event.sceneId}`;
@@ -301,6 +306,11 @@ export function PlayerApp() {
         )
       : "None";
   const latestEventLabel = recentEvents[0] ?? "ready";
+  const captionText =
+    frame?.presentationCues
+      .map((cue) => (cue.key ? localize(bundle ?? sampleBundle, cue.key, cue.key) : cue.value))
+      .filter((value): value is string => Boolean(value))
+      .at(-1) ?? null;
   useEffect(() => {
     let cancelled = false;
 
@@ -335,8 +345,40 @@ export function PlayerApp() {
     if (!host || !bundle || !engine || !scene || !rendererReady) return;
 
     let disposed = false;
+    let movementAnimationFrame: number | null = null;
     const activeBundle = bundle;
     const activeEngine = engine;
+    const publishFrame = (nextFrame: RuntimeFrame) => {
+      frameRef.current = nextFrame;
+      rendererRef.current?.renderPlayer(
+        nextFrame.pathProgress?.position ?? nextFrame.state.player,
+      );
+      rendererRef.current?.renderCollectedPickups(
+        nextFrame.state.collectedPickups,
+      );
+      rendererRef.current?.renderVisibleActors(
+        activeEngine.visibleActors().map((actor) => actor.id),
+      );
+      setFrame(nextFrame);
+    };
+    const publishAndAnimate = (initialFrame: RuntimeFrame) => {
+      if (movementAnimationFrame !== null) {
+        cancelAnimationFrame(movementAnimationFrame);
+        movementAnimationFrame = null;
+      }
+      publishFrame(initialFrame);
+      if (!activeEngine.isMoving) return;
+
+      const advance = () => {
+        movementAnimationFrame = null;
+        if (disposed || !activeEngine.isMoving) return;
+        publishFrame(activeEngine.tickMovement(4));
+        if (activeEngine.isMoving) {
+          movementAnimationFrame = requestAnimationFrame(advance);
+        }
+      };
+      movementAnimationFrame = requestAnimationFrame(advance);
+    };
     const renderer = new PixiSceneRenderer(
       scene,
       {
@@ -351,35 +393,19 @@ export function PlayerApp() {
                   ...activeEngine.selectVerb("walk"),
                   feedback: "Switched to Walk.",
                 };
-          frameRef.current = nextFrame;
-          renderer.renderPlayer(nextFrame.state.player);
-          renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
-          renderer.renderVisibleActors(activeEngine.visibleActors().map((actor) => actor.id));
-          setFrame(nextFrame);
+          publishAndAnimate(nextFrame);
         },
         onActor: (actorId) => {
           const nextFrame = activeEngine.interactActor(actorId);
-          frameRef.current = nextFrame;
-          renderer.renderPlayer(nextFrame.state.player);
-          renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
-          renderer.renderVisibleActors(activeEngine.visibleActors().map((actor) => actor.id));
-          setFrame(nextFrame);
+          publishAndAnimate(nextFrame);
         },
         onHotspot: (hotspotId) => {
           const nextFrame = activeEngine.interactHotspot(hotspotId);
-          frameRef.current = nextFrame;
-          renderer.renderPlayer(nextFrame.state.player);
-          renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
-          renderer.renderVisibleActors(activeEngine.visibleActors().map((actor) => actor.id));
-          setFrame(nextFrame);
+          publishAndAnimate(nextFrame);
         },
         onPickup: (pickupId) => {
           const nextFrame = activeEngine.interactPickup(pickupId);
-          frameRef.current = nextFrame;
-          renderer.renderPlayer(nextFrame.state.player);
-          renderer.renderCollectedPickups(nextFrame.state.collectedPickups);
-          renderer.renderVisibleActors(activeEngine.visibleActors().map((actor) => actor.id));
-          setFrame(nextFrame);
+          publishAndAnimate(nextFrame);
         },
       },
       {
@@ -408,6 +434,9 @@ export function PlayerApp() {
 
     return () => {
       disposed = true;
+      if (movementAnimationFrame !== null) {
+        cancelAnimationFrame(movementAnimationFrame);
+      }
       resizeObserver?.disconnect();
       renderer.destroy();
       rendererRef.current = null;
@@ -456,6 +485,20 @@ export function PlayerApp() {
     writeSurfaceMode(mode);
   };
 
+  const changeLocale = (locale: string) => {
+    if (!engine) return;
+    const nextFrame = engine.setLocale(locale);
+    frameRef.current = nextFrame;
+    setFrame(nextFrame);
+  };
+
+  const chooseDialogue = (choiceId: string) => {
+    if (!engine) return;
+    const nextFrame = engine.chooseDialogue(choiceId);
+    frameRef.current = nextFrame;
+    setFrame(nextFrame);
+  };
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || isEditableTarget(event.target) || !engine)
@@ -471,6 +514,28 @@ export function PlayerApp() {
           nextFrame.state.collectedPickups,
         );
         rendererRef.current?.renderVisibleActors(engine.visibleActors().map((actor) => actor.id));
+        setFrame(nextFrame);
+        return;
+      }
+
+      const directionByKey = {
+        ArrowUp: { x: 0, y: -48 },
+        ArrowDown: { x: 0, y: 48 },
+        ArrowLeft: { x: -48, y: 0 },
+        ArrowRight: { x: 48, y: 0 }
+      } as const;
+      const direction = directionByKey[event.key as keyof typeof directionByKey];
+      if (direction) {
+        event.preventDefault();
+        const current = frameRef.current;
+        if (!current) return;
+        const planned = engine.walkTo(
+          current.state.player.x + direction.x,
+          current.state.player.y + direction.y,
+        );
+        const nextFrame = engine.isMoving ? engine.completeMovement() : planned;
+        frameRef.current = nextFrame;
+        rendererRef.current?.renderPlayer(nextFrame.state.player);
         setFrame(nextFrame);
         return;
       }
@@ -536,6 +601,9 @@ export function PlayerApp() {
 
   return (
     <main className={`player-shell ${surfaceMode}-mode`}>
+      <a className="skip-link" href="#game-stage">
+        Skip to game scene
+      </a>
       {presentation.showHeader ? (
         <header className="game-header">
           <div>
@@ -552,6 +620,20 @@ export function PlayerApp() {
                 <span>Scene</span>
                 <strong>{scene.name}</strong>
               </div>
+              <label className="locale-picker">
+                <span>Locale</span>
+                <select
+                  aria-label="Game locale"
+                  value={engine.locale}
+                  onChange={(event) => changeLocale(event.target.value)}
+                >
+                  {Object.keys(bundle.locales).map((locale) => (
+                    <option key={locale} value={locale}>
+                      {locale}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <div className="surface-mode-toggle">
                 <button
                   aria-pressed={surfaceMode === "showcase"}
@@ -656,12 +738,22 @@ export function PlayerApp() {
         </>
       ) : null}
 
-      <section className="stage-frame" aria-label="Game scene">
+      <section
+        id="game-stage"
+        className="stage-frame"
+        aria-label="Game scene"
+        tabIndex={-1}
+      >
         <div className="stage-grain" />
         <div ref={hostRef} className="stage-host" />
         <div className="hint" aria-live="polite">
           {surfaceHint}
         </div>
+        {captionText ? (
+          <div className="captions" aria-live="polite" aria-label="Captions">
+            {captionText}
+          </div>
+        ) : null}
       </section>
 
       <section className="verb-bar" aria-label="Interaction verbs">
@@ -734,6 +826,14 @@ export function PlayerApp() {
           <span>Selected item</span>
           <strong>{selectedItemLabel}</strong>
         </div>
+        <div className="event-readout">
+          <span>Path</span>
+          <strong>
+            {frame.pathProgress
+              ? `${Math.round(frame.pathProgress.ratio * 100)}%`
+              : "idle"}
+          </strong>
+        </div>
       </footer> : null}
 
       {frame.feedback ? (
@@ -742,7 +842,7 @@ export function PlayerApp() {
         </div>
       ) : null}
 
-      {frame.dialogue ? (
+      {frame.dialogue && frame.choices.length === 0 ? (
         <button
           aria-live="polite"
           className="dialogue-card"
@@ -755,6 +855,22 @@ export function PlayerApp() {
           <span className="line">{frame.dialogue.text}</span>
           <span className="continue">Continue</span>
         </button>
+      ) : null}
+      {frame.promptKey ? (
+        <section className="dialogue-choices" aria-label="Dialogue choices">
+          <p>{localize(bundle, frame.promptKey, frame.promptKey)}</p>
+          <div>
+            {frame.choices.map((choice) => (
+              <button
+                key={choice.id}
+                type="button"
+                onClick={() => chooseDialogue(choice.id)}
+              >
+                {localize(bundle, choice.labelKey, choice.labelKey)}
+              </button>
+            ))}
+          </div>
+        </section>
       ) : null}
     </main>
   );

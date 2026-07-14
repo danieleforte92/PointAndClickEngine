@@ -11,6 +11,7 @@ import {
   LocaleDocumentSchema,
   PromptPackDocumentSchema,
   ProjectChangeRecordSchema,
+  SaveDocumentSchema,
   ProjectManifestSchema,
   SceneDocumentSchema,
   StyleBibleDocumentSchema,
@@ -33,7 +34,8 @@ const validators = {
   styleBible: ajv.compile(StyleBibleDocumentSchema),
   workflowTemplate: ajv.compile(WorkflowTemplateDocumentSchema),
   generationRecipe: ajv.compile(AssetGenerationRecipeDocumentSchema),
-  projectChange: ajv.compile(ProjectChangeRecordSchema)
+  projectChange: ajv.compile(ProjectChangeRecordSchema),
+  save: ajv.compile(SaveDocumentSchema)
 } satisfies Record<string, ValidateFunction>;
 
 export type DocumentKind = keyof typeof validators;

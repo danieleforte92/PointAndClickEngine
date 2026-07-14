@@ -12,6 +12,21 @@ describe("deterministic command/event core", () => {
     expect(events.reduce(applyEvent, initial).sequence).toBe(2);
   });
 
+  it("records movement completion as a stable player transition", () => {
+    const initial = createInitialState("dock", { x: 10, y: 20 });
+    const result = executeCommand(initial, {
+      type: "movement/complete",
+      x: 90,
+      y: 120
+    });
+
+    expect(result.events).toEqual([
+      { type: "movement/completed", x: 90, y: 120 }
+    ]);
+    expect(result.state.player).toEqual({ x: 90, y: 120 });
+    expect(replay(initial, result.events)).toEqual(result.state);
+  });
+
   it("does not emit duplicate idempotent state changes", () => {
     const initial = createInitialState("dock", { x: 0, y: 0 });
     const first = executeCommand(initial, { type: "flag/set", key: "door.open", value: true });
@@ -96,6 +111,16 @@ describe("deterministic command/event core", () => {
     ]);
     expect(second.state.inventory).toEqual(["rusty-hook"]);
     expect(second.state.collectedPickups).toEqual(["dock-hook-a", "dock-hook-b"]);
+  });
+
+  it("adds and removes inventory items through replayable commands", () => {
+    const initial = createInitialState("dock", { x: 0, y: 0 });
+    const added = executeCommand(initial, { type: "inventory/add", itemId: "key" });
+    const removed = executeCommand(added.state, { type: "inventory/remove", itemId: "key" });
+
+    expect(added.events).toEqual([{ type: "inventory/item-added", itemId: "key" }]);
+    expect(removed.events).toEqual([{ type: "inventory/item-removed", itemId: "key" }]);
+    expect(replay(initial, [...added.events, ...removed.events])).toEqual(removed.state);
   });
 
   it("records actor interactions as replayable events", () => {
