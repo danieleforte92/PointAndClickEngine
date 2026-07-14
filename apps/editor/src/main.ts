@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
   AssetDocument,
+  AssetProcessingMetadata,
   AnimationPackDocument,
   FlowDocument,
   Hotspot,
@@ -27,8 +28,11 @@ import {
   generatedImageParentAssetIds,
   generatedImageOutputWarning,
   type ImageGenerationProviderResult,
-  type GenerateImageAssetRequest
+  type GenerateImageAssetRequest,
+  type ImageGenerationEvent,
+  type StartImageGenerationRequest
 } from "./image-generation";
+import { ImageCandidateStore } from "./image-candidate-store";
 import { generateLMStudioPromptPack } from "./lmstudio-prompt-provider";
 import { generateOpenAIPromptPack } from "./openai-prompt-provider";
 import { OpenAIImageProvider } from "./openai-image-provider";
@@ -47,6 +51,7 @@ import {
   safeProjectPath,
   serializeJsonDocument,
   type EditorProjectCommand,
+  type ImportedAssetPatch,
   validateProjectBundle,
   validateProjectFiles
 } from "@pointclick/project-io";
@@ -76,6 +81,7 @@ let editorWindow: BrowserWindow | null = null;
 let playerUrl = process.env.POINTCLICK_PLAYER_URL ?? "http://127.0.0.1:5173";
 let loadedProjectDirectory = initialProjectPath();
 let localErrorLogger: LocalErrorLogger | null = null;
+const imageCandidateStore = new ImageCandidateStore();
 
 const requestedUserDataDirectory = process.env.POINTCLICK_USER_DATA_DIR ?? argumentValue("--user-data-dir");
 if (requestedUserDataDirectory) {
@@ -173,8 +179,13 @@ const mimeTypes: Record<string, string> = {
   ".jpeg": "image/jpeg",
   ".json": "application/json; charset=utf-8",
   ".bmp": "image/bmp",
+  ".flac": "audio/flac",
+  ".m4a": "audio/mp4",
+  ".mp3": "audio/mpeg",
+  ".ogg": "audio/ogg",
   ".png": "image/png",
   ".svg": "image/svg+xml",
+  ".wav": "audio/wav",
   ".webp": "image/webp"
 };
 
@@ -280,15 +291,15 @@ async function clearRecoverySnapshot(projectDirectory: string): Promise<void> {
   await rm(recoveryFilePath(projectDirectory), { force: true });
 }
 
-function assetKindFromExtension(filePath: string): "image" {
+function assetKindFromExtension(filePath: string): "image" | "audio" {
   const extension = path.extname(filePath).toLowerCase();
-  if ([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg"].includes(extension)) {
-    return "image";
-  }
-  return "image";
+  if (supportedImageExtensions.has(extension)) return "image";
+  if (supportedAudioExtensions.has(extension)) return "audio";
+  throw new Error(`Unsupported asset extension "${extension || "(none)"}".`);
 }
 
 const supportedImageExtensions = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg"]);
+const supportedAudioExtensions = new Set([".mp3", ".ogg", ".wav", ".m4a", ".flac"]);
 
 function assertSupportedImagePath(filePath: string, label: string) {
   const extension = path.extname(filePath).toLowerCase();
@@ -304,7 +315,11 @@ function assertStringArray(value: unknown, label: string): string[] {
   return value;
 }
 
-function assertProcessedImageRequest(value: unknown): { dataUrl: string; filenameHint: string } {
+function assertProcessedImageRequest(value: unknown): {
+  dataUrl: string;
+  filenameHint: string;
+  processing?: AssetProcessingMetadata;
+} {
   if (
     typeof value !== "object" ||
     value === null ||
@@ -313,7 +328,7 @@ function assertProcessedImageRequest(value: unknown): { dataUrl: string; filenam
   ) {
     throw new Error("Processed image save request must include a PNG data URL and filename hint.");
   }
-  return value as { dataUrl: string; filenameHint: string };
+  return value as { dataUrl: string; filenameHint: string; processing?: AssetProcessingMetadata };
 }
 
 function slugifyAssetId(value: string): string {
@@ -343,14 +358,16 @@ async function uniquePath(basePath: string): Promise<string> {
   }
 }
 
-interface ImportImageSource {
+interface ImportAssetSource {
   filename: string;
+  processing?: AssetProcessingMetadata;
+  source?: "imported" | "generated" | "processed";
   writeTo(targetPath: string): Promise<void>;
 }
 
-async function importImageSources(projectDirectory: string, sources: ImportImageSource[]) {
+async function importAssetSources(projectDirectory: string, sources: ImportAssetSource[]) {
   if (sources.length === 0) {
-    throw new Error("No image files were provided for import.");
+    throw new Error("No compatible asset files were provided for import.");
   }
 
   const importedAssetsDirectory = path.join(projectDirectory, "assets", "imported");
@@ -358,11 +375,11 @@ async function importImageSources(projectDirectory: string, sources: ImportImage
 
   const existing = await loadProjectFromDirectory(projectDirectory);
   const existingAssetIds = new Set(Object.keys(existing.bundle.assets));
-  const assets = [];
+  const assets: ImportedAssetPatch[] = [];
   const assetIds: string[] = [];
 
   for (const source of sources) {
-    assertSupportedImagePath(source.filename, "Imported asset");
+    const kind = assetKindFromExtension(source.filename);
     const sourceName = path.basename(source.filename);
     const targetPath = await uniquePath(path.join(importedAssetsDirectory, sourceName));
     const relativeFilePath = path.relative(projectDirectory, targetPath).replace(/\\/g, "/");
@@ -378,13 +395,25 @@ async function importImageSources(projectDirectory: string, sources: ImportImage
 
     await source.writeTo(targetPath);
 
-    assets.push({
-      documentPath: `assets/${assetId}.asset.json`,
-      filePath: relativeFilePath,
-      id: assetId,
-      kind: assetKindFromExtension(targetPath),
-      source: "imported" as const
-    });
+    assets.push(
+      kind === "audio"
+        ? {
+            channel: "sfx",
+            documentPath: `assets/${assetId}.asset.json`,
+            filePath: relativeFilePath,
+            id: assetId,
+            kind: "audio",
+            source: source.source ?? "imported"
+          }
+        : {
+            documentPath: `assets/${assetId}.asset.json`,
+            filePath: relativeFilePath,
+            id: assetId,
+            kind: "image",
+            source: source.source ?? "imported",
+            ...(source.processing ? { processing: source.processing } : {})
+          }
+    );
   }
 
   const loaded = await applyProjectCommand(projectDirectory, {
@@ -399,11 +428,11 @@ async function importImageSources(projectDirectory: string, sources: ImportImage
 }
 
 async function importProjectAssetFiles(filePaths: unknown) {
-  const imageFilePaths = assertStringArray(filePaths, "Imported assets");
+  const assetFilePaths = assertStringArray(filePaths, "Imported assets");
   const projectDirectory = currentProjectPath();
-  return importImageSources(
+  return importAssetSources(
     projectDirectory,
-    imageFilePaths.map((sourcePath) => ({
+    assetFilePaths.map((sourcePath) => ({
       filename: sourcePath,
       writeTo: (targetPath) => copyFile(sourcePath, targetPath)
     }))
@@ -412,20 +441,22 @@ async function importProjectAssetFiles(filePaths: unknown) {
 
 async function saveProcessedImageAsset(requestValue: unknown) {
   const request = assertProcessedImageRequest(requestValue);
-  const match = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(request.dataUrl.trim());
+  const match = /^data:image\/(png|webp|jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(request.dataUrl.trim());
   if (!match) {
-    throw new Error("Processed image must be a PNG data URL.");
+    throw new Error("Processed image must be a PNG, WebP, or JPEG data URL.");
   }
-  const filename = path.basename(request.filenameHint.trim() || "processed-alpha.png");
-  const filenameWithExtension = path.extname(filename).toLowerCase() === ".png" ? filename : `${filename}.png`;
-  const bytes = Buffer.from(match[1]!, "base64");
+  const format = match[1] === "jpeg" ? "jpg" : match[1]!;
+  const filename = path.basename(request.filenameHint.trim() || `processed.${format}`);
+  const filenameWithExtension = path.extname(filename) ? filename : `${filename}.${format}`;
+  const bytes = Buffer.from(match[2]!, "base64");
   if (bytes.byteLength === 0) {
     throw new Error("Processed image PNG is empty.");
   }
 
-  return importImageSources(currentProjectPath(), [
+  return importAssetSources(currentProjectPath(), [
     {
       filename: filenameWithExtension,
+      ...(request.processing ? { processing: request.processing, source: "processed" as const } : {}),
       writeTo: (targetPath) => writeFile(targetPath, bytes)
     }
   ]);
@@ -554,7 +585,12 @@ async function runEditorValidation() {
 async function importProjectAssets(browserWindow: BrowserWindow) {
   const result = await dialog.showOpenDialog(browserWindow, {
     defaultPath: currentProjectPath(),
-    filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg"] }],
+    filters: [
+      {
+        name: "Images and audio",
+        extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg", "mp3", "ogg", "wav", "m4a", "flac"]
+      }
+    ],
     properties: ["openFile", "multiSelections"]
   });
   if (result.canceled || result.filePaths.length === 0) {
@@ -683,7 +719,7 @@ async function readAssetUploadInput(projectDirectory: string, bundle: ProjectBun
   };
 }
 
-async function generateImageAsset(request: GenerateImageAssetRequest) {
+async function runImageProvider(request: GenerateImageAssetRequest) {
   const providerId = request.providerId === "comfyui" ? "comfyui-local" : request.providerId;
   if (!["comfyui-local", "openai-image", "google-image"].includes(providerId)) {
     throw new Error(`Unsupported image provider "${request.providerId}"`);
@@ -852,6 +888,11 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
       ...(workflowId ? { workflowId } : {})
     });
   }
+  return { projectDirectory, result, workflowId, workflowTemplate };
+}
+
+async function generateImageAsset(request: GenerateImageAssetRequest) {
+  const { projectDirectory, result, workflowId, workflowTemplate } = await runImageProvider(request);
   const image = nativeImage.createFromBuffer(Buffer.from(result.bytes));
   const hasAlphaPixels = bitmapHasAlphaPixels(image.toBitmap());
   const expectedAlpha = request.expectedAlpha ?? false;
@@ -944,6 +985,230 @@ async function generateImageAsset(request: GenerateImageAssetRequest) {
   };
 }
 
+async function exportWebBuild(window: BrowserWindow) {
+  const project = await loadProjectFromDirectory(currentProjectPath());
+  const diagnostics = [
+    ...validateProjectBundle(project.bundle),
+    ...(await validateProjectFiles(project))
+  ];
+  const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+  if (errors.length > 0) {
+    throw new Error(`Web export is blocked by ${errors.length} saved-project error(s). Run Build validation first.`);
+  }
+
+  const selection = await dialog.showOpenDialog(window, {
+    title: "Choose an empty web export folder",
+    buttonLabel: "Export Web Build",
+    properties: ["openDirectory", "createDirectory"]
+  });
+  if (selection.canceled || !selection.filePaths[0]) return null;
+  const outputDirectory = path.resolve(selection.filePaths[0]);
+  const existingEntries = await readdir(outputDirectory);
+  if (existingEntries.length > 0) {
+    throw new Error("Web export destination must be an empty folder.");
+  }
+
+  const playerDistribution = app.isPackaged
+    ? path.resolve(process.resourcesPath, "dist")
+    : path.resolve(__dirname, "../../../player-web/dist");
+  const playerEntrypoint = path.join(playerDistribution, "index.html");
+  if (!(await stat(playerEntrypoint)).isFile()) {
+    throw new Error("The web player has not been built. Run the workspace build, then export again.");
+  }
+
+  await cp(playerDistribution, outputDirectory, { recursive: true, errorOnExist: true });
+  const projectAssetSource = path.join(project.directory, "assets");
+  const projectAssetTarget = path.join(outputDirectory, "project-assets", "assets");
+  try {
+    if ((await stat(projectAssetSource)).isDirectory()) {
+      await cp(projectAssetSource, projectAssetTarget, { recursive: true, errorOnExist: true });
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+
+  await writeFile(
+    path.join(outputDirectory, "project.bundle.json"),
+    serializeJsonDocument(project.bundle),
+    "utf8"
+  );
+  await writeFile(
+    path.join(outputDirectory, "pointclick-bootstrap.js"),
+    'const url=new URL(window.location.href);url.searchParams.set("bundleUrl","./project.bundle.json");url.searchParams.set("assetBaseUrl","./project-assets/");history.replaceState({},"",url);\n',
+    "utf8"
+  );
+  const entrypoint = await readFile(path.join(outputDirectory, "index.html"), "utf8");
+  const portableEntrypoint = entrypoint
+    .replace(/(["'])\/assets\//g, "$1./assets/")
+    .replace(/<head>/i, '<head><script src="./pointclick-bootstrap.js"></script>');
+  await writeFile(path.join(outputDirectory, "index.html"), portableEntrypoint, "utf8");
+
+  return {
+    assetCount: Object.keys(project.bundle.assets).length,
+    outputDirectory
+  };
+}
+
+function emitImageGenerationEvent(event: ImageGenerationEvent): void {
+  if (!editorWindow || editorWindow.isDestroyed()) return;
+  editorWindow.webContents.send("ai:image-generation-event", event);
+}
+
+function imageFileExtension(result: ImageGenerationProviderResult): string {
+  const sourceExtension = path.extname(result.filename).toLowerCase();
+  if ([".png", ".webp", ".jpg", ".jpeg"].includes(sourceExtension)) return sourceExtension;
+  if (result.mimeType === "image/webp") return ".webp";
+  if (result.mimeType === "image/jpeg") return ".jpg";
+  return ".png";
+}
+
+async function runImageGenerationJob(jobId: string, request: StartImageGenerationRequest): Promise<void> {
+  emitImageGenerationEvent({ type: "running", job: imageCandidateStore.setStatus(jobId, "running") });
+  try {
+    const batchSize = request.batchSize ?? 1;
+    for (let index = 0; index < batchSize; index += 1) {
+      if (imageCandidateStore.job(jobId).status === "cancelled") return;
+      const candidateRequest: StartImageGenerationRequest = {
+        ...request,
+        ...(request.seed !== undefined ? { seed: request.seed + index } : {})
+      };
+      const { projectDirectory, result, workflowId } = await runImageProvider(candidateRequest);
+      if (imageCandidateStore.job(jobId).status === "cancelled") return;
+
+      const image = nativeImage.createFromBuffer(Buffer.from(result.bytes));
+      if (image.isEmpty()) throw new Error("The image provider returned an unsupported or empty image.");
+      const hasAlphaPixels = bitmapHasAlphaPixels(image.toBitmap());
+      const outputWarning = generatedImageOutputWarning({
+        backgroundMode: candidateRequest.backgroundMode,
+        expectedAlpha: candidateRequest.expectedAlpha ?? false,
+        hasAlphaPixels
+      });
+      const warnings = [...(result.warnings ?? []), ...(outputWarning ? [outputWarning] : [])];
+      const resolvedRequest: StartImageGenerationRequest = {
+        ...candidateRequest,
+        ...(workflowId ? { workflowId } : {})
+      };
+      const candidate = imageCandidateStore.addCandidate(jobId, projectDirectory, resolvedRequest, result, {
+        ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
+        hasAlphaPixels,
+        height: result.height,
+        ...(result.latencyMs !== undefined ? { latencyMs: result.latencyMs } : {}),
+        mimeType: result.mimeType,
+        model: result.model ?? result.providerId,
+        previewDataUrl: `data:${result.mimeType};base64,${Buffer.from(result.bytes).toString("base64")}`,
+        provider: result.providerId,
+        providerJobId: result.providerJobId,
+        seed: result.seed ?? candidateRequest.seed ?? 0,
+        targetId: result.targetId,
+        warnings,
+        width: result.width
+      });
+      emitImageGenerationEvent({ type: "candidate", candidate, job: imageCandidateStore.job(jobId) });
+    }
+    if (imageCandidateStore.job(jobId).status !== "cancelled") {
+      emitImageGenerationEvent({ type: "completed", job: imageCandidateStore.setStatus(jobId, "completed") });
+    }
+  } catch (error) {
+    if (imageCandidateStore.job(jobId).status === "cancelled") return;
+    const job = imageCandidateStore.setStatus(jobId, "failed");
+    emitImageGenerationEvent({
+      type: "failed",
+      job,
+      message: error instanceof Error ? error.message : "Image generation failed."
+    });
+  }
+}
+
+function startImageGeneration(request: StartImageGenerationRequest) {
+  const job = imageCandidateStore.createJob(request.batchSize ?? 1);
+  emitImageGenerationEvent({ type: "queued", job });
+  void runImageGenerationJob(job.id, request);
+  return job;
+}
+
+function cancelImageGeneration(jobId: string): void {
+  const job = imageCandidateStore.setStatus(jobId, "cancelled");
+  emitImageGenerationEvent({ type: "cancelled", job });
+}
+
+async function applyImageCandidate(candidateId: string) {
+  const candidate = imageCandidateStore.getCandidate(candidateId);
+  const projectDirectory = currentProjectPath();
+  if (path.resolve(candidate.projectDirectory) !== path.resolve(projectDirectory)) {
+    throw new Error("This image candidate belongs to a different project. Reopen its project before applying it.");
+  }
+
+  const { request, result } = candidate;
+  const importedAssetsDirectory = path.join(projectDirectory, "assets", "imported");
+  await mkdir(importedAssetsDirectory, { recursive: true });
+  const safeFilename = `${slugifyAssetId(request.targetId)}-${result.providerJobId.slice(0, 8)}${imageFileExtension(result)}`;
+  const targetPath = await uniquePath(path.join(importedAssetsDirectory, safeFilename));
+  await writeFile(targetPath, Buffer.from(candidate.bytes));
+
+  const existing = await loadProjectFromDirectory(projectDirectory);
+  const workflowTemplate = request.workflowId ? existing.bundle.workflowTemplates[request.workflowId] : undefined;
+  const savedPromptPack = request.promptPackId ? existing.bundle.promptPacks[request.promptPackId] : undefined;
+  const savedTarget =
+    savedPromptPack && savedPromptPack.outputs.generationTargets.some((target) => target.id === request.targetId);
+  const parentAssetIds = generatedImageParentAssetIds({
+    maskAssetId: request.maskAssetId,
+    referenceAssetIds: request.referenceAssetIds
+  });
+  const baseAssetId = slugifyAssetId(path.basename(targetPath, path.extname(targetPath)));
+  let assetId = baseAssetId;
+  let counter = 1;
+  while (existing.bundle.assets[assetId]) {
+    assetId = `${baseAssetId}-${counter}`;
+    counter += 1;
+  }
+
+  const relativeFilePath = path.relative(projectDirectory, targetPath).replace(/\\/g, "/");
+  const loaded = await applyProjectCommand(projectDirectory, {
+    type: "asset/import",
+    assets: [
+      {
+        documentPath: `assets/${assetId}.asset.json`,
+        filePath: relativeFilePath,
+        id: assetId,
+        kind: "image",
+        source: "generated",
+        generation: {
+          provider: result.providerId,
+          providerJobId: result.providerJobId,
+          ...(result.model ? { model: result.model } : {}),
+          ...(result.seed !== undefined ? { seed: result.seed } : {}),
+          ...(result.latencyMs !== undefined ? { latencyMs: result.latencyMs } : {}),
+          ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
+          ...(workflowTemplate ? { workflowId: workflowTemplate.id } : {}),
+          ...(request.recipeId ? { recipeId: request.recipeId } : {}),
+          ...(request.workflowFamily || workflowTemplate?.family
+            ? { workflowFamily: request.workflowFamily ?? workflowTemplate!.family }
+            : {}),
+          prompt: {
+            positive: request.prompt,
+            ...(request.negativePrompt ? { negative: request.negativePrompt } : {})
+          },
+          dimensions: { width: result.width, height: result.height },
+          ...(savedPromptPack ? { promptPackId: savedPromptPack.id } : {}),
+          ...(savedPromptPack && savedTarget ? { targetId: request.targetId } : {}),
+          ...(parentAssetIds.length ? { parentAssetIds } : {}),
+          ...(request.referenceAssetIds?.length ? { referenceAssetIds: request.referenceAssetIds } : {}),
+          ...(request.maskAssetId ? { maskAssetId: request.maskAssetId } : {}),
+          ...(request.guideIds?.length ? { guideIds: request.guideIds } : {}),
+          ...(candidate.descriptor.warnings.length ? { warnings: candidate.descriptor.warnings } : {})
+        }
+      }
+    ]
+  });
+  loadedProjectDirectory = loaded.directory;
+  imageCandidateStore.discardCandidate(candidateId);
+  return {
+    assetId,
+    assetPath: relativeFilePath,
+    snapshot: await summarizeProject(loaded.directory, loaded.bundle)
+  };
+}
+
 app.whenReady().then(async () => {
   const logDirectories = [
     path.join(app.getPath("userData"), "logs"),
@@ -969,8 +1234,14 @@ app.whenReady().then(async () => {
 }).then((resolvedPlayerUrl) => {
   playerUrl = resolvedPlayerUrl;
   registerEditorIpcHandlers(handleTrustedIpc, {
+    applyAssetCandidate: (candidateId) => applyImageCandidate(candidateId),
+    cancelImageGeneration: (jobId) => cancelImageGeneration(jobId),
+    createPreviewSession: (request) => previewManager.createSession(request),
+    closePreviewSession: (sessionId) => previewManager.closeSession(sessionId),
     openPreview: (request) => previewManager.open(request),
     openPreviewInBrowser: (request) => previewManager.openInBrowser(request),
+    openPreviewSessionInBrowser: (sessionId) => previewManager.openSessionInBrowser(sessionId),
+    readPreviewTelemetry: (sessionId) => previewManager.readTelemetry(sessionId),
     loadProject: (projectDirectory) => readEditorProject(projectDirectory),
     pickProject: (window) => promptForProjectDirectory(window),
     createBlankProject: (window) => createBlankEditorProject(window),
@@ -984,6 +1255,9 @@ app.whenReady().then(async () => {
       return mockAuthoringProvider.suggest({ bundle: loaded.bundle, ...(request?.sceneId ? { sceneId: request.sceneId } : {}) });
     },
     imageAsset: (request) => generateImageAsset(request as GenerateImageAssetRequest),
+    startImageGeneration: (request) => startImageGeneration(request as StartImageGenerationRequest),
+    discardAssetCandidate: (candidateId) => imageCandidateStore.discardCandidate(candidateId),
+    exportWebBuild: (window) => exportWebBuild(window),
     installWorkflowPreset: (presetId) => installWorkflowPreset(presetId),
     applyProjectCommand: (command) => applyEditorCommand(command as EditorProjectCommand),
     validateProject: () => runEditorValidation(),

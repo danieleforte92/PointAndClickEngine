@@ -12,19 +12,21 @@ test("guides AI Studio from brief to explicit review", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Build art direction, then approve the output." })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "AI Studio steps" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Give the scene a clear visual point of view." })).toBeVisible();
-  await expect(page.getByText("2. Targets", { exact: true })).toBeVisible();
-  await expect(page.getByText("2. Context", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("2. Context", { exact: true })).toBeVisible();
+  await expect(page.getByText("3. Recipe", { exact: true })).toBeVisible();
   await expect(page.locator(".ai-advanced-section")).not.toHaveAttribute("open", "");
   await expect(page.getByLabel("Prompt provider", { exact: true })).toHaveValue("mock");
   await expect(page.getByRole("button", { name: "Configure prompt provider" })).toBeVisible();
 
   await page.getByRole("button", { name: "Generate Targets" }).click();
-  await expect(page.getByRole("heading", { name: "Choose the game pieces that need artwork." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Choose the game piece and inspect its project context." })).toBeVisible();
   await expect(page.locator(".ai-target-list button").first()).toBeVisible({ timeout: 10_000 });
 
   await page.locator(".ai-target-list button").first().click();
-  await page.getByRole("button", { name: "Continue to Generate" }).click();
-  await expect(page.getByRole("heading", { name: "Prepare one asset without losing the project context." })).toBeVisible();
+  await page.getByRole("button", { name: "Continue to Recipe" }).click();
+  await expect(page.getByRole("heading", { name: "Lock the provider workflow and reproducible inputs." })).toBeVisible();
+  await page.locator(".ai-stepper button").filter({ hasText: "Generate" }).click();
+  await expect(page.getByRole("heading", { name: "Create candidates without changing the project." })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open Advanced Setup" })).toBeVisible();
 
   const aiWorkspace = page.locator(".ai-workspace");
@@ -105,7 +107,7 @@ test("configures prompt and image providers from their gear modals", async ({ pa
   await expect(promptGear).toBeFocused();
 
   await page.getByRole("button", { name: "Generate Targets" }).click();
-  await expect(page.getByRole("heading", { name: "Choose the game pieces that need artwork." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Choose the game piece and inspect its project context." })).toBeVisible();
   const promptRequest = await page.evaluate(() => {
     return (window as typeof window & { __pointClickLastPromptPackRequest?: unknown })
       .__pointClickLastPromptPackRequest;
@@ -118,7 +120,8 @@ test("configures prompt and image providers from their gear modals", async ({ pa
   });
 
   await page.locator(".ai-target-list button").first().click();
-  await page.getByRole("button", { name: "Continue to Generate" }).click();
+  await page.getByRole("button", { name: "Continue to Recipe" }).click();
+  await page.locator(".ai-stepper button").filter({ hasText: "Generate" }).click();
   const imageProvider = page.getByLabel("Image provider", { exact: true });
   await imageProvider.selectOption("openai-image");
   await expect(page.locator(".ai-guided-summary-grid").getByText("OpenAI image", { exact: true })).toBeVisible();
@@ -136,11 +139,21 @@ test("configures prompt and image providers from their gear modals", async ({ pa
   await imageDialog.getByRole("button", { name: "Apply" }).click();
   await expect(imageGear).toBeFocused();
 
-  await page.getByRole("button", { name: "Generate & Import Asset" }).click();
+  await page.getByRole("button", { name: "Generate Candidates" }).click();
+  await expect(page.getByText("Temporary candidate", { exact: true })).toBeVisible();
+  const appliedBeforeReview = await page.evaluate(() => {
+    return (window as typeof window & { __pointClickAppliedCandidateCount?: number }).__pointClickAppliedCandidateCount ?? 0;
+  });
+  expect(appliedBeforeReview).toBe(0);
   const imageRequest = await page.evaluate(() => {
     return (window as typeof window & { __pointClickLastImageRequest?: unknown }).__pointClickLastImageRequest;
   });
   expect(imageRequest).toMatchObject({ providerId: "openai-image" });
+  await page.getByRole("button", { name: "Apply to Project" }).click();
+  const appliedAfterReview = await page.evaluate(() => {
+    return (window as typeof window & { __pointClickAppliedCandidateCount?: number }).__pointClickAppliedCandidateCount ?? 0;
+  });
+  expect(appliedAfterReview).toBe(1);
 });
 
 test("closes provider config with Escape and backdrop while restoring focus", async ({ page }) => {

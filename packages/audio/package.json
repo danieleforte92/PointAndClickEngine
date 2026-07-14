@@ -9,6 +9,9 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
   },
+  "dependencies": {
+    "@pointclick/contracts": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.8.3"
   }

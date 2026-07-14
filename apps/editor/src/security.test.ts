@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   assertAllowedExternalUrl,
@@ -31,9 +33,17 @@ describe("Electron security policy", () => {
   it("declares restrictive CSPs for editor and player surfaces", () => {
     for (const policy of [editorCsp, playerCsp]) {
       expect(policy).toContain("object-src 'none'");
-      expect(policy).toContain("frame-ancestors 'none'");
       expect(policy).toContain("script-src 'self'");
     }
+    expect(editorCsp).toContain("frame-src http://127.0.0.1:*");
+    expect(editorCsp).toContain("frame-ancestors 'none'");
+    expect(playerCsp).toContain("frame-ancestors 'self' http://127.0.0.1:*");
+  });
+
+  it("allows the local player frame in the CSP applied by the editor document", () => {
+    const editorHtml = readFileSync(path.resolve(__dirname, "../index.html"), "utf8");
+
+    expect(editorHtml).toContain("frame-src http://127.0.0.1:* http://localhost:*");
   });
 
   it("blocks untrusted navigation and popup requests", () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   bezierCropPathBounds,
+  alphaContentBounds,
   buildBezierCropSegmentSvgPath,
   buildBezierCropSvgPath,
   clampCropRect,
@@ -8,6 +9,7 @@ import {
   createDefaultBezierCropPath,
   createGuideMask,
   cropImageData,
+  imageOptimizePreset,
   insertBezierCropNodeAfter,
   moveBezierCropHandle,
   moveBezierCropNode,
@@ -16,6 +18,22 @@ import {
 } from "./asset-processing";
 
 describe("asset processing helpers", () => {
+  it("finds the non-transparent image bounds", () => {
+    const data = new Uint8ClampedArray(3 * 2 * 4);
+    data[(1 * 3 + 1) * 4 + 3] = 255;
+    data[(1 * 3 + 2) * 4 + 3] = 120;
+    expect(alphaContentBounds({ data, width: 3, height: 2 })).toEqual({ x: 1, y: 1, width: 2, height: 1 });
+  });
+
+  it("keeps safe optimization defaults for backgrounds and sprites", () => {
+    expect(imageOptimizePreset("background-web")).toMatchObject({ format: "webp", quality: 88 });
+    expect(imageOptimizePreset("sprite-pixel-art")).toMatchObject({
+      format: "png",
+      lossless: true,
+      resize: "nearest-neighbor"
+    });
+  });
+
   it("clamps crop rectangles to image bounds", () => {
     expect(clampCropRect({ x: 8, y: -3, width: 10, height: 20 }, { width: 12, height: 10 })).toEqual({
       x: 8,

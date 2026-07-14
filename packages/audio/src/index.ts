@@ -1,3 +1,5 @@
+import type { AssetDocument } from "@pointclick/contracts";
+
 export const AUDIO_CHANNELS = ["music", "ambience", "sfx", "voice"] as const;
 export type AudioChannel = (typeof AUDIO_CHANNELS)[number];
 
@@ -8,6 +10,36 @@ export interface AudioCue {
   loop?: boolean;
   volume?: number;
   captionKey?: string;
+}
+
+export interface AudioAssetResolution {
+  cue: AudioCue | null;
+  issue: string | null;
+}
+
+/** Resolve a runtime `sound.key` against the project asset index. */
+export function resolveAudioAssetCue(
+  key: string,
+  assets: Readonly<Record<string, AssetDocument>>
+): AudioAssetResolution {
+  const asset = assets[key];
+  if (!asset) {
+    return { cue: null, issue: `Audio cue "${key}" references a missing asset.` };
+  }
+  if (asset.kind !== "audio") {
+    return { cue: null, issue: `Audio cue "${key}" references a non-audio asset.` };
+  }
+  return {
+    cue: {
+      id: asset.id,
+      channel: asset.channel,
+      source: asset.path,
+      ...(asset.loop !== undefined ? { loop: asset.loop } : {}),
+      ...(asset.volume !== undefined ? { volume: asset.volume } : {}),
+      ...(asset.captionKey ? { captionKey: asset.captionKey } : {})
+    },
+    issue: null
+  };
 }
 
 export interface CaptionLocale {

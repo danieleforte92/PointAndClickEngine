@@ -479,6 +479,32 @@ export const SceneEntryTriggerSchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const FlowEditorLayoutSchema = Type.Object(
+  {
+    nodes: Type.Record(
+      Type.String({ minLength: 1 }),
+      Type.Object(
+        {
+          x: Type.Number(),
+          y: Type.Number()
+        },
+        { additionalProperties: false }
+      )
+    ),
+    viewport: Type.Optional(
+      Type.Object(
+        {
+          x: Type.Number(),
+          y: Type.Number(),
+          zoom: Type.Number({ exclusiveMinimum: 0 })
+        },
+        { additionalProperties: false }
+      )
+    )
+  },
+  { additionalProperties: false }
+);
+
 export const FlowDocumentSchema = Type.Object(
   {
     schemaVersion: ProjectSchemaVersionSchema,
@@ -486,7 +512,8 @@ export const FlowDocumentSchema = Type.Object(
     name: Type.String({ minLength: 1 }),
     startNodeId: Id,
     nodes: Type.Array(FlowNodeSchema, { minItems: 1 }),
-    sceneEntryTriggers: Type.Optional(Type.Array(SceneEntryTriggerSchema))
+    sceneEntryTriggers: Type.Optional(Type.Array(SceneEntryTriggerSchema)),
+    editorLayout: Type.Optional(FlowEditorLayoutSchema)
   },
   { additionalProperties: false }
 );
@@ -510,7 +537,7 @@ export const ItemDocumentSchema = Type.Object(
   { additionalProperties: false }
 );
 
-export const AssetKindSchema = Type.Union([Type.Literal("image")]);
+export const AssetKindSchema = Type.Union([Type.Literal("image"), Type.Literal("audio")]);
 export const AssetSourceSchema = Type.Union([
   Type.Literal("imported"),
   Type.Literal("generated"),
@@ -569,18 +596,85 @@ export const AssetGenerationMetadataSchema = Type.Object(
   { additionalProperties: false }
 );
 
-export const AssetDocumentSchema = Type.Object(
+export const AssetProcessingOperationSchema = Type.Object(
   {
-    schemaVersion: ProjectSchemaVersionSchema,
-    id: Id,
-    kind: AssetKindSchema,
-    path: ProjectPath,
-    source: AssetSourceSchema,
-    contentSha256: Type.Optional(Type.String({ pattern: "^[a-f0-9]{64}$" })),
-    generation: Type.Optional(AssetGenerationMetadataSchema)
+    type: Type.Union([
+      Type.Literal("crop"),
+      Type.Literal("remove-background"),
+      Type.Literal("trim-alpha"),
+      Type.Literal("resize"),
+      Type.Literal("optimize"),
+      Type.Literal("convert")
+    ]),
+    parameters: Type.Optional(
+      Type.Record(
+        Type.String(),
+        Type.Union([Type.String(), Type.Number(), Type.Boolean()])
+      )
+    )
   },
   { additionalProperties: false }
 );
+
+export const AssetProcessingMetadataSchema = Type.Object(
+  {
+    parentAssetId: Id,
+    operations: Type.Array(AssetProcessingOperationSchema, { minItems: 1 }),
+    format: Type.Union([Type.Literal("png"), Type.Literal("webp"), Type.Literal("jpeg")]),
+    quality: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+    dimensions: Type.Object(
+      {
+        width: Type.Integer({ minimum: 1 }),
+        height: Type.Integer({ minimum: 1 })
+      },
+      { additionalProperties: false }
+    ),
+    processedAt: Type.String({ format: "date-time" })
+  },
+  { additionalProperties: false }
+);
+
+export const ImageAssetDocumentSchema = Type.Object(
+  {
+    schemaVersion: ProjectSchemaVersionSchema,
+    id: Id,
+    kind: Type.Literal("image"),
+    path: ProjectPath,
+    source: AssetSourceSchema,
+    contentSha256: Type.Optional(Type.String({ pattern: "^[a-f0-9]{64}$" })),
+    generation: Type.Optional(AssetGenerationMetadataSchema),
+    processing: Type.Optional(AssetProcessingMetadataSchema)
+  },
+  { additionalProperties: false }
+);
+
+export const AudioChannelSchema = Type.Union([
+  Type.Literal("music"),
+  Type.Literal("ambience"),
+  Type.Literal("sfx"),
+  Type.Literal("voice")
+]);
+
+export const AudioAssetDocumentSchema = Type.Object(
+  {
+    schemaVersion: ProjectSchemaVersionSchema,
+    id: Id,
+    kind: Type.Literal("audio"),
+    path: ProjectPath,
+    source: AssetSourceSchema,
+    contentSha256: Type.Optional(Type.String({ pattern: "^[a-f0-9]{64}$" })),
+    channel: AudioChannelSchema,
+    volume: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
+    loop: Type.Optional(Type.Boolean()),
+    captionKey: Type.Optional(Type.String({ minLength: 1 }))
+  },
+  { additionalProperties: false }
+);
+
+export const AssetDocumentSchema = Type.Union([
+  ImageAssetDocumentSchema,
+  AudioAssetDocumentSchema
+]);
 
 export const WorkflowInputKindSchema = Type.Union([
   Type.Literal("prompt"),
@@ -1059,6 +1153,55 @@ export const RuntimeLocaleSchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const RuntimeInputActionKindSchema = Type.Union([
+  Type.Literal("activate-target"),
+  Type.Literal("move-player"),
+  Type.Literal("select-verb"),
+  Type.Literal("select-item"),
+  Type.Literal("continue-dialogue"),
+  Type.Literal("select-choice"),
+  Type.Literal("cancel")
+]);
+
+export const RuntimeInputActionSchema = Type.Object(
+  {
+    sequence: Type.Integer({ minimum: 0 }),
+    type: RuntimeInputActionKindSchema,
+    targetId: Type.Optional(Id),
+    value: Type.Optional(Type.String()),
+    point: Type.Optional(Vector2Schema)
+  },
+  { additionalProperties: false }
+);
+
+export const RuntimeTraceSchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    id: Id,
+    createdAt: Type.String({ format: "date-time" }),
+    projectFingerprint: Type.Optional(Type.String({ pattern: "^[a-f0-9]{64}$" })),
+    actions: Type.Array(RuntimeInputActionSchema)
+  },
+  { additionalProperties: false }
+);
+
+export const RuntimeDebugSnapshotSchema = Type.Object(
+  {
+    sequence: Type.Integer({ minimum: 0 }),
+    sceneId: Id,
+    player: Vector2Schema,
+    flags: Type.Record(Type.String(), FlagValueSchema),
+    inventory: Type.Array(Id),
+    activeFlowId: Type.Union([Id, Type.Null()]),
+    activeNodeId: Type.Union([Id, Type.Null()]),
+    dialogueKey: Type.Union([Type.String(), Type.Null()]),
+    path: Type.Array(Vector2Schema),
+    events: Type.Array(Type.String()),
+    audio: Type.Array(Id)
+  },
+  { additionalProperties: false }
+);
+
 export type Vector2 = Static<typeof Vector2Schema>;
 export type Rect = Static<typeof RectSchema>;
 export type Polygon2 = Static<typeof Polygon2Schema>;
@@ -1086,15 +1229,21 @@ export type Hybrid3DScene = Static<typeof Hybrid3DSceneSchema>;
 export type SceneDocument = Static<typeof SceneDocumentSchema>;
 export type FlowNode = Static<typeof FlowNodeSchema>;
 export type FlowDocument = Static<typeof FlowDocumentSchema>;
+export type FlowEditorLayout = Static<typeof FlowEditorLayoutSchema>;
 export type FlowChoice = Static<typeof FlowChoiceSchema>;
 export type FlowPresentationCue = Static<typeof FlowPresentationCueSchema>;
 export type SceneEntryTrigger = Static<typeof SceneEntryTriggerSchema>;
 export type LocaleDocument = Static<typeof LocaleDocumentSchema>;
 export type ItemDocument = Static<typeof ItemDocumentSchema>;
 export type AssetDocument = Static<typeof AssetDocumentSchema>;
+export type ImageAssetDocument = Static<typeof ImageAssetDocumentSchema>;
+export type AudioAssetDocument = Static<typeof AudioAssetDocumentSchema>;
 export type AssetKind = Static<typeof AssetKindSchema>;
 export type AssetSource = Static<typeof AssetSourceSchema>;
 export type AssetGenerationMetadata = Static<typeof AssetGenerationMetadataSchema>;
+export type AssetProcessingOperation = Static<typeof AssetProcessingOperationSchema>;
+export type AssetProcessingMetadata = Static<typeof AssetProcessingMetadataSchema>;
+export type AudioChannel = Static<typeof AudioChannelSchema>;
 export type WorkflowFamily = Static<typeof WorkflowFamilySchema>;
 export type WorkflowInputKind = Static<typeof WorkflowInputKindSchema>;
 export type WorkflowOutputMode = Static<typeof WorkflowOutputModeSchema>;
@@ -1122,6 +1271,10 @@ export type SaveDocument = Static<typeof SaveDocumentSchema>;
 export type MovementStatus = Static<typeof MovementStatusSchema>;
 export type PathProgress = Static<typeof PathProgressSchema>;
 export type RuntimeLocale = Static<typeof RuntimeLocaleSchema>;
+export type RuntimeInputActionKind = Static<typeof RuntimeInputActionKindSchema>;
+export type RuntimeInputAction = Static<typeof RuntimeInputActionSchema>;
+export type RuntimeTrace = Static<typeof RuntimeTraceSchema>;
+export type RuntimeDebugSnapshot = Static<typeof RuntimeDebugSnapshotSchema>;
 
 export interface ProjectBundle {
   manifest: ProjectManifest;

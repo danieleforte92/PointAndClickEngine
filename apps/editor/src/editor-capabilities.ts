@@ -34,35 +34,35 @@ export const workspaceCapabilities: EditorCapability[] = [
     label: "Narrative",
     status: "beta",
     workspace: "narrative",
-    summary: "Structured editing for flows and locale strings.",
-    detail: "Narrative authoring supports the current linear flow model and localized strings, not graph editing yet."
+    summary: "Graph editing, diagnostics, and localized narrative content.",
+    detail: "Narrative authoring supports every built-in flow node, typed transitions, persisted layout, diagnostics, and localized strings."
   },
   {
     id: "assets",
-    label: "Asset Studio",
+    label: "Assets",
     status: "beta",
     workspace: "assets",
-    summary: "Project asset import, Character Gym, health, usage, and scene background assignment.",
+    summary: "Federated resources, asset import, processing, audio, health, and usage.",
     detail:
-      "The asset library is wired for import, generated image imports, scene usage, Character Gym animation packs, health, and usage review today; provenance and versioning remain later milestones."
+      "Resources federates project documents while Asset Studio owns non-destructive image processing, Character Gym, audio metadata, provenance, and assignment handoff."
   },
   {
     id: "ai",
     label: "AI Studio",
     status: "beta",
     workspace: "ai",
-    summary: "Generate prompt packs and local image assets.",
+    summary: "Create prompt packs and review temporary image candidates.",
     detail:
-      "AI authoring supports mock, OpenAI, and LM Studio prompt-pack drafts plus ComfyUI image generation and asset import."
+      "AI authoring uses a five-step workflow with prompt approval, asynchronous image batches, session-only candidates, and explicit project application."
   },
   {
     id: "build",
     label: "Build",
     status: "beta",
     workspace: "build",
-    summary: "Saved-project validation and preview readiness checks.",
+    summary: "Saved-project validation, readiness checks, and static web export.",
     detail:
-      "The build workspace can validate saved project content today; packaging and export workflows still live in later milestones."
+      "Build distinguishes errors, warnings, and dirty drafts, routes diagnostics to their source, and exports a validated static web build."
   }
 ];
 

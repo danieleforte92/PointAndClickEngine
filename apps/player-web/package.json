@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@pointclick/audio": "workspace:*",
     "@pointclick/contracts": "workspace:*",
     "@pointclick/renderer-2d": "workspace:*",
     "@pointclick/runtime": "workspace:*",

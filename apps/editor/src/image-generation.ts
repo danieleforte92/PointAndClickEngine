@@ -105,6 +105,46 @@ export interface GeneratedImageAssetJob {
   targetId: string;
 }
 
+export interface StartImageGenerationRequest extends GenerateImageAssetRequest {
+  batchSize?: 1 | 2 | 3 | 4;
+}
+
+export interface ImageGenerationCandidate {
+  costUsd?: number;
+  hasAlphaPixels: boolean;
+  height: number;
+  id: string;
+  latencyMs?: number;
+  mimeType: string;
+  model: string;
+  previewDataUrl: string;
+  provider: ImageGenerationProviderId;
+  providerJobId: string;
+  seed: number;
+  targetId: string;
+  warnings: string[];
+  width: number;
+}
+
+export interface ImageGenerationQueueJob {
+  candidateIds: string[];
+  completed: number;
+  id: string;
+  requested: number;
+  status: ImageGenerationJobStatus;
+}
+
+export type ImageGenerationEvent =
+  | { type: "queued" | "running" | "completed" | "cancelled"; job: ImageGenerationQueueJob }
+  | { type: "candidate"; job: ImageGenerationQueueJob; candidate: ImageGenerationCandidate }
+  | { type: "failed"; job: ImageGenerationQueueJob; message: string };
+
+export interface AppliedImageCandidate {
+  assetId: string;
+  assetPath: string;
+  snapshot: EditorProjectSnapshot;
+}
+
 export function bitmapHasAlphaPixels(bitmap: Uint8Array | Buffer): boolean {
   for (let index = 3; index < bitmap.length; index += 4) {
     if (bitmap[index]! < 255) return true;

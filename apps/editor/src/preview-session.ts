@@ -257,6 +257,7 @@ function applyFlowDrafts(
     if (!flow) continue;
     nextFlows[flowId] = {
       ...flow,
+      ...(draft.editorLayout ? { editorLayout: draft.editorLayout } : {}),
       name: draft.name,
       nodes: buildFlowNodes(draft.nodes),
       startNodeId: draft.startNodeId

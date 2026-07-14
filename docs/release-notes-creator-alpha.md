@@ -32,8 +32,8 @@ Release page: publish this candidate as GitHub prerelease tag
 7. Export the sample as a static web build and open the generated output.
 8. Exercise keyboard focus, captions, reduced motion, contrast-oriented
    controls, and a narrow browser viewport.
-9. Generate a mock prompt pack, import an image asset, and preview with
-   **Play from here** and **Browser**.
+9. Generate a mock prompt pack, review and apply an image candidate, then use
+   Test Lab and **Browser** to compare runtime traces.
 
 ## Included
 

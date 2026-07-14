@@ -11,6 +11,8 @@ import type {
   PromptPackDocument,
   PromptPackGenerationTarget,
   Rect,
+  RuntimeDebugSnapshot,
+  RuntimeInputAction,
   SceneActor,
   SceneActorRole,
   SceneDocument,
@@ -31,6 +33,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   type DragEvent as ReactDragEvent,
@@ -53,6 +56,7 @@ import {
   WandSparkles
 } from "lucide-react";
 import {
+  alphaContentBounds,
   bezierCropPathBounds,
   buildBezierCropSegmentSvgPath,
   buildBezierCropSvgPath,
@@ -60,12 +64,15 @@ import {
   createDefaultBezierCropPath,
   createGuideMask,
   insertBezierCropNodeAfter,
+  imageOptimizePreset,
+  imageOptimizePresets,
   moveBezierCropHandle,
   moveBezierCropNode,
   removeBezierCropNode,
   setBezierCropNodeMode,
   type BezierCropNode,
   type BezierCropNodeMode,
+  type ImageOptimizePresetId,
   type ImagePixelData
 } from "../asset-processing";
 import {
@@ -85,8 +92,10 @@ import {
   AiProviderBoundary,
   AssetStudioSidebar,
   BuildWorkspace,
+  CollapsedPanelRail,
   iconSize,
   InspectorPanel,
+  PanelResizeHandle,
   ProjectMapPanel,
   RecoveryBanner,
   SavedPromptPacksCard,
@@ -186,9 +195,23 @@ import {
   composeTargetPositivePrompt,
   resolvePromptForGenerationTarget
 } from "../prompt-pack-targets";
-import { estimateImageWorkflowFamily, type ImageGenerationProviderId } from "../image-generation";
+import {
+  estimateImageWorkflowFamily,
+  type ImageGenerationCandidate,
+  type ImageGenerationProviderId,
+  type ImageGenerationQueueJob,
+  type StartImageGenerationRequest
+} from "../image-generation";
 import { workflowPresets } from "../workflow-presets";
-import type { EditorProjectSnapshot } from "../preload";
+import { createBrowserEditorGateway, type EditorGateway } from "../editor-gateway";
+import {
+  createEditorNavigationState,
+  editorNavigationReducer,
+  editorPreferencesStorageKey,
+  parseEditorPanelPreferences,
+  type EditorPanelId
+} from "../editor-state";
+import type { EditorPreviewSessionDescriptor, EditorProjectSnapshot } from "../preload";
 import type {
   BuildReadinessIssue,
   BuildReadinessTarget,
@@ -196,6 +219,16 @@ import type {
   EditorValidationRunState
 } from "../validation-report";
 import { createBuildReadinessIssues, createValidationReport } from "../validation-report";
+import { NarrativeGraph } from "./narrative-graph";
+import { FlowNodeFields } from "./flow-node-fields";
+import { TestLab } from "./test-lab";
+import {
+  buildProjectResourceIndex,
+  filterProjectResources,
+  type ProjectResourceDescriptor,
+  type ProjectResourceHealth,
+  type ProjectResourceKind
+} from "../project-resources";
 
 const emptyHistory = createHistoryState(
   initializeEditorSession({
@@ -341,14 +374,15 @@ interface FreePromptTarget {
   sceneId: string;
 }
 
-type AssetTool = "info" | "chroma" | "crop" | "guide" | "animation";
+type AssetTool = "info" | "chroma" | "crop" | "optimize" | "guide" | "animation";
 
-type AiStudioStep = "brief" | "targets" | "generate" | "review";
+type AiStudioStep = "brief" | "context" | "recipe" | "generate" | "review";
 
 const aiStudioSteps: Array<{ id: AiStudioStep; label: string; detail: string }> = [
   { id: "brief", label: "Brief", detail: "Set the art direction." },
-  { id: "targets", label: "Targets", detail: "Choose what to generate." },
-  { id: "generate", label: "Generate", detail: "Prepare the asset workflow." },
+  { id: "context", label: "Context", detail: "Choose the project target." },
+  { id: "recipe", label: "Recipe", detail: "Lock workflow and inputs." },
+  { id: "generate", label: "Generate", detail: "Create temporary candidates." },
   { id: "review", label: "Review & Apply", detail: "Approve changes explicitly." }
 ];
 
@@ -368,6 +402,11 @@ interface GeneratedAssetHandoff extends ImageGenerationSceneContext {
   hasAlphaPixels: boolean;
   outputWarning?: string;
   seed: number;
+}
+
+interface CandidateHandoffContext extends ImageGenerationSceneContext {
+  backgroundMode?: PromptPackGenerationTarget["backgroundMode"];
+  expectedAlpha: boolean;
 }
 
 interface BackgroundCleanupTarget {
@@ -1762,6 +1801,36 @@ type AssetCropInteraction =
 type SceneTool = "select" | "actor" | "hotspot" | "pickup" | "player-start" | "walk-area";
 type SceneInspectorTarget = "scene" | "player";
 
+interface SceneViewPreferences {
+  gridVisible: boolean;
+  minimapVisible: boolean;
+  overlaysVisible: boolean;
+  zoom: number;
+}
+
+const sceneViewPreferencesStorageKey = "pointclick.editor.scene-view.v1";
+const defaultSceneViewPreferences: SceneViewPreferences = {
+  gridVisible: false,
+  minimapVisible: false,
+  overlaysVisible: true,
+  zoom: 1
+};
+
+function loadSceneViewPreferences(): SceneViewPreferences {
+  if (typeof window === "undefined") return defaultSceneViewPreferences;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(sceneViewPreferencesStorageKey) ?? "{}") as Partial<SceneViewPreferences>;
+    return {
+      gridVisible: parsed.gridVisible ?? false,
+      minimapVisible: parsed.minimapVisible ?? false,
+      overlaysVisible: parsed.overlaysVisible ?? true,
+      zoom: [0.75, 1, 1.25, 1.5].includes(parsed.zoom ?? 1) ? parsed.zoom ?? 1 : 1
+    };
+  } catch {
+    return defaultSceneViewPreferences;
+  }
+}
+
 function sceneToolLabel(tool: SceneTool): string {
   switch (tool) {
     case "select":
@@ -2348,6 +2417,87 @@ async function loadImageElement(assetUrl: string) {
   return image;
 }
 
+interface ImageOptimizationPreview {
+  dataUrl: string;
+  height: number;
+  hasAlpha: boolean;
+  outputBytes: number;
+  sourceBytes: number;
+  sourceHasAlpha: boolean;
+  width: number;
+}
+
+function dataUrlByteLength(dataUrl: string): number {
+  const separator = dataUrl.indexOf(",");
+  if (separator < 0) return new TextEncoder().encode(dataUrl).byteLength;
+  const header = dataUrl.slice(0, separator);
+  const payload = dataUrl.slice(separator + 1);
+  if (!header.includes(";base64")) return new TextEncoder().encode(decodeURIComponent(payload)).byteLength;
+  const padding = payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((payload.length * 3) / 4) - padding);
+}
+
+function formatAssetBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function imageDataHasAlpha(imageData: ImageData): boolean {
+  for (let index = 3; index < imageData.data.length; index += 4) {
+    if (imageData.data[index]! < 255) return true;
+  }
+  return false;
+}
+
+async function createImageOptimizationPreview(options: {
+  assetUrl: string;
+  height: string;
+  presetId: ImageOptimizePresetId;
+  width: string;
+}): Promise<ImageOptimizationPreview> {
+  const preset = imageOptimizePreset(options.presetId);
+  const image = await loadImageElement(options.assetUrl);
+  const sourceCanvas = document.createElement("canvas");
+  sourceCanvas.width = image.naturalWidth;
+  sourceCanvas.height = image.naturalHeight;
+  const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
+  if (!sourceContext) throw new Error("Canvas is unavailable for optimization preview.");
+  sourceContext.drawImage(image, 0, 0);
+  const sourceImage = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+  const trimmed = preset.trimAlpha ? alphaContentBounds(sourceImage) : null;
+  const sourceBounds = trimmed ?? { x: 0, y: 0, width: sourceCanvas.width, height: sourceCanvas.height };
+  const output = document.createElement("canvas");
+  output.width = Math.round(parsePositiveNumber(options.width) ?? sourceBounds.width);
+  output.height = Math.round(parsePositiveNumber(options.height) ?? sourceBounds.height);
+  const outputContext = output.getContext("2d", { willReadFrequently: true });
+  if (!outputContext) throw new Error("Canvas is unavailable for optimization preview.");
+  outputContext.imageSmoothingEnabled = preset.resize !== "nearest-neighbor";
+  outputContext.drawImage(
+    sourceCanvas,
+    sourceBounds.x,
+    sourceBounds.y,
+    sourceBounds.width,
+    sourceBounds.height,
+    0,
+    0,
+    output.width,
+    output.height
+  );
+  const mime = preset.format === "jpeg" ? "image/jpeg" : `image/${preset.format}`;
+  const dataUrl = output.toDataURL(mime, preset.quality ? preset.quality / 100 : undefined);
+  const outputImage = outputContext.getImageData(0, 0, output.width, output.height);
+  return {
+    dataUrl,
+    height: output.height,
+    hasAlpha: imageDataHasAlpha(outputImage),
+    outputBytes: dataUrlByteLength(dataUrl),
+    sourceBytes: dataUrlByteLength(options.assetUrl),
+    sourceHasAlpha: imageDataHasAlpha(sourceImage),
+    width: output.width
+  };
+}
+
 function traceBezierCropPath(
   context: CanvasRenderingContext2D,
   nodes: BezierCropNode[],
@@ -2373,8 +2523,24 @@ function traceBezierCropPath(
   context.closePath();
 }
 
-export function EditorApp() {
-  const [workspace, setWorkspace] = useState<Workspace>("overview");
+export interface EditorAppProps {
+  gateway?: EditorGateway;
+}
+
+export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
+  const gateway = useMemo(() => injectedGateway ?? createBrowserEditorGateway(), [injectedGateway]);
+  const [navigationState, dispatchNavigation] = useReducer(
+    editorNavigationReducer,
+    undefined,
+    () =>
+      createEditorNavigationState(
+        parseEditorPanelPreferences(window.localStorage.getItem(editorPreferencesStorageKey))
+      )
+  );
+  const workspace = navigationState.target.workspace;
+  const setWorkspace = useCallback((nextWorkspace: Workspace) => {
+    dispatchNavigation({ type: "workspace/change", workspace: nextWorkspace });
+  }, []);
   const [status, setStatus] = useState("Loading project...");
   const [project, setProject] = useState<EditorProjectSnapshot | null>(null);
   const [projectSettingsDraft, setProjectSettingsDraft] = useState({
@@ -2387,6 +2553,10 @@ export function EditorApp() {
   const [history, setHistory] = useState<EditorHistoryState>(emptyHistory);
   const [pendingRecovery, setPendingRecovery] = useState<EditorRecoverySnapshot | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  const [resourceQuery, setResourceQuery] = useState("");
+  const [resourceKind, setResourceKind] = useState<"all" | ProjectResourceKind>("all");
+  const [resourceHealth, setResourceHealth] = useState<"all" | ProjectResourceHealth>("all");
+  const [resourceViewMode, setResourceViewMode] = useState<"grid" | "list">("list");
   const [activeAssetTool, setActiveAssetTool] = useState<AssetTool>("info");
   const [assetEditTarget, setAssetEditTarget] = useState<BackgroundCleanupTarget | null>(null);
   const cropImageFrameRef = useRef<HTMLDivElement | null>(null);
@@ -2397,6 +2567,11 @@ export function EditorApp() {
   );
   const [selectedCropNodeIndex, setSelectedCropNodeIndex] = useState(0);
   const [cropStatus, setCropStatus] = useState("Adjust the bezier cut path, then save a new transparent PNG asset.");
+  const [optimizePresetId, setOptimizePresetId] = useState<ImageOptimizePresetId>("background-web");
+  const [optimizeWidth, setOptimizeWidth] = useState("");
+  const [optimizeHeight, setOptimizeHeight] = useState("");
+  const [optimizePreview, setOptimizePreview] = useState<ImageOptimizationPreview | null>(null);
+  const [optimizeStatus, setOptimizeStatus] = useState("Choose a safe preset, compare dimensions, then apply as a derived asset.");
   const [guideSourceId, setGuideSourceId] = useState("");
   const [guideShape, setGuideShape] = useState<"rect" | "ellipse">("rect");
   const [guideStatus, setGuideStatus] = useState("Choose a saved prompt target and a scene guide source.");
@@ -2472,6 +2647,11 @@ export function EditorApp() {
   const [imageGenerationState, setImageGenerationState] = useState<"idle" | "running">("idle");
   const [activeImageGenerationContext, setActiveImageGenerationContext] =
     useState<ImageGenerationSceneContext | null>(null);
+  const [imageGenerationJob, setImageGenerationJob] = useState<ImageGenerationQueueJob | null>(null);
+  const [imageGenerationCandidates, setImageGenerationCandidates] = useState<ImageGenerationCandidate[]>([]);
+  const [selectedImageCandidateId, setSelectedImageCandidateId] = useState<string | null>(null);
+  const [imageGenerationBatchSize, setImageGenerationBatchSize] = useState<1 | 2 | 3 | 4>(1);
+  const [candidateHandoffContext, setCandidateHandoffContext] = useState<CandidateHandoffContext | null>(null);
   const [lastGeneratedImageAsset, setLastGeneratedImageAsset] = useState<GeneratedAssetHandoff | null>(null);
   const [targetPromptDrafts, setTargetPromptDrafts] = useState<Record<string, TargetPromptDraft>>({});
   const [freePromptTarget, setFreePromptTarget] = useState<FreePromptTarget | null>(null);
@@ -2493,11 +2673,22 @@ export function EditorApp() {
   const [validationRunState, setValidationRunState] = useState<EditorValidationRunState>("idle");
   const [validationReport, setValidationReport] = useState<EditorValidationReport | null>(null);
   const [validationStatus, setValidationStatus] = useState("Validation uses saved project files.");
+  const [webExportState, setWebExportState] = useState<"idle" | "running">("idle");
+  const [webExportStatus, setWebExportStatus] = useState(
+    "Validate the saved project, then choose an empty destination folder."
+  );
+  const [previewSession, setPreviewSession] = useState<EditorPreviewSessionDescriptor | null>(null);
+  const [previewTelemetry, setPreviewTelemetry] = useState<RuntimeDebugSnapshot[]>([]);
+  const [browserPreviewTelemetry, setBrowserPreviewTelemetry] = useState<RuntimeDebugSnapshot[]>([]);
+  const [previewActions, setPreviewActions] = useState<RuntimeInputAction[]>([]);
+  const [browserPreviewActions, setBrowserPreviewActions] = useState<RuntimeInputAction[]>([]);
   const [viewportInteraction, setViewportInteraction] = useState<ViewportInteraction | null>(null);
+  const [sceneViewPreferences, setSceneViewPreferences] = useState<SceneViewPreferences>(loadSceneViewPreferences);
   const [activeSceneTool, setActiveSceneTool] = useState<SceneTool>("select");
   const [sceneInspectorTarget, setSceneInspectorTarget] = useState<SceneInspectorTarget>("scene");
   const [selectedSceneLayerId, setSelectedSceneLayerId] = useState<string | null>(null);
   const [selectedGenerationGuideId, setSelectedGenerationGuideId] = useState<string | null>(null);
+  const [selectedFlowNodeId, setSelectedFlowNodeId] = useState<string | null>(null);
   const promptProviderConfigReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const imageProviderConfigReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const aiWorkspaceRef = useRef<HTMLDivElement | null>(null);
@@ -2519,6 +2710,48 @@ export function EditorApp() {
   const pickupItemRef = useRef<HTMLSelectElement | null>(null);
   const pickupLabelRef = useRef<HTMLInputElement | null>(null);
   const pickupFlowRef = useRef<HTMLSelectElement | null>(null);
+
+  useEffect(
+    () =>
+      gateway.onImageGenerationEvent((event) => {
+        setImageGenerationJob(event.job);
+        if (event.type === "candidate") {
+          setImageGenerationCandidates((current) =>
+            current.some((candidate) => candidate.id === event.candidate.id)
+              ? current
+              : [...current, event.candidate]
+          );
+          setSelectedImageCandidateId((current) => current ?? event.candidate.id);
+          setComfyUiGenerationStatus(
+            `Candidate ${event.job.completed} of ${event.job.requested} is ready for review.`
+          );
+          return;
+        }
+        if (event.type === "failed") {
+          setImageGenerationState("idle");
+          setActiveImageGenerationContext(null);
+          setComfyUiGenerationStatus(event.message);
+          setStatus(event.message);
+          return;
+        }
+        if (event.type === "completed") {
+          setImageGenerationState("idle");
+          setActiveImageGenerationContext(null);
+          const message = `${event.job.completed} candidate(s) ready. The project is unchanged until Apply.`;
+          setComfyUiGenerationStatus(message);
+          setStatus(message);
+          return;
+        }
+        if (event.type === "cancelled") {
+          setImageGenerationState("idle");
+          setActiveImageGenerationContext(null);
+          setComfyUiGenerationStatus("Image generation cancelled. Existing candidates remain available for review.");
+          return;
+        }
+        setImageGenerationState("running");
+      }),
+    [gateway]
+  );
 
   const session = history.present;
   const scenes = project ? sceneItems(project.scenes) : [];
@@ -2661,14 +2894,30 @@ export function EditorApp() {
     [currentFlowDraft]
   );
   const flowGraph = useMemo(
-    () => (selectedFlow ? buildFlowGraph(selectedFlow) : null),
-    [selectedFlow]
+    () =>
+      selectedFlow && currentFlowDraft
+        ? buildFlowGraph({
+            ...selectedFlow,
+            name: currentFlowDraft.name,
+            nodes: buildFlowNodes(currentFlowDraft.nodes),
+            startNodeId: currentFlowDraft.startNodeId
+          })
+        : null,
+    [currentFlowDraft, selectedFlow]
   );
   const flowGraphDiagnostics = useMemo(() => {
-    if (!selectedFlow) return [];
+    if (!selectedFlow || !currentFlowDraft) return [];
     const flowLookup = Object.fromEntries((project?.flows ?? []).map((flow) => [flow.id, flow]));
-    return validateFlowGraph(selectedFlow, flowLookup);
-  }, [project?.flows, selectedFlow]);
+    return validateFlowGraph(
+      {
+        ...selectedFlow,
+        name: currentFlowDraft.name,
+        nodes: buildFlowNodes(currentFlowDraft.nodes),
+        startNodeId: currentFlowDraft.startNodeId
+      },
+      flowLookup
+    );
+  }, [currentFlowDraft, project?.flows, selectedFlow]);
   const availableFlowIds = useMemo(
     () => (project ? project.flows.map((flow) => flow.id) : []),
     [project]
@@ -2680,6 +2929,19 @@ export function EditorApp() {
   const imageAssets = useMemo(
     () => (project ? project.assets.filter((asset) => asset.kind === "image") : []),
     [project]
+  );
+  const projectResources = useMemo(
+    () => (project ? buildProjectResourceIndex(project) : []),
+    [project]
+  );
+  const filteredProjectResources = useMemo(
+    () =>
+      filterProjectResources(
+        projectResources,
+        resourceQuery,
+        resourceKind === "all" ? new Set<ProjectResourceKind>() : new Set([resourceKind])
+      ).filter((resource) => resourceHealth === "all" || resource.health === resourceHealth),
+    [projectResources, resourceHealth, resourceKind, resourceQuery]
   );
   const dirtyState = useMemo(
     () =>
@@ -3336,12 +3598,45 @@ export function EditorApp() {
   }, [selectedAsset?.id, selectedAssetUrl]);
 
   useEffect(() => {
+    if (activeAssetTool !== "optimize" || selectedAsset?.kind !== "image" || !selectedAssetUrl) {
+      setOptimizePreview(null);
+      return;
+    }
+    let cancelled = false;
+    setOptimizePreview(null);
+    setOptimizeStatus("Rendering the before/after comparison...");
+    const timeout = window.setTimeout(() => {
+      void createImageOptimizationPreview({
+        assetUrl: selectedAssetUrl,
+        height: optimizeHeight,
+        presetId: optimizePresetId,
+        width: optimizeWidth
+      })
+        .then((preview) => {
+          if (cancelled) return;
+          setOptimizePreview(preview);
+          const delta = preview.outputBytes - preview.sourceBytes;
+          const change = preview.sourceBytes > 0 ? Math.round((delta / preview.sourceBytes) * 100) : 0;
+          setOptimizeStatus(`Preview ready: ${change > 0 ? "+" : ""}${change}% file-size change. Apply creates a derived asset.`);
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          setOptimizeStatus(error instanceof Error ? error.message : "Optimization preview could not be rendered.");
+        });
+    }, 160);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [activeAssetTool, optimizeHeight, optimizePresetId, optimizeWidth, selectedAsset?.id, selectedAsset?.kind, selectedAssetUrl]);
+
+  useEffect(() => {
     if (!project) return;
     const missingAssetPath = previewAssetPaths.find((assetPath) => !assetPreviewUrls[assetPath]);
     if (!missingAssetPath) return;
 
     let cancelled = false;
-    window.pointClick
+    gateway
       .resolveAssetUrl(missingAssetPath)
       .then((url) => {
         if (cancelled) return;
@@ -4705,7 +5000,7 @@ export function EditorApp() {
 
   const loadRecoveryForProject = async (projectDirectory: string) => {
     try {
-      return await window.pointClick.loadRecovery(projectDirectory);
+      return await gateway.loadRecovery(projectDirectory);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Recovery snapshot could not be loaded");
       return null;
@@ -4745,7 +5040,7 @@ export function EditorApp() {
 
     async function loadInitialProject() {
       try {
-        const snapshot = await window.pointClick.loadProject();
+        const snapshot = await gateway.loadProject();
         if (cancelled) return;
         await hydrateProject(snapshot);
       } catch (error) {
@@ -4759,6 +5054,17 @@ export function EditorApp() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      editorPreferencesStorageKey,
+      JSON.stringify(navigationState.panelPreferences)
+    );
+  }, [navigationState.panelPreferences]);
+
+  useEffect(() => {
+    window.localStorage.setItem(sceneViewPreferencesStorageKey, JSON.stringify(sceneViewPreferences));
+  }, [sceneViewPreferences]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -4784,23 +5090,10 @@ export function EditorApp() {
 
   useEffect(() => {
     if (!project || pendingRecovery) return;
-
-    const timeout = window.setTimeout(async () => {
-      try {
-        const snapshot = buildRecoverySnapshot(project.directory, project, history.present);
-        if (snapshot) {
-          await window.pointClick.saveRecovery(snapshot);
-        } else {
-          await window.pointClick.clearRecovery(project.directory);
-        }
-      } catch {
-        // Recovery issues should not block normal editing.
-      }
-    }, 800);
-
-    return () => {
-      window.clearTimeout(timeout);
-    };
+    const snapshot = buildRecoverySnapshot(project.directory, project, history.present);
+    void (snapshot ? gateway.saveRecovery(snapshot) : gateway.clearRecovery(project.directory)).catch(() => {
+      // Recovery issues should not block normal editing.
+    });
   }, [history.present, pendingRecovery, project]);
 
   useEffect(() => {
@@ -4986,25 +5279,65 @@ export function EditorApp() {
 
   const discardRecovery = async () => {
     if (!project) return;
-    await window.pointClick.clearRecovery(project.directory);
+    await gateway.clearRecovery(project.directory);
     setPendingRecovery(null);
     setStatus(`Loaded ${project.manifest.title}`);
   };
 
   const play = async () => {
-    setStatus("Opening isolated preview...");
-    await window.pointClick.openPreview(previewRequest);
-    setStatus("Preview connected to the current project");
+    if (!previewRequest) return;
+    setStatus("Creating isolated Test Lab session...");
+    try {
+      const session = await gateway.createPreviewSession(previewRequest);
+      setPreviewSession(session);
+      setPreviewTelemetry([]);
+      setBrowserPreviewTelemetry([]);
+      setPreviewActions([]);
+      setBrowserPreviewActions([]);
+      dispatchNavigation({ type: "test-lab/open" });
+      setStatus("Test Lab connected to the current project");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Test Lab could not be opened");
+    }
   };
 
   const openBrowser = async () => {
-    await window.pointClick.openInBrowser(previewRequest);
+    if (previewSession) {
+      await gateway.openPreviewInBrowser(previewSession.id);
+    } else {
+      await gateway.openInBrowser(previewRequest);
+    }
     setStatus("Browser preview opened with the current project");
+  };
+
+  const refreshPreviewTelemetry = async () => {
+    if (!previewSession) return;
+    try {
+      const telemetry = await gateway.readPreviewTelemetry(previewSession.id);
+      setPreviewTelemetry(telemetry.snapshots);
+      setBrowserPreviewTelemetry(telemetry.browserSnapshots);
+      setPreviewActions(telemetry.actions);
+      setBrowserPreviewActions(telemetry.browserActions);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Runtime telemetry could not be read");
+    }
+  };
+
+  const closeTestLab = async () => {
+    const sessionId = previewSession?.id;
+    setPreviewSession(null);
+    setPreviewTelemetry([]);
+    setBrowserPreviewTelemetry([]);
+    setPreviewActions([]);
+    setBrowserPreviewActions([]);
+    dispatchNavigation({ type: "test-lab/close" });
+    if (sessionId) await gateway.closePreviewSession(sessionId);
+    setStatus("Returned to authoring");
   };
 
   const openProject = async () => {
     setStatus("Waiting for a project folder...");
-    const snapshot = await window.pointClick.pickProject();
+    const snapshot = await gateway.pickProject();
     if (!snapshot) {
       setStatus(project ? `Loaded ${project.manifest.title}` : "Project selection cancelled");
       return;
@@ -5015,7 +5348,7 @@ export function EditorApp() {
   const createBlankProject = async () => {
     setStatus("Choose an empty folder for the blank project...");
     try {
-      const snapshot = await window.pointClick.createBlankProject();
+      const snapshot = await gateway.createBlankProject();
       if (!snapshot) {
         setStatus(project ? `Loaded ${project.manifest.title}` : "Project creation cancelled");
         return;
@@ -5030,7 +5363,7 @@ export function EditorApp() {
   const createProjectFromStarter = async () => {
     setStatus("Choose an empty folder for the starter project...");
     try {
-      const snapshot = await window.pointClick.createProjectFromStarter();
+      const snapshot = await gateway.createProjectFromStarter();
       if (!snapshot) {
         setStatus(project ? `Loaded ${project.manifest.title}` : "Project creation cancelled");
         return;
@@ -5073,7 +5406,7 @@ export function EditorApp() {
     }
 
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "project/update-settings",
         patch: {
           defaultLocale: projectSettingsDraft.defaultLocale,
@@ -5095,7 +5428,7 @@ export function EditorApp() {
   const importAssets = async () => {
     setStatus("Importing assets...");
     try {
-      const snapshot = await window.pointClick.importAssets();
+      const snapshot = await gateway.importAssets();
       if (!snapshot) {
         setStatus(project ? `Loaded ${project.manifest.title}` : "Asset import cancelled");
         return;
@@ -5160,7 +5493,7 @@ export function EditorApp() {
 
     setStatus(`Importing ${filePaths.length} asset file(s)...`);
     try {
-      const result = await window.pointClick.importAssetFiles(filePaths);
+      const result = await gateway.importAssetFiles(filePaths);
       const assetId = result.assetIds[0];
       const asset = assetId ? result.snapshot.assets.find((entry) => entry.id === assetId) : null;
       setProject(result.snapshot);
@@ -5186,7 +5519,7 @@ export function EditorApp() {
     const beforeIds = new Set(project.assets.map((asset) => asset.id));
     setStatus("Importing asset...");
     try {
-      const snapshot = await window.pointClick.importAssets();
+      const snapshot = await gateway.importAssets();
       if (!snapshot) {
         setStatus("Asset import cancelled");
         return;
@@ -5380,7 +5713,7 @@ export function EditorApp() {
 
     setStatus(`Saving animation pack ${animationPack.id}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "animation-pack/upsert",
         patch: { animationPack }
       });
@@ -5424,7 +5757,7 @@ export function EditorApp() {
     if (!selectedScene || !selectedAsset) return;
     setStatus(`Assigning ${selectedAsset.id} to ${selectedScene.id}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "scene/update",
         patch: {
           background: selectedAsset.path,
@@ -5457,7 +5790,7 @@ export function EditorApp() {
 
     setStatus(`Relinking ${selectedAsset.id}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "asset/relink",
         assetId: selectedAsset.id,
         patch: {
@@ -5477,7 +5810,7 @@ export function EditorApp() {
     setStatus(`Deleting ${selectedAsset.id}...`);
     try {
       const deletedAssetId = selectedAsset.id;
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "asset/delete",
         assetId: deletedAssetId
       });
@@ -5533,25 +5866,79 @@ export function EditorApp() {
       context.clip();
       context.drawImage(image, -crop.x, -crop.y, image.naturalWidth, image.naturalHeight);
       context.restore();
-      const result = await window.pointClick.saveProcessedImageAsset({
+      const result = await gateway.saveProcessedImageAsset({
         dataUrl: canvas.toDataURL("image/png"),
-        filenameHint: `${selectedAsset.id}-cutout.png`
+        filenameHint: `${selectedAsset.id}-cutout.png`,
+        processing: {
+          parentAssetId: selectedAsset.id,
+          operations: [{
+            type: "crop",
+            parameters: { x: crop.x, y: crop.y, width: crop.width, height: crop.height }
+          }],
+          format: "png",
+          dimensions: { width: canvas.width, height: canvas.height },
+          processedAt: new Date().toISOString()
+        }
       });
       const assetId = result.assetIds[0];
       const asset = assetId ? result.snapshot.assets.find((entry) => entry.id === assetId) : null;
       setProject(result.snapshot);
       if (asset) {
         setSelectedAssetId(asset.id);
-        if (assetEditTarget) {
-          assignAssetToTargetDraft(assetEditTarget.targetKind, asset, assetEditTarget);
-        }
-        setCropStatus(`Saved cutout asset ${asset.id}.`);
+        setCropStatus(`Applied cutout as ${asset.id}. Assign it separately when the comparison is approved.`);
       } else {
         setCropStatus("Crop was saved, but no asset id was returned.");
       }
     } catch (error) {
       setCropStatus(error instanceof Error ? error.message : "Crop could not be saved.");
     }
+  };
+
+  const applyOptimizedAsset = async () => {
+    if (!selectedAsset || selectedAsset.kind !== "image" || !selectedAssetUrl) {
+      setOptimizeStatus("Select a previewable image asset before optimizing.");
+      return;
+    }
+    if (!optimizePreview) {
+      setOptimizeStatus("Wait for the before/after preview before applying this preset.");
+      return;
+    }
+    const preset = imageOptimizePreset(optimizePresetId);
+    setOptimizeStatus(`Applying ${preset.label} preset as a derived asset...`);
+    try {
+      const extension = preset.format === "jpeg" ? "jpg" : preset.format;
+      const result = await gateway.saveProcessedImageAsset({
+        dataUrl: optimizePreview.dataUrl,
+        filenameHint: `${selectedAsset.id}-${preset.id}.${extension}`,
+        processing: {
+          parentAssetId: selectedAsset.id,
+          operations: [
+            ...(preset.trimAlpha ? [{ type: "trim-alpha" as const }] : []),
+            {
+              type: "resize" as const,
+              parameters: { width: optimizePreview.width, height: optimizePreview.height, mode: preset.resize }
+            },
+            { type: "optimize" as const, parameters: { preset: preset.id, lossless: preset.lossless } }
+          ],
+          format: preset.format,
+          ...(preset.quality ? { quality: preset.quality } : {}),
+          dimensions: { width: optimizePreview.width, height: optimizePreview.height },
+          processedAt: new Date().toISOString()
+        }
+      });
+      const assetId = result.assetIds[0];
+      setProject(result.snapshot);
+      if (assetId) setSelectedAssetId(assetId);
+      setOptimizeStatus(assetId ? `Applied ${assetId}. Review it, then use Assign explicitly.` : "Optimization completed without an asset id.");
+    } catch (error) {
+      setOptimizeStatus(error instanceof Error ? error.message : "Image optimization failed.");
+    }
+  };
+
+  const assignSelectedProcessedAsset = () => {
+    if (!assetEditTarget || !selectedAsset || selectedAsset.kind !== "image") return;
+    assignAssetToTargetDraft(assetEditTarget.targetKind, selectedAsset, assetEditTarget);
+    setOptimizeStatus(`Assigned ${selectedAsset.id} to the ${assetEditTarget.targetKind} draft.`);
   };
 
   const saveGuideMaskAsset = async () => {
@@ -5572,7 +5959,7 @@ export function EditorApp() {
         shape: guideShape,
         width: selectedScene.size.width
       });
-      const maskResult = await window.pointClick.saveProcessedImageAsset({
+      const maskResult = await gateway.saveProcessedImageAsset({
         dataUrl: imagePixelDataToPngDataUrl(mask),
         filenameHint: `${selectedSavedGenerationTarget.id}-mask.png`
       });
@@ -5591,7 +5978,7 @@ export function EditorApp() {
         maskAssetId: maskAsset.id,
         referenceAssetId: selectedAsset.id
       });
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "prompt-pack/upsert",
         patch: { promptPack: updatedPromptPack }
       });
@@ -5719,7 +6106,7 @@ export function EditorApp() {
       ...selectedSavedGenerationTarget,
       guideIds
     });
-    const snapshot = await window.pointClick.applyCommand({
+    const snapshot = await gateway.applyCommand({
       type: "prompt-pack/upsert",
       patch: { promptPack: updatedPromptPack }
     });
@@ -5759,7 +6146,7 @@ export function EditorApp() {
         height: promptPackGuideScene.size.height,
         width: promptPackGuideScene.size.width
       });
-      const referenceResult = await window.pointClick.saveProcessedImageAsset({
+      const referenceResult = await gateway.saveProcessedImageAsset({
         dataUrl: referenceDataUrl,
         filenameHint: `${selectedSavedGenerationTarget.id}-guide-reference.png`
       });
@@ -5774,7 +6161,7 @@ export function EditorApp() {
       }
 
       setProject(referenceResult.snapshot);
-      const maskResult = await window.pointClick.saveProcessedImageAsset({
+      const maskResult = await gateway.saveProcessedImageAsset({
         dataUrl: imagePixelDataToPngDataUrl(mask),
         filenameHint: `${selectedSavedGenerationTarget.id}-guide-mask.png`
       });
@@ -5797,7 +6184,7 @@ export function EditorApp() {
         referenceAssetId: referenceAsset.id,
         maskAssetId: maskAsset.id
       });
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "prompt-pack/upsert",
         patch: { promptPack: updatedPromptPack }
       });
@@ -5907,7 +6294,7 @@ export function EditorApp() {
           : "Generating deterministic mock prompt pack..."
     );
     try {
-      const job = await window.pointClick.generatePromptPack({
+      const job = await gateway.generatePromptPack({
         allowRemoteProvider: remoteProviderConsent,
         bundle: buildDraftProjectBundle(project, history.present),
         providerId: promptProviderId,
@@ -5939,7 +6326,7 @@ export function EditorApp() {
     if (!project) return;
     setAuthoringSuggestionState("running");
     try {
-      const suggestions = await window.pointClick.generateAuthoringSuggestions(
+      const suggestions = await gateway.generateAuthoringSuggestions(
         promptPackScene ? { sceneId: promptPackScene.id } : undefined
       );
       setAuthoringSuggestions(suggestions);
@@ -5957,7 +6344,7 @@ export function EditorApp() {
 
     setStatus(`Saving ${promptPack.id}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "prompt-pack/upsert",
         patch: { promptPack }
       });
@@ -6010,7 +6397,7 @@ export function EditorApp() {
 
     setStatus(`Saving target settings for ${selectedGenerationTarget.id}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "prompt-pack/upsert",
         patch: { promptPack: updatedPromptPack }
       });
@@ -6031,7 +6418,7 @@ export function EditorApp() {
     if (!project || !selectedWorkflowPresetId) return;
     setStatus(`Installing workflow preset ${selectedWorkflowPresetId}...`);
     try {
-      const snapshot = await window.pointClick.installWorkflowPreset(selectedWorkflowPresetId);
+      const snapshot = await gateway.installWorkflowPreset(selectedWorkflowPresetId);
       setProject(snapshot);
       setSelectedWorkflowTemplateId(selectedWorkflowPresetId);
       setStatus(`Installed workflow preset ${selectedWorkflowPresetId}.`);
@@ -6088,7 +6475,7 @@ export function EditorApp() {
 
     setStatus(`Saving recipe ${generationRecipe.id}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "generation-recipe/upsert",
         patch: { generationRecipe }
       });
@@ -6166,8 +6553,28 @@ export function EditorApp() {
       return;
     }
 
+    for (const candidate of imageGenerationCandidates) {
+      await gateway.discardAssetCandidate(candidate.id);
+    }
     setImageGenerationState("running");
     setActiveImageGenerationContext(selectedImageGenerationContext);
+    setImageGenerationJob(null);
+    setImageGenerationCandidates([]);
+    setSelectedImageCandidateId(null);
+    setCandidateHandoffContext(
+      selectedImageGenerationContext
+        ? {
+            ...selectedImageGenerationContext,
+            expectedAlpha:
+              selectedEffectiveGenerationTarget.expectedAlpha ??
+              selectedEffectiveGenerationTarget.transparent ??
+              false,
+            ...(selectedEffectiveGenerationTarget.backgroundMode
+              ? { backgroundMode: selectedEffectiveGenerationTarget.backgroundMode }
+              : {})
+          }
+        : null
+    );
     setLastGeneratedImageAsset(null);
     const queuedStatus =
       imageProviderId === "comfyui-local"
@@ -6176,8 +6583,9 @@ export function EditorApp() {
     setComfyUiGenerationStatus(queuedStatus);
     setStatus(queuedStatus);
     try {
-      const imageRequest = {
+      const imageRequest: StartImageGenerationRequest = {
         allowRemoteProvider: remoteProviderConsent,
+        batchSize: imageGenerationBatchSize,
         expectedAlpha:
           selectedEffectiveGenerationTarget.expectedAlpha ?? selectedEffectiveGenerationTarget.transparent ?? false,
         guideIds: selectedEffectiveGenerationTarget.guideIds ?? [],
@@ -6236,35 +6644,63 @@ export function EditorApp() {
         ...(imageProviderId === "comfyui-local" && selectedWorkflowTemplate ? { outputNodeId: selectedWorkflowTemplate.output.nodeId } : {}),
         ...(imageProviderId === "comfyui-local" && workflowPath ? { workflowPath } : {})
       };
-      const job = await window.pointClick.generateImageAsset(imageRequest);
-      setProject(job.snapshot);
-      setSelectedAssetId(job.assetId);
-      setLastGeneratedImageAsset(
-        selectedImageGenerationContext
-          ? {
-              ...selectedImageGenerationContext,
-              assetId: job.assetId,
-              assetPath: job.assetPath,
-              expectedAlpha: job.expectedAlpha,
-              hasAlphaPixels: job.hasAlphaPixels,
-              ...(job.backgroundMode ? { backgroundMode: job.backgroundMode } : {}),
-              ...(job.outputWarning ? { outputWarning: job.outputWarning } : {}),
-              seed: job.seed
-            }
-          : null
-      );
-      const completedStatus = job.outputWarning
-        ? `Generated ${job.assetId}, but alpha contract needs review.`
-        : `Generated ${job.assetId} from ${job.targetId} with ${selectedImageProvider.label} seed ${job.seed}`;
-      setComfyUiGenerationStatus(completedStatus);
-      setStatus(completedStatus);
+      const job = await gateway.startImageGeneration(imageRequest);
+      setImageGenerationJob(job);
+      setAiStep("review");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Image asset could not be generated";
       setComfyUiGenerationStatus(message);
       setStatus(message);
-    } finally {
       setImageGenerationState("idle");
       setActiveImageGenerationContext(null);
+    }
+  };
+
+  const cancelImageGeneration = async () => {
+    if (!imageGenerationJob || imageGenerationJob.status === "cancelled") return;
+    try {
+      await gateway.cancelImageGeneration(imageGenerationJob.id);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Image generation could not be cancelled.");
+    }
+  };
+
+  const discardImageCandidate = async (candidateId: string) => {
+    try {
+      await gateway.discardAssetCandidate(candidateId);
+      setImageGenerationCandidates((current) => current.filter((candidate) => candidate.id !== candidateId));
+      setSelectedImageCandidateId((current) => (current === candidateId ? null : current));
+      setStatus("Temporary image candidate discarded. The project was not changed.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Image candidate could not be discarded.");
+    }
+  };
+
+  const applyImageCandidate = async (candidate: ImageGenerationCandidate) => {
+    setStatus(`Applying candidate ${candidate.id}...`);
+    try {
+      const applied = await gateway.applyAssetCandidate(candidate.id);
+      setProject(applied.snapshot);
+      setSelectedAssetId(applied.assetId);
+      setImageGenerationCandidates((current) => current.filter((entry) => entry.id !== candidate.id));
+      setSelectedImageCandidateId(null);
+      setLastGeneratedImageAsset(
+        candidateHandoffContext
+          ? {
+              ...candidateHandoffContext,
+              assetId: applied.assetId,
+              assetPath: applied.assetPath,
+              hasAlphaPixels: candidate.hasAlphaPixels,
+              ...(candidate.warnings.length ? { outputWarning: candidate.warnings.join(" ") } : {}),
+              seed: candidate.seed
+            }
+          : null
+      );
+      const message = `Applied ${applied.assetId}. Assignment to a scene or actor remains a separate action.`;
+      setComfyUiGenerationStatus(message);
+      setStatus(message);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Image candidate could not be applied.");
     }
   };
 
@@ -6273,7 +6709,7 @@ export function EditorApp() {
     setValidationRunState("running");
     setValidationStatus("Validating saved project files...");
     try {
-      const report = await window.pointClick.runValidation();
+      const report = await gateway.runValidation();
       setValidationReport(report);
       setValidationRunState("completed");
       setValidationStatus(
@@ -6289,13 +6725,35 @@ export function EditorApp() {
     }
   };
 
+  const exportWebBuild = async () => {
+    if (!project || buildBlockingIssues.length > 0 || dirtyState.count > 0) return;
+    setWebExportState("running");
+    setWebExportStatus("Preparing the browser runtime, project bundle, and assets...");
+    try {
+      const result = await gateway.exportWebBuild();
+      if (!result) {
+        setWebExportStatus("Web export cancelled.");
+        return;
+      }
+      const message = `Exported ${result.assetCount} asset(s) to ${result.outputDirectory}.`;
+      setWebExportStatus(message);
+      setStatus(message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Web export failed.";
+      setWebExportStatus(message);
+      setStatus(message);
+    } finally {
+      setWebExportState("idle");
+    }
+  };
+
   const createFlow = async () => {
     if (!project) return;
 
     const flowId = nextFlowId(project);
     setStatus(`Creating ${flowId}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "flow/create",
         flow: createDefaultFlowDocument(flowId)
       });
@@ -6322,7 +6780,7 @@ export function EditorApp() {
     const deletedFlowId = selectedFlow.id;
     setStatus(`Deleting ${deletedFlowId}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "flow/delete",
         flowId: deletedFlowId
       });
@@ -6357,7 +6815,7 @@ export function EditorApp() {
     const itemId = nextItemId(project);
     setStatus(`Creating ${itemId}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "item/create",
         item: {
           id: itemId,
@@ -6390,7 +6848,7 @@ export function EditorApp() {
     const deletedItemId = selectedItem.id;
     setStatus(`Deleting ${deletedItemId}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "item/delete",
         itemId: deletedItemId
       });
@@ -6425,7 +6883,7 @@ export function EditorApp() {
     const sceneId = nextSceneId(project);
     setStatus(`Creating ${sceneId}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "scene/create",
         scene: createDefaultSceneDocument(project, sceneId)
       });
@@ -6454,7 +6912,7 @@ export function EditorApp() {
     const deletedSceneId = selectedScene.id;
     setStatus(`Deleting ${deletedSceneId}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "scene/delete",
         sceneId: deletedSceneId
       });
@@ -6516,7 +6974,7 @@ export function EditorApp() {
     const hotspotId = nextHotspotId(selectedScene);
     setStatus(`Creating ${hotspotId}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "hotspot/create",
         hotspot: createDefaultHotspot(selectedScene, hotspotId),
         sceneId: selectedScene.id
@@ -6546,7 +7004,7 @@ export function EditorApp() {
     const draftKey = createHotspotKey(selectedScene.id, deletedHotspotId);
     setStatus(`Deleting ${deletedHotspotId}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "hotspot/delete",
         hotspotId: deletedHotspotId,
         sceneId: selectedScene.id
@@ -6586,7 +7044,7 @@ export function EditorApp() {
     const pickupId = nextPickupId(selectedScene);
     setStatus(`Creating ${pickupId}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "pickup/create",
         pickup: createDefaultPickup(selectedScene, pickupId, defaultItemId),
         sceneId: selectedScene.id
@@ -6615,7 +7073,7 @@ export function EditorApp() {
     const draftKey = createPickupKey(selectedScene.id, deletedPickupId);
     setStatus(`Deleting ${deletedPickupId}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "pickup/delete",
         pickupId: deletedPickupId,
         sceneId: selectedScene.id
@@ -6650,7 +7108,7 @@ export function EditorApp() {
     const actorId = nextActorId(selectedScene);
     setStatus(`Creating ${actorId}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         actor: createDefaultActor(selectedScene, actorId),
         sceneId: selectedScene.id,
         type: "actor/create"
@@ -6680,7 +7138,7 @@ export function EditorApp() {
     const draftKey = createActorKey(selectedScene.id, deletedActorId);
     setStatus(`Deleting ${deletedActorId}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         actorId: deletedActorId,
         sceneId: selectedScene.id,
         type: "actor/delete"
@@ -7462,19 +7920,34 @@ export function EditorApp() {
 
     setCleanupStatus("Saving processed PNG asset...");
     try {
-      const result = await window.pointClick.saveProcessedImageAsset({
+      const result = await gateway.saveProcessedImageAsset({
         dataUrl,
-        filenameHint: backgroundCleanupTarget.filenameHint
+        filenameHint: backgroundCleanupTarget.filenameHint,
+        processing: {
+          parentAssetId: backgroundCleanupTarget.assetId,
+          operations: [{
+            type: "remove-background",
+            parameters: {
+              keyColor: cleanupKeyColor,
+              tolerance: Number(cleanupTolerance),
+              feather: Number(cleanupFeather),
+              spillReduction: cleanupSpillReduction
+            }
+          }],
+          format: "png",
+          dimensions: {
+            width: outputCanvas?.width ?? 1,
+            height: outputCanvas?.height ?? 1
+          },
+          processedAt: new Date().toISOString()
+        }
       });
       const assetId = result.assetIds[0];
       const asset = assetId ? result.snapshot.assets.find((entry) => entry.id === assetId) : null;
       setProject(result.snapshot);
       if (asset) {
         setSelectedAssetId(asset.id);
-        if (assetEditTarget) {
-          assignAssetToTargetDraft(assetEditTarget.targetKind, asset, assetEditTarget);
-        }
-        setCleanupStatus(`Saved ${asset.id}.`);
+        setCleanupStatus(`Applied ${asset.id}. Assign it separately after reviewing the alpha result.`);
         setBackgroundCleanupTarget(null);
       } else {
         setCleanupStatus("Processed asset was saved, but no asset id was returned.");
@@ -7840,9 +8313,12 @@ export function EditorApp() {
   };
 
   const addFlowNode = (type: DraftNodeType) => {
+    if (!currentFlowDraft) return;
+    const newNode = createNewFlowNode(type, currentFlowDraft.nodes);
+    setSelectedFlowNodeId(newNode.id);
     updateFlowDraft((current) => ({
       ...current,
-      nodes: [...current.nodes, createNewFlowNode(type, current.nodes)]
+      nodes: [...current.nodes, newNode]
     }));
   };
 
@@ -7891,7 +8367,7 @@ export function EditorApp() {
     const patch = buildActorFromDraft(selectedActor, currentActorDraft);
     setStatus(`Saving ${selectedActor.id}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         actorId: selectedActor.id,
         patch,
         sceneId: selectedScene.id,
@@ -7953,7 +8429,7 @@ export function EditorApp() {
         Object.assign(patch, { cursor: nextHotspot.cursor });
       }
 
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "hotspot/update",
         hotspotId: selectedHotspot.id,
         patch,
@@ -8044,7 +8520,7 @@ export function EditorApp() {
 
     setStatus(`Saving ${selectedScene.id}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "scene/update",
         patch: {
           background,
@@ -8130,7 +8606,7 @@ export function EditorApp() {
         patch.pickupFlowId = pickupFlowId;
       }
 
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "pickup/update",
         pickupId: selectedPickup.id,
         patch,
@@ -8168,7 +8644,7 @@ export function EditorApp() {
 
     setStatus(`Saving ${selectedItem.id}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "item/update",
         itemId: selectedItem.id,
         patch: {
@@ -8196,7 +8672,7 @@ export function EditorApp() {
 
     setStatus(`Saving ${normalizedKey}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "locale/upsert",
         locale: localeId,
         patch: {
@@ -8277,7 +8753,7 @@ export function EditorApp() {
 
     setStatus(`Deleting ${normalizedKey}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "locale/delete",
         key: normalizedKey,
         locale: selectedLocale.locale
@@ -8372,14 +8848,33 @@ export function EditorApp() {
       }
     }
 
+    const nextNodes = buildFlowNodes(currentFlowDraft.nodes);
+    const nextFlowDiagnostics = validateFlowGraph(
+      {
+        ...selectedFlow,
+        ...(currentFlowDraft.editorLayout ? { editorLayout: currentFlowDraft.editorLayout } : {}),
+        name,
+        nodes: nextNodes,
+        startNodeId
+      },
+      Object.fromEntries((project?.flows ?? []).map((flow) => [flow.id, flow]))
+    );
+    const firstGraphError = nextFlowDiagnostics.find((diagnostic) => diagnostic.severity === "error");
+    if (firstGraphError) {
+      setSelectedFlowNodeId(firstGraphError.nodeId ?? firstGraphError.targetId ?? null);
+      setStatus(firstGraphError.message);
+      return;
+    }
+
     setStatus(`Saving ${selectedFlow.id}...`);
     try {
-      const snapshot = await window.pointClick.applyCommand({
+      const snapshot = await gateway.applyCommand({
         type: "flow/update",
         flowId: selectedFlow.id,
         patch: {
+          ...(currentFlowDraft.editorLayout ? { editorLayout: currentFlowDraft.editorLayout } : {}),
           name,
-          nodes: buildFlowNodes(currentFlowDraft.nodes),
+          nodes: nextNodes,
           startNodeId
         }
       });
@@ -8446,6 +8941,45 @@ export function EditorApp() {
     changeWorkspace(step.workspace);
   };
 
+  const openProjectResource = (resource: ProjectResourceDescriptor) => {
+    const target = resource.owner;
+    dispatchNavigation({ type: "navigate", target });
+    if (target.workspace === "scene" && target.sceneId) {
+      selectScene(target.sceneId);
+      return;
+    }
+    if (target.workspace === "narrative") {
+      const flow = target.flowId ? project?.flows.find((entry) => entry.id === target.flowId) : null;
+      if (flow) {
+        selectFlow(flow);
+        setSelectedFlowNodeId(flow.startNodeId);
+        return;
+      }
+      const locale = project?.locales.find((entry) => entry.locale === resource.id);
+      if (locale) {
+        selectLocale(locale);
+        return;
+      }
+      const item = project?.items.find((entry) => entry.id === resource.id);
+      if (item) selectItem(item);
+      return;
+    }
+    if (target.workspace === "assets") {
+      if (resource.kind === "image" || resource.kind === "audio") {
+        setSelectedAssetId(resource.id);
+        setActiveAssetTool("info");
+      } else if (resource.kind === "animation-pack") {
+        setSelectedAnimationPackId(resource.id);
+        setActiveAssetTool("animation");
+      }
+      return;
+    }
+    if (target.workspace === "ai") {
+      if (resource.kind === "prompt-pack") setSelectedPromptPackId(resource.id);
+      if (target.sceneId) setPromptPackSceneId(target.sceneId);
+    }
+  };
+
   const renderContextualTree = () => {
     if (!project) {
       return <div className="tree-item tree-meta">No project loaded</div>;
@@ -8455,11 +8989,26 @@ export function EditorApp() {
       return (
         <>
           <div className="tree-section-label">Scenes</div>
-          <div className="tree-group open">Scenes ({scenes.length})</div>
+          <div className="scene-compact-selector">
+            <div
+              className="scene-compact-thumbnail"
+              style={previewSceneBackground && assetPreviewUrls[previewSceneBackground]
+                ? { backgroundImage: `url("${assetPreviewUrls[previewSceneBackground]}")` }
+                : undefined}
+              aria-hidden="true"
+            />
+            <label>
+              <span>Active scene</span>
+              <select aria-label="Active scene" value={selectedScene?.id ?? ""} onChange={(event) => selectScene(event.target.value)}>
+                {scenes.map((scene) => <option key={`scene-selector-${scene.id}`} value={scene.id}>{scene.name}</option>)}
+              </select>
+            </label>
+          </div>
           <button className="tree-item tree-child" type="button" onClick={createScene}>
             <span className="scene-dot muted" /> + New scene
           </button>
-          {scenes.map((scene) => {
+          <div className="tree-group open">Scene hierarchy</div>
+          {scenes.filter((scene) => scene.id === selectedScene?.id).map((scene) => {
             const isActiveScene = selectedScene?.id === scene.id;
             const isSceneRootSelected =
               session.activeLocale === null &&
@@ -8758,57 +9307,78 @@ export function EditorApp() {
     if (workspace === "assets") {
       return (
         <>
-          <div className="tree-section-label">Asset Studio</div>
-          <div className="tree-group open">Assets ({project.assetCount})</div>
-          <button className="tree-item tree-child" type="button" onClick={importAssets}>
-            <span className="scene-dot muted" /> + Import assets
+          <div className="tree-section-label">Resource Browser</div>
+          <div className="resource-browser-controls">
+            <input
+              aria-label="Search project resources"
+              placeholder="Search every resource..."
+              type="search"
+              value={resourceQuery}
+              onChange={(event) => setResourceQuery(event.target.value)}
+            />
+            <select
+              aria-label="Filter project resource type"
+              value={resourceKind}
+              onChange={(event) => setResourceKind(event.target.value as "all" | ProjectResourceKind)}
+            >
+              <option value="all">All types</option>
+              <option value="scene">Scenes</option>
+              <option value="image">Images</option>
+              <option value="audio">Audio</option>
+              <option value="animation-pack">Animation packs</option>
+              <option value="flow">Flows</option>
+              <option value="locale">Locales</option>
+              <option value="item">Items</option>
+              <option value="prompt-pack">Prompt packs</option>
+              <option value="style-bible">Style bibles</option>
+              <option value="workflow-template">Workflow templates</option>
+              <option value="generation-recipe">Generation recipes</option>
+            </select>
+            <div className="resource-browser-filter-row">
+              <select
+                aria-label="Filter project resource health"
+                value={resourceHealth}
+                onChange={(event) => setResourceHealth(event.target.value as "all" | ProjectResourceHealth)}
+              >
+                <option value="all">All health</option>
+                <option value="healthy">Healthy</option>
+                <option value="warning">Warnings</option>
+                <option value="error">Errors</option>
+              </select>
+              <div className="resource-view-toggle" aria-label="Resource view" role="group">
+                <button className={resourceViewMode === "list" ? "active" : ""} type="button" onClick={() => setResourceViewMode("list")}>List</button>
+                <button className={resourceViewMode === "grid" ? "active" : ""} type="button" onClick={() => setResourceViewMode("grid")}>Grid</button>
+              </div>
+            </div>
+          </div>
+          <button className="tree-item tree-child resource-import-action" type="button" onClick={importAssets}>
+            <span className="scene-dot muted" /> + Import image or audio
           </button>
-          {project.assets.map((asset) => (
+          <div className="tree-group open">Resources ({filteredProjectResources.length})</div>
+          <div className={`resource-browser-items ${resourceViewMode}`}>
+          {filteredProjectResources.map((resource) => (
             <button
-              className={`tree-item ${selectedAsset?.id === asset.id ? "selected" : ""}`}
-              key={asset.id}
+              className={`tree-item resource-tree-item ${
+                (resource.kind === "image" || resource.kind === "audio") && selectedAsset?.id === resource.id
+                  ? "selected"
+                  : ""
+              }`}
+              key={`${resource.kind}-${resource.id}`}
               type="button"
-              onClick={() => {
-                setSelectedAssetId(asset.id);
-                setActiveAssetTool("info");
-              }}
+              onClick={() => openProjectResource(resource)}
             >
-              <span className="scene-dot muted" /> {asset.id}
-              {assetHealth(asset, project) === "missing" ? <span className="dirty-mark">!</span> : null}
+              <span className={`resource-kind-mark ${resource.kind}`} />
+              <span className="resource-tree-copy">
+                <strong>{resource.label}</strong>
+                <small>{resource.kind} · {resource.uses.length} use(s)</small>
+              </span>
+              {resource.health !== "healthy" ? <span className="dirty-mark">!</span> : null}
             </button>
           ))}
-          <div className="tree-group open">Animation Packs ({project.animationPackCount})</div>
-          <button className="tree-item tree-child" type="button" onClick={createAnimationPackDraftFromSelection}>
-            <span className="scene-dot muted" /> + New animation pack
-          </button>
-          {project.animationPacks.map((animationPack) => (
-            <button
-              className={`tree-item ${selectedAnimationPack?.id === animationPack.id ? "selected" : ""}`}
-              key={animationPack.id}
-              type="button"
-              onClick={() => {
-                setSelectedAnimationPackId(animationPack.id);
-                setActiveAssetTool("animation");
-              }}
-            >
-              <span className="scene-dot muted" /> {animationPack.id}
-            </button>
-          ))}
-          <div className="tree-group open">Prompt Packs ({project.promptPackCount})</div>
-          {project.promptPacks.map((promptPack) => (
-            <button
-              className={`tree-item ${selectedPromptPack?.id === promptPack.id ? "selected" : ""}`}
-              key={promptPack.id}
-              type="button"
-              onClick={() => {
-                setSelectedPromptPackId(promptPack.id);
-                setPromptPackSceneId(promptPack.sceneId);
-                setActiveAssetTool("guide");
-              }}
-            >
-              <span className="scene-dot muted" /> {promptPack.id}
-            </button>
-          ))}
+          </div>
+          {filteredProjectResources.length === 0 ? (
+            <div className="tree-item tree-meta">No resources match the current filter.</div>
+          ) : null}
         </>
       );
     }
@@ -8828,9 +9398,10 @@ export function EditorApp() {
           <div className="tree-section-label">AI Studio</div>
           <div className="tree-group open">Creator workflow</div>
           <div className="tree-item tree-meta">1. Brief</div>
-          <div className="tree-item tree-meta">2. Targets</div>
-          <div className="tree-item tree-meta">3. Generate</div>
-          <div className="tree-item tree-meta">4. Review & Apply</div>
+          <div className="tree-item tree-meta">2. Context</div>
+          <div className="tree-item tree-meta">3. Recipe</div>
+          <div className="tree-item tree-meta">4. Generate</div>
+          <div className="tree-item tree-meta">5. Review & Apply</div>
           <div className="tree-group open">Prompt Packs ({project.promptPackCount})</div>
           {project.promptPacks.map((promptPack) => (
             <button
@@ -8985,6 +9556,76 @@ export function EditorApp() {
     );
   };
 
+  useEffect(() => {
+    if (!project || pendingRecovery || dirtyState.count === 0) return;
+    const timeout = window.setTimeout(() => {
+      const saves: Array<() => Promise<void>> = [];
+      const sceneHasExplicitAssignmentDraft = selectedScene
+        ? currentSceneDraft.background !== selectedScene.background ||
+          currentSceneDraft.playerAssetId !== (selectedScene.player?.assetId ?? "") ||
+          currentSceneDraft.playerAnimationPackId !== (selectedScene.player?.animationPackId ?? "") ||
+          currentSceneDraft.layers.some(
+            (layer) => layer.assetId !== (selectedScene.layers?.find((saved) => saved.id === layer.id)?.assetId ?? "")
+          )
+        : false;
+      if (selectedScene && dirtyState.sceneIds.has(selectedScene.id) && !sceneHasExplicitAssignmentDraft) {
+        saves.push(applySceneChanges);
+      }
+
+      const actorKey = selectedScene && selectedActor ? createActorKey(selectedScene.id, selectedActor.id) : null;
+      const actorHasExplicitAssignmentDraft = selectedActor
+        ? currentActorDraft.assetId !== (selectedActor.assetId ?? "") ||
+          currentActorDraft.animationPackId !== (selectedActor.animationPackId ?? "")
+        : false;
+      if (actorKey && dirtyState.actorKeys.has(actorKey) && !actorHasExplicitAssignmentDraft) {
+        saves.push(applyActorChanges);
+      }
+
+      const hotspotKey = selectedScene && selectedHotspot ? `${selectedScene.id}::${selectedHotspot.id}` : null;
+      if (hotspotKey && dirtyState.hotspotKeys.has(hotspotKey)) saves.push(applyHotspotChanges);
+
+      const pickupKey = selectedScene && selectedPickup ? createPickupKey(selectedScene.id, selectedPickup.id) : null;
+      const pickupHasExplicitAssignmentDraft = selectedPickup
+        ? currentPickupDraft.assetId !== (selectedPickup.assetId ?? "")
+        : false;
+      if (pickupKey && dirtyState.pickupKeys.has(pickupKey) && !pickupHasExplicitAssignmentDraft) {
+        saves.push(applyPickupChanges);
+      }
+
+      if (selectedFlow && dirtyState.flowIds.has(selectedFlow.id)) saves.push(applyFlowChanges);
+      if (selectedItem && dirtyState.itemIds.has(selectedItem.id)) saves.push(applyItemChanges);
+      if (selectedLocale && dirtyState.localeIds.has(selectedLocale.locale)) {
+        const changedStrings = Object.entries(currentLocaleDraft).filter(
+          ([key, value]) => selectedLocale.strings[key] !== value
+        );
+        for (const [key, value] of changedStrings) {
+          saves.push(() => saveLocaleString(selectedLocale.locale, key, value));
+        }
+        const entryKey = currentLocaleEntryDraft.key.trim();
+        if (entryKey && selectedLocale.strings[entryKey] !== currentLocaleEntryDraft.value) {
+          saves.push(() => saveLocaleString(selectedLocale.locale, entryKey, currentLocaleEntryDraft.value));
+        }
+      }
+
+      if (saves.length === 0) return;
+      setStatus(`Autosaving ${saves.length} valid document change(s)...`);
+      void saves.reduce<Promise<void>>((sequence, save) => sequence.then(save), Promise.resolve());
+    }, 800);
+    return () => window.clearTimeout(timeout);
+  }, [
+    dirtyState.count,
+    history.present,
+    pendingRecovery,
+    project?.directory,
+    selectedActor?.id,
+    selectedFlow?.id,
+    selectedHotspot?.id,
+    selectedItem?.id,
+    selectedLocale?.locale,
+    selectedPickup?.id,
+    selectedScene?.id
+  ]);
+
   const stageToolbarModel = stageToolbarModelFor({
     hasSelectedScene: !!selectedScene,
     sceneLabel,
@@ -9002,6 +9643,28 @@ export function EditorApp() {
       badgeLabel={stageToolbarModel.badgeLabel}
       badgeTone={stageToolbarModel.badgeTone}
       canUseSceneTools={!!selectedScene}
+      contextualControls={workspace === "scene" ? (
+        <div className="scene-view-controls" aria-label="Scene view preferences">
+          <button
+            aria-label="Zoom out scene"
+            disabled={sceneViewPreferences.zoom <= 0.75}
+            type="button"
+            onClick={() => setSceneViewPreferences((current) => ({ ...current, zoom: Math.max(0.75, current.zoom - 0.25) }))}
+          >−</button>
+          <button className="scene-zoom-value" title="Reset scene zoom" type="button" onClick={() => setSceneViewPreferences((current) => ({ ...current, zoom: 1 }))}>
+            {Math.round(sceneViewPreferences.zoom * 100)}%
+          </button>
+          <button
+            aria-label="Zoom in scene"
+            disabled={sceneViewPreferences.zoom >= 1.5}
+            type="button"
+            onClick={() => setSceneViewPreferences((current) => ({ ...current, zoom: Math.min(1.5, current.zoom + 0.25) }))}
+          >+</button>
+          <button aria-pressed={sceneViewPreferences.gridVisible} type="button" onClick={() => setSceneViewPreferences((current) => ({ ...current, gridVisible: !current.gridVisible }))}>Grid</button>
+          <button aria-pressed={sceneViewPreferences.overlaysVisible} type="button" onClick={() => setSceneViewPreferences((current) => ({ ...current, overlaysVisible: !current.overlaysVisible }))}>Overlays</button>
+          <button aria-pressed={sceneViewPreferences.minimapVisible} type="button" onClick={() => setSceneViewPreferences((current) => ({ ...current, minimapVisible: !current.minimapVisible }))}>Map</button>
+        </div>
+      ) : undefined}
       detail={stageToolbarModel.detail}
       isSceneWorkspace={workspace === "scene"}
       primaryLabel={stageToolbarModel.primaryLabel}
@@ -9020,18 +9683,60 @@ export function EditorApp() {
     />
   );
 
+  const resizePanelBy = (panel: EditorPanelId, delta: number) => {
+    const preferences = navigationState.panelPreferences;
+    const width = panel === "navigation" ? preferences.navigationWidth : preferences.inspectorWidth;
+    dispatchNavigation({ type: "panel/resize", panel, width: width + delta });
+  };
+
+  const beginPanelResize = (panel: EditorPanelId, event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const preferences = navigationState.panelPreferences;
+    const startWidth = panel === "navigation" ? preferences.navigationWidth : preferences.inspectorWidth;
+    const handleMove = (moveEvent: PointerEvent) => {
+      const screenDelta = moveEvent.clientX - startX;
+      dispatchNavigation({
+        type: "panel/resize",
+        panel,
+        width: startWidth + (panel === "navigation" ? screenDelta : -screenDelta)
+      });
+    };
+    const handleEnd = () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleEnd);
+    };
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleEnd, { once: true });
+  };
+
+  if (navigationState.mode === "test-lab" && previewSession) {
+    return (
+      <TestLab
+        actions={previewActions}
+        browserActions={browserPreviewActions}
+        browserTrace={browserPreviewTelemetry}
+        session={previewSession}
+        snapshots={previewTelemetry}
+        onClose={() => void closeTestLab()}
+        onOpenBrowser={() => void openBrowser()}
+        onRefreshTelemetry={() => void refreshPreviewTelemetry()}
+      />
+    );
+  }
+
   return (
     <div className="studio-shell">
       <StudioTopbar
         activeWorkspace={workspace}
         canRedo={canRedo}
         canUndo={canUndo}
+        diagnosticCount={project?.diagnostics.length ?? 0}
         hasProject={!!project}
         isDirty={dirtyState.count > 0}
         projectTitle={project?.manifest.title ?? "Loading project..."}
         onCreateBlankProject={createBlankProject}
         onCreateProjectFromStarter={createProjectFromStarter}
-        onOpenBrowser={openBrowser}
         onOpenProject={openProject}
         onPlay={play}
         onRedo={() => replaceSession((current) => redoHistory(current))}
@@ -9050,15 +9755,37 @@ export function EditorApp() {
         />
       ) : (
       <>
-      <div className="workspace-grid">
-        <ProjectMapPanel
-          healthDetail={projectHealth ? `${projectHealth.detail} - ${localeLabel}` : status}
-          healthLabel={projectHealth?.label ?? "Loading project health..."}
-          healthTone={projectHealth?.tone ?? "warn"}
-          onOpenProject={openProject}
-        >
-          {renderContextualTree()}
-        </ProjectMapPanel>
+      <div
+        className="workspace-grid"
+        style={{
+          gridTemplateColumns: `${navigationState.panelPreferences.navigationOpen ? navigationState.panelPreferences.navigationWidth : 42}px minmax(420px, 1fr) ${navigationState.panelPreferences.inspectorOpen ? navigationState.panelPreferences.inspectorWidth : 42}px`
+        }}
+      >
+        {navigationState.panelPreferences.navigationOpen ? (
+          <div className="workspace-panel-slot navigation-slot">
+            <ProjectMapPanel
+              healthDetail={projectHealth ? `${projectHealth.detail} - ${localeLabel}` : status}
+              healthLabel={projectHealth?.label ?? "Loading project health..."}
+              healthTone={projectHealth?.tone ?? "warn"}
+              onClose={() => dispatchNavigation({ type: "panel/toggle", panel: "navigation" })}
+              onOpenProject={openProject}
+            >
+              {renderContextualTree()}
+            </ProjectMapPanel>
+            <PanelResizeHandle
+              label="Resize project panel"
+              side="right"
+              onPointerDown={(event) => beginPanelResize("navigation", event)}
+              onResize={(delta) => resizePanelBy("navigation", delta)}
+            />
+          </div>
+        ) : (
+          <CollapsedPanelRail
+            label="Project"
+            side="left"
+            onOpen={() => dispatchNavigation({ type: "panel/toggle", panel: "navigation" })}
+          />
+        )}
 
         <WorkspaceStagePanel toolbar={stageToolbar} timeline={stageTimeline}>
 
@@ -9100,8 +9827,11 @@ export function EditorApp() {
           ) : workspace === "build" ? (
             <BuildWorkspace
               blockingIssueCount={buildBlockingIssues.length}
+              canExport={buildBlockingIssues.length === 0 && dirtyState.count === 0}
               creatorPathSteps={creatorPathSteps}
               dirtyDraftCount={dirtyState.count}
+              exportState={webExportState}
+              exportStatus={webExportStatus}
               issues={buildReadinessIssues.map((issue) => ({
                 actionLabel: issue.actionLabel,
                 canOpen: canOpenBuildReadinessTarget(issue.target),
@@ -9113,6 +9843,7 @@ export function EditorApp() {
                 severity: issue.severity
               }))}
               onOpenCreatorPathStep={openCreatorPathStep}
+              onExportWeb={() => void exportWebBuild()}
               onRunValidation={runValidation}
               previewReadinessLabel={previewReadinessLabel}
               readinessSummary={buildReadinessSummary}
@@ -9280,7 +10011,7 @@ export function EditorApp() {
                       disabled={!project || !promptPackScene || promptPackGenerationState === "running"}
                       type="button"
                       onClick={() => {
-                        setAiStep("targets");
+                        setAiStep("context");
                         void generatePromptPack();
                       }}
                     >
@@ -9290,12 +10021,12 @@ export function EditorApp() {
                 </section>
               ) : null}
 
-              {aiStep === "targets" ? (
-                <section className="overview-card ai-guided-step" aria-labelledby="ai-targets-title">
+              {aiStep === "context" ? (
+                <section className="overview-card ai-guided-step" aria-labelledby="ai-context-title">
                   <div className="ai-guided-step-heading">
                     <div>
-                      <span className="overview-label">02 / Targets</span>
-                      <h3 id="ai-targets-title">Choose the game pieces that need artwork.</h3>
+                      <span className="overview-label">02 / Context</span>
+                      <h3 id="ai-context-title">Choose the game piece and inspect its project context.</h3>
                     </div>
                     <span className="prompt-chip">{imageGenerationTargets.length} target(s)</span>
                   </div>
@@ -9333,6 +10064,59 @@ export function EditorApp() {
                         className="play-action"
                         disabled={!selectedEffectiveGenerationTarget}
                         type="button"
+                        onClick={() => setAiStep("recipe")}
+                      >
+                        Continue to Recipe
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+
+              {aiStep === "recipe" ? (
+                <section className="overview-card ai-guided-step" aria-labelledby="ai-recipe-title">
+                  <div className="ai-guided-step-heading">
+                    <div>
+                      <span className="overview-label">03 / Recipe</span>
+                      <h3 id="ai-recipe-title">Lock the provider workflow and reproducible inputs.</h3>
+                    </div>
+                    <span className={`capability-badge ${aiRecipeReady ? "good" : "warn"}`}>
+                      {aiRecipeReady ? "Recipe saved" : "Recipe required"}
+                    </span>
+                  </div>
+                  <div className="ai-guided-summary-grid">
+                    <div><span>Target</span><strong>{selectedEffectiveGenerationTarget?.id ?? "Choose a target"}</strong></div>
+                    <div><span>Family</span><strong>{selectedImageWorkflowFamily}</strong></div>
+                    <div><span>Workflow</span><strong>{selectedWorkflowTemplate?.id ?? "Not installed"}</strong></div>
+                    <div><span>Output</span><strong>{selectedGenerationDimensions.width} × {selectedGenerationDimensions.height}</strong></div>
+                  </div>
+                  <p className="ai-guided-callout" aria-live="polite">
+                    {aiRecipeReady
+                      ? "The recipe is stored with the project and can be reused for deterministic iterations."
+                      : aiWorkflowReady
+                        ? "Save this workflow and target combination as a reusable recipe."
+                        : "Install or select a compatible workflow in Advanced before saving the recipe."}
+                  </p>
+                  <div className="ai-guided-footer">
+                    <p className="ai-guided-status" aria-live="polite">{status}</p>
+                    <div className="ai-guided-actions">
+                      <button className="secondary-action" type="button" onClick={() => setAiStep("context")}>
+                        Back to Context
+                      </button>
+                      {!aiRecipeReady ? (
+                        <button
+                          className="secondary-action"
+                          disabled={!selectedWorkflowTemplate || !selectedEffectiveGenerationTarget}
+                          type="button"
+                          onClick={() => void saveSelectedGenerationRecipe()}
+                        >
+                          Save Recipe
+                        </button>
+                      ) : null}
+                      <button
+                        className="play-action"
+                        disabled={!aiRecipeReady}
+                        type="button"
                         onClick={() => setAiStep("generate")}
                       >
                         Continue to Generate
@@ -9346,8 +10130,8 @@ export function EditorApp() {
                 <section className="overview-card ai-guided-step" aria-labelledby="ai-generate-title">
                   <div className="ai-guided-step-heading">
                     <div>
-                      <span className="overview-label">03 / Generate</span>
-                      <h3 id="ai-generate-title">Prepare one asset without losing the project context.</h3>
+                      <span className="overview-label">04 / Generate</span>
+                      <h3 id="ai-generate-title">Create candidates without changing the project.</h3>
                     </div>
                    <span className={`capability-badge ${aiRecipeReady ? "good" : "warn"}`}>
                       {aiRecipeReady ? "Ready" : "Advanced setup needed"}
@@ -9394,9 +10178,22 @@ export function EditorApp() {
                     <div><span>Workflow</span><strong>{selectedWorkflowTemplate?.id ?? "Not installed"}</strong></div>
                     <div><span>Output</span><strong>{selectedGenerationDimensions.width} × {selectedGenerationDimensions.height}</strong></div>
                   </div>
+                  <label className="prompt-studio-field ai-batch-field">
+                    Candidate batch
+                    <select
+                      value={imageGenerationBatchSize}
+                      onChange={(event) => setImageGenerationBatchSize(Number(event.target.value) as 1 | 2 | 3 | 4)}
+                    >
+                      {[1, 2, 3, 4].map((count) => (
+                        <option key={`image-batch-${count}`} value={count}>
+                          {count} candidate{count === 1 ? "" : "s"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <p className="ai-guided-callout" aria-live="polite">
                     {aiRecipeReady
-                      ? "The selected target is ready to generate and import as a normal project asset."
+                      ? "Generated outputs stay in a temporary review queue until you explicitly apply one."
                       : "Install a compatible workflow and save a recipe in Advanced before queueing the asset."}
                   </p>
                   <div className="ai-guided-footer">
@@ -9404,8 +10201,8 @@ export function EditorApp() {
                       {comfyUiGenerationStatus}
                     </p>
                     <div className="ai-guided-actions">
-                      <button className="secondary-action" type="button" onClick={() => setAiStep("targets")}>
-                        Back to Targets
+                      <button className="secondary-action" type="button" onClick={() => setAiStep("recipe")}>
+                        Back to Recipe
                       </button>
                       <button
                         className="play-action"
@@ -9417,14 +10214,13 @@ export function EditorApp() {
                             return;
                           }
                           void generateImageAsset();
-                          setAiStep("review");
                         }}
                       >
                         {!aiRecipeReady
                           ? "Open Advanced Setup"
                           : imageGenerationState === "running"
                             ? "Generating…"
-                            : "Generate & Import Asset"}
+                            : "Generate Candidates"}
                       </button>
                     </div>
                   </div>
@@ -9435,7 +10231,7 @@ export function EditorApp() {
                 <section className="overview-card ai-guided-step" aria-labelledby="ai-review-title">
                   <div className="ai-guided-step-heading">
                     <div>
-                      <span className="overview-label">04 / Review & Apply</span>
+                      <span className="overview-label">05 / Review & Apply</span>
                       <h3 id="ai-review-title">Approve the draft before it changes the project.</h3>
                     </div>
                     <span className="capability-badge good">Human approval required</span>
@@ -9463,6 +10259,60 @@ export function EditorApp() {
                       Generate a prompt pack or asset first. Nothing has been written to the project.
                     </div>
                   )}
+                  {imageGenerationCandidates.length ? (
+                    <div className="ai-candidate-grid" aria-label="Temporary image candidates">
+                      {imageGenerationCandidates.map((candidate) => (
+                        <article
+                          className={selectedImageCandidateId === candidate.id ? "ai-candidate-card selected" : "ai-candidate-card"}
+                          key={candidate.id}
+                          onClick={() => setSelectedImageCandidateId(candidate.id)}
+                        >
+                          <img src={candidate.previewDataUrl} alt={`Candidate for ${candidate.targetId}`} />
+                          <div className="ai-candidate-card-body">
+                            <span className="overview-label">Temporary candidate</span>
+                            <strong>{candidate.targetId} · seed {candidate.seed}</strong>
+                            <p>{candidate.provider} · {candidate.model} · {candidate.width} × {candidate.height}</p>
+                            <p>
+                              {candidate.latencyMs === undefined ? "Latency unavailable" : `${candidate.latencyMs} ms`}
+                              {" · "}
+                              {candidate.costUsd === undefined ? "Cost unavailable" : `$${candidate.costUsd.toFixed(4)}`}
+                            </p>
+                            {candidate.warnings.map((warning) => (
+                              <p className="ai-candidate-warning" key={warning}>{warning}</p>
+                            ))}
+                            <div className="ai-candidate-actions">
+                              <button
+                                className="secondary-action compact-action"
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void discardImageCandidate(candidate.id);
+                                }}
+                              >
+                                Discard
+                              </button>
+                              <button
+                                className="play-action compact-action"
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void applyImageCandidate(candidate);
+                                }}
+                              >
+                                Apply to Project
+                              </button>
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="ai-guided-empty" aria-live="polite">
+                      {imageGenerationState === "running"
+                        ? `Generating ${imageGenerationJob?.requested ?? imageGenerationBatchSize} candidate(s)…`
+                        : "No temporary image candidates. Return to Generate to create a batch."}
+                    </div>
+                  )}
                   {lastGeneratedImageAsset ? (
                     <p className="ai-guided-callout" aria-live="polite">
                       Generated asset {lastGeneratedImageAsset.assetId} is ready for inspection.
@@ -9473,9 +10323,14 @@ export function EditorApp() {
                       {status}
                     </p>
                      <div className="ai-guided-actions">
-                       <button className="secondary-action" type="button" onClick={() => setAiStep("targets")}>
-                         Edit Targets
+                       <button className="secondary-action" type="button" onClick={() => setAiStep("context")}>
+                         Edit Context
                        </button>
+                       {imageGenerationState === "running" ? (
+                         <button className="secondary-action" type="button" onClick={() => void cancelImageGeneration()}>
+                           Cancel Generation
+                         </button>
+                       ) : null}
                         <button className="secondary-action" type="button" onClick={openAiAdvancedSection}>
                          Open Advanced
                        </button>
@@ -10135,7 +10990,7 @@ export function EditorApp() {
                     type="button"
                     onClick={generateImageAsset}
                   >
-                    {imageGenerationState === "running" ? "Generating..." : "Generate And Import Asset"}
+                    {imageGenerationState === "running" ? "Generating..." : "Generate Candidates"}
                   </button>
                 </div>
                 <div className="diagnostic-list">
@@ -10335,6 +11190,30 @@ export function EditorApp() {
                   onToolChange={activateAssetTool}
                 />
                 <div className="asset-studio-preview">
+                  {activeAssetTool === "optimize" && selectedAssetUrl ? (
+                    <div className="optimize-comparison-preview" aria-label="Image optimization comparison">
+                      <figure>
+                        <div className="optimize-comparison-image checkerboard"><img src={selectedAssetUrl} alt="Source asset preview" /></div>
+                        <figcaption>
+                          <strong>Before</strong>
+                          <span>{cropImageSize.width} × {cropImageSize.height}</span>
+                          <span>{optimizePreview ? formatAssetBytes(optimizePreview.sourceBytes) : "Calculating size"}</span>
+                          <span>{optimizePreview?.sourceHasAlpha ? "Alpha" : "Opaque"}</span>
+                        </figcaption>
+                      </figure>
+                      <figure>
+                        <div className="optimize-comparison-image checkerboard">
+                          {optimizePreview ? <img src={optimizePreview.dataUrl} alt="Optimized asset preview" /> : <span>Rendering preview…</span>}
+                        </div>
+                        <figcaption>
+                          <strong>After</strong>
+                          <span>{optimizePreview ? `${optimizePreview.width} × ${optimizePreview.height}` : "Pending"}</span>
+                          <span>{optimizePreview ? formatAssetBytes(optimizePreview.outputBytes) : "Calculating size"}</span>
+                          <span>{optimizePreview ? (optimizePreview.hasAlpha ? "Alpha" : "Opaque") : "Pending"}</span>
+                        </figcaption>
+                      </figure>
+                    </div>
+                  ) : (
                   <div
                     className={`asset-studio-image ${selectedAssetUrl ? "has-preview" : ""} ${activeAssetTool === "crop" ? "crop-editor-active" : ""}`}
                     ref={activeAssetTool === "crop" ? cropImageFrameRef : undefined}
@@ -10406,6 +11285,7 @@ export function EditorApp() {
                       <Image size={32} />
                     )}
                   </div>
+                  )}
                   <div className="asset-studio-meta">
                     <span className={`target-mode-pill ${selectedAssetHealth === "missing" ? "warn" : "good"}`}>
                       {selectedAsset ? selectedAssetHealth : "no asset"}
@@ -10564,6 +11444,40 @@ export function EditorApp() {
                         <button className="secondary-action compact-action" disabled={!selectedAssetUrl} type="button" onClick={resetCropPath}>
                           Reset Path
                         </button>
+                      </div>
+                    </>
+                  ) : activeAssetTool === "optimize" ? (
+                    <>
+                      <span className="overview-label">Optimize</span>
+                      <strong>{selectedAsset?.id ?? "Select an image"}</strong>
+                      <p>Apply never overwrites the source. The derived asset records its parent, operations, format, dimensions, and timestamp.</p>
+                      <div className="optimize-preset-grid">
+                        {imageOptimizePresets.map((preset) => (
+                          <button
+                            className={optimizePresetId === preset.id ? "active" : ""}
+                            key={preset.id}
+                            type="button"
+                            onClick={() => setOptimizePresetId(preset.id)}
+                          >
+                            <strong>{preset.label}</strong>
+                            <small>{preset.format.toUpperCase()} · {preset.lossless ? "lossless" : `quality ${preset.quality}`}</small>
+                          </button>
+                        ))}
+                      </div>
+                      <div className="crop-stats-grid">
+                        <div><span>Before</span><strong>{optimizePreview ? formatAssetBytes(optimizePreview.sourceBytes) : "…"}</strong></div>
+                        <div><span>After</span><strong>{optimizePreview ? formatAssetBytes(optimizePreview.outputBytes) : "…"}</strong></div>
+                        <div><span>Alpha</span><strong>{optimizePreview ? `${optimizePreview.sourceHasAlpha ? "yes" : "no"} → ${optimizePreview.hasAlpha ? "yes" : "no"}` : "…"}</strong></div>
+                        <div><span>Resize</span><strong>{imageOptimizePreset(optimizePresetId).resize}</strong></div>
+                      </div>
+                      <div className="player-field-grid">
+                        <label>Width<input min={1} placeholder={String(cropImageSize.width)} type="number" value={optimizeWidth} onChange={(event) => setOptimizeWidth(event.target.value)} /></label>
+                        <label>Height<input min={1} placeholder={String(cropImageSize.height)} type="number" value={optimizeHeight} onChange={(event) => setOptimizeHeight(event.target.value)} /></label>
+                      </div>
+                      <p>{optimizeStatus}</p>
+                      <div className="build-actions">
+                        <button className="play-action compact-action" disabled={!optimizePreview || selectedAsset?.kind !== "image"} type="button" onClick={applyOptimizedAsset}>Apply Derived Asset</button>
+                        <button className="secondary-action compact-action" disabled={!assetEditTarget || selectedAsset?.kind !== "image"} type="button" onClick={assignSelectedProcessedAsset}>Assign To Target</button>
                       </div>
                     </>
                   ) : activeAssetTool === "guide" ? (
@@ -10899,6 +11813,14 @@ export function EditorApp() {
               </section>
               ) : null}
             </div>
+          ) : workspace === "narrative" && currentFlowDraft ? (
+            <NarrativeGraph
+              diagnostics={flowGraphDiagnostics}
+              draft={currentFlowDraft}
+              selectedNodeId={selectedFlowNodeId ?? currentFlowDraft.startNodeId}
+              onChange={updateFlowDraft}
+              onSelectNode={setSelectedFlowNodeId}
+            />
           ) : (
             <div
               className={`scene-viewport ${
@@ -10907,13 +11829,14 @@ export function EditorApp() {
                 activeImageGenerationContext.sceneId === selectedScene.id
                   ? "is-generating-background"
                   : ""
-              }`}
+              } ${sceneViewPreferences.gridVisible ? "show-authoring-grid" : ""} ${sceneViewPreferences.overlaysVisible ? "" : "hide-editor-overlays"}`}
               ref={viewportRef}
               style={
                 selectedScene
                   ? {
                       ...sceneBackgroundStyle(previewSceneBackground, previewSceneBackgroundUrl),
-                      aspectRatio: `${previewSceneSize.width} / ${previewSceneSize.height}`
+                      aspectRatio: `${previewSceneSize.width} / ${previewSceneSize.height}`,
+                      zoom: sceneViewPreferences.zoom
                     }
                   : { background: "#24384a" }
               }
@@ -10971,6 +11894,26 @@ export function EditorApp() {
                   <button type="button" onClick={createSceneLayer}>
                     + Layer
                   </button>
+                </div>
+              ) : null}
+              {selectedScene && workspace === "scene" && sceneViewPreferences.minimapVisible ? (
+                <div className="scene-minimap" aria-label="Scene minimap" role="img">
+                  <span
+                    className="scene-minimap-point player"
+                    style={{
+                      left: `${((previewPlayerStart ?? selectedScene.playerStart).x / previewSceneSize.width) * 100}%`,
+                      top: `${((previewPlayerStart ?? selectedScene.playerStart).y / previewSceneSize.height) * 100}%`
+                    }}
+                  />
+                  {previewActors.map((actor) => (
+                    <span className="scene-minimap-point actor" key={`minimap-actor-${actor.id}`} style={{ left: `${((actor.bounds.x + actor.bounds.width / 2) / previewSceneSize.width) * 100}%`, top: `${((actor.bounds.y + actor.bounds.height / 2) / previewSceneSize.height) * 100}%` }} />
+                  ))}
+                  {previewPickups.map((pickup) => (
+                    <span className="scene-minimap-point pickup" key={`minimap-pickup-${pickup.id}`} style={{ left: `${((pickup.bounds.x + pickup.bounds.width / 2) / previewSceneSize.width) * 100}%`, top: `${((pickup.bounds.y + pickup.bounds.height / 2) / previewSceneSize.height) * 100}%` }} />
+                  ))}
+                  {previewHotspots.map((hotspot) => (
+                    <span className="scene-minimap-point hotspot" key={`minimap-hotspot-${hotspot.id}`} style={{ left: `${((hotspot.bounds.x + hotspot.bounds.width / 2) / previewSceneSize.width) * 100}%`, top: `${((hotspot.bounds.y + hotspot.bounds.height / 2) / previewSceneSize.height) * 100}%` }} />
+                  ))}
                 </div>
               ) : null}
               {selectedScene ? (
@@ -11436,6 +12379,14 @@ export function EditorApp() {
 
         </WorkspaceStagePanel>
 
+        {navigationState.panelPreferences.inspectorOpen ? (
+        <div className="workspace-panel-slot inspector-slot">
+        <PanelResizeHandle
+          label="Resize inspector panel"
+          side="left"
+          onPointerDown={(event) => beginPanelResize("inspector", event)}
+          onResize={(delta) => resizePanelBy("inspector", delta)}
+        />
         <InspectorPanel
           detail={inspectorDetailFor({
             hasSelectedFlow: !!selectedFlow,
@@ -11448,6 +12399,7 @@ export function EditorApp() {
             sceneSelectionTarget,
             workspace
           })}
+          onClose={() => dispatchNavigation({ type: "panel/toggle", panel: "inspector" })}
         >
             {workspace === "scene" ? (
               <div className="scene-selection-summary">
@@ -11735,22 +12687,6 @@ export function EditorApp() {
                       </div>
                       <span className="capability-badge compact good">Deterministic IR</span>
                     </div>
-                    <div className="flow-graph-nodes" role="list" aria-label="Flow graph nodes">
-                      {flowGraph.nodes.map((node) => (
-                        <span className="flow-graph-node" key={`graph-node-${node.id}-${node.index}`} role="listitem">
-                          <strong>{node.index + 1}</strong>
-                          <span>{node.id}</span>
-                          <small>{node.type}</small>
-                        </span>
-                      ))}
-                    </div>
-                    <div className="flow-graph-edges" aria-label="Flow graph edges">
-                      {flowGraph.edges.map((edge, index) => (
-                        <span key={`graph-edge-${edge.from}-${edge.to}-${index}`}>
-                          {edge.from} → {edge.to}{edge.label ? ` (${edge.label})` : ""}
-                        </span>
-                      ))}
-                    </div>
                     {flowGraphDiagnostics.length ? (
                       <ul className="flow-graph-diagnostics" aria-label="Flow graph diagnostics">
                         {flowGraphDiagnostics.map((diagnostic, index) => (
@@ -11765,7 +12701,10 @@ export function EditorApp() {
                   </section>
                 ) : null}
                 <div className="flow-nodes">
-                  {currentFlowDraft.nodes.map((node, index) => (
+                  {currentFlowDraft.nodes
+                    .map((node, index) => ({ index, node }))
+                    .filter(({ node }) => node.id === (selectedFlowNodeId ?? currentFlowDraft.startNodeId))
+                    .map(({ index, node }) => (
                     <div className="flow-node-card" key={`${node.type}-${index}-${node.id}`}>
                       <div className="flow-node-header">
                         <strong>{node.type}</strong>
@@ -12014,6 +12953,16 @@ export function EditorApp() {
                           </label>
                         </>
                       ) : null}
+                      <FlowNodeFields
+                        audioAssets={(project?.assets ?? [])
+                          .filter((asset) => asset.kind === "audio")
+                          .map((asset) => ({ id: asset.id, label: asset.id }))}
+                        flows={(project?.flows ?? []).map((flow) => ({ id: flow.id, label: flow.name }))}
+                        items={(project?.items ?? []).map((item) => ({ id: item.id, label: item.name }))}
+                        node={node}
+                        nodeIds={flowNodeIds}
+                        onChange={(nextNode) => updateFlowNode(index, () => nextNode)}
+                      />
                     </div>
                   ))}
                 </div>
@@ -12041,6 +12990,12 @@ export function EditorApp() {
                     <button type="button" onClick={() => addFlowNode("change-scene")}>
                       Add transition
                     </button>
+                    <button type="button" onClick={() => addFlowNode("choice")}>Add choice</button>
+                    <button type="button" onClick={() => addFlowNode("condition")}>Add condition</button>
+                    <button type="button" onClick={() => addFlowNode("sub-flow")}>Add sub-flow</button>
+                    <button type="button" onClick={() => addFlowNode("inventory")}>Add inventory</button>
+                    <button type="button" onClick={() => addFlowNode("wait")}>Add wait</button>
+                    <button type="button" onClick={() => addFlowNode("cue")}>Add cue</button>
                     <button type="button" onClick={() => addFlowNode("end")}>
                       Add end
                     </button>
@@ -13996,6 +14951,14 @@ export function EditorApp() {
               <div className="empty-inspector">No project loaded.</div>
             )}
         </InspectorPanel>
+        </div>
+        ) : (
+          <CollapsedPanelRail
+            label="Inspector"
+            side="right"
+            onOpen={() => dispatchNavigation({ type: "panel/toggle", panel: "inspector" })}
+          />
+        )}
       </div>
       </>
       )}

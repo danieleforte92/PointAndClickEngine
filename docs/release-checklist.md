@@ -101,14 +101,15 @@ release decision. The required stabilization controls are:
     into view, Candidate Output is reachable, keyboard focus is visible, and
     mouse-wheel/touchpad scrolling moves the central panel.
 13. With LM Studio running, generate a local prompt pack.
-14. With ComfyUI running, install the background preset, save a recipe, then
-    generate and import one text-to-image asset.
+14. With ComfyUI running, install the background preset, save a recipe, generate
+    a candidate batch, and explicitly apply one text-to-image asset.
 15. Install the chroma or inpaint preset, queue one target with linked reference
     or mask assets when available, and confirm provenance records `workflowId`,
     `recipeId`, `referenceAssetIds`, `maskAssetId`, and `parentAssetIds`.
 16. Send a `sprite-sheet` or `animation-reference` target to Asset Studio and verify Character Gym can slice it.
 17. In **Build**, run validation.
-18. Use **Play from here** and **Browser** preview.
+18. Use **Play** to enter Test Lab, open **Browser**, refresh telemetry, and
+    confirm the Compare tab reports no logical-state divergence.
 
 ## v0.4 Alpha Smoke
 

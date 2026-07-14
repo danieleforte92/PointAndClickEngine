@@ -5,12 +5,15 @@ import path from "node:path";
 import {
   assertDocument,
   type AssetGenerationMetadata,
+  type AssetProcessingMetadata,
   type AssetGenerationRecipeDocument,
   type AssetDocument,
   type AnimationPackDocument,
   type AssetSource,
+  type AudioChannel,
   type CursorValue,
   type FlowDocument,
+  type FlowEditorLayout,
   type FlowNode,
   type Hotspot,
   type HotspotActions,
@@ -111,14 +114,29 @@ export interface ItemPatch {
   name: string;
 }
 
-export interface ImportedAssetPatch {
+export interface ImportedImageAssetPatch {
   documentPath: string;
   filePath: string;
   generation?: AssetGenerationMetadata;
+  processing?: AssetProcessingMetadata;
   id: string;
   kind: "image";
   source: AssetSource;
 }
+
+export interface ImportedAudioAssetPatch {
+  captionKey?: string;
+  channel: AudioChannel;
+  documentPath: string;
+  filePath: string;
+  id: string;
+  kind: "audio";
+  loop?: boolean;
+  source: AssetSource;
+  volume?: number;
+}
+
+export type ImportedAssetPatch = ImportedImageAssetPatch | ImportedAudioAssetPatch;
 
 export interface AssetRelinkPatch {
   path: string;
@@ -130,6 +148,7 @@ export interface LocaleUpsertPatch {
 }
 
 export interface FlowPatch {
+  editorLayout?: FlowEditorLayout;
   name: string;
   nodes: FlowNode[];
   startNodeId: string;
@@ -872,6 +891,19 @@ export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[
           )
         );
       }
+      if (node.type === "cue" && node.cue.type === "sound" && node.cue.key) {
+        const audioAsset = bundle.assets[node.cue.key];
+        if (!audioAsset || audioAsset.kind !== "audio") {
+          diagnostics.push(
+            createDiagnostic(
+              "error",
+              "flow.sound-asset-missing",
+              `Flow "${flow.id}" sound cue references missing audio asset "${node.cue.key}".`,
+              { documentId: flow.id, path: `flows/${flow.id}/nodes/${node.id}/cue/key` }
+            )
+          );
+        }
+      }
       if (node.type !== "line" || !defaultLocale) continue;
       if (!(node.textKey in defaultLocale.strings)) {
         diagnostics.push(
@@ -924,6 +956,31 @@ export function validateProjectBundle(bundle: ProjectBundle): ProjectDiagnostic[
   const assetsByPath = new Map<string, AssetDocument>();
   for (const asset of Object.values(bundle.assets)) {
     assetsByPath.set(asset.path, asset);
+
+    if (asset.kind === "audio") {
+      if (asset.captionKey && defaultLocale && !(asset.captionKey in defaultLocale.strings)) {
+        diagnostics.push(
+          createDiagnostic(
+            "warning",
+            "locale.missing-audio-caption",
+            `Missing localized caption "${asset.captionKey}" for audio asset "${asset.id}".`,
+            { documentId: asset.id, path: `assets/${asset.id}/captionKey` }
+          )
+        );
+      }
+      continue;
+    }
+
+    if (asset.processing && !bundle.assets[asset.processing.parentAssetId]) {
+      diagnostics.push(
+        createDiagnostic(
+          "error",
+          "asset.processing-parent-missing",
+          `Processed asset "${asset.id}" references missing parent asset "${asset.processing.parentAssetId}".`,
+          { documentId: asset.id, path: `assets/${asset.id}/processing/parentAssetId` }
+        )
+      );
+    }
 
     if (asset.generation?.workflowId && !bundle.workflowTemplates[asset.generation.workflowId]) {
       diagnostics.push(
@@ -1987,7 +2044,8 @@ function findAssetReferences(
     | "recipeParent"
     | "assetGenerationReference"
     | "assetGenerationMask"
-    | "assetGenerationParent";
+    | "assetGenerationParent"
+    | "assetProcessingParent";
 }> {
   const references: Array<{
     documentId: string;
@@ -2006,7 +2064,8 @@ function findAssetReferences(
       | "recipeParent"
       | "assetGenerationReference"
       | "assetGenerationMask"
-      | "assetGenerationParent";
+      | "assetGenerationParent"
+      | "assetProcessingParent";
   }> = [];
 
   for (const scene of Object.values(bundle.scenes)) {
@@ -2115,6 +2174,14 @@ function findAssetReferences(
 
   for (const generatedAsset of Object.values(bundle.assets)) {
     if (generatedAsset.id === asset.id) continue;
+    if (generatedAsset.kind === "image" && generatedAsset.processing?.parentAssetId === asset.id) {
+      references.push({
+        documentId: generatedAsset.id,
+        path: `assets/${generatedAsset.id}/processing/parentAssetId`,
+        use: "assetProcessingParent"
+      });
+    }
+    if (generatedAsset.kind !== "image") continue;
     for (const referenceAssetId of generatedAsset.generation?.referenceAssetIds ?? []) {
       if (referenceAssetId === asset.id) {
         references.push({
@@ -2368,6 +2435,7 @@ function removeLocaleKey(locale: LocaleDocument, key: string): LocaleDocument {
 function patchFlow(flow: FlowDocument, patch: FlowPatch): FlowDocument {
   return {
     ...flow,
+    ...(patch.editorLayout ? { editorLayout: patch.editorLayout } : {}),
     name: patch.name,
     nodes: patch.nodes,
     startNodeId: patch.startNodeId
@@ -3300,15 +3368,29 @@ async function applyProjectCommandWithoutHistory(
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
-      const assetDocument: AssetDocument = {
-        schemaVersion: 1,
-        id: asset.id,
-        kind: asset.kind,
-        path: asset.filePath,
-        source: asset.source,
-        ...(contentSha256 ? { contentSha256 } : {}),
-        ...(asset.generation ? { generation: asset.generation } : {})
-      };
+      const assetDocument: AssetDocument = asset.kind === "audio"
+        ? {
+            schemaVersion: 1,
+            id: asset.id,
+            kind: "audio",
+            path: asset.filePath,
+            source: asset.source,
+            channel: asset.channel,
+            ...(contentSha256 ? { contentSha256 } : {}),
+            ...(asset.volume !== undefined ? { volume: asset.volume } : {}),
+            ...(asset.loop !== undefined ? { loop: asset.loop } : {}),
+            ...(asset.captionKey ? { captionKey: asset.captionKey } : {})
+          }
+        : {
+            schemaVersion: 1,
+            id: asset.id,
+            kind: "image",
+            path: asset.filePath,
+            source: asset.source,
+            ...(contentSha256 ? { contentSha256 } : {}),
+            ...(asset.generation ? { generation: asset.generation } : {}),
+            ...(asset.processing ? { processing: asset.processing } : {})
+          };
       assertDocument<AssetDocument>("asset", assetDocument);
 
       const existingReferenceIndex = nextManifest.assets.findIndex((entry) => entry.id === asset.id);

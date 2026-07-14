@@ -6,6 +6,25 @@ export interface ImagePixelData {
   width: number;
 }
 
+export function alphaContentBounds(image: ImagePixelData): Rect | null {
+  let minX = image.width;
+  let minY = image.height;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < image.height; y += 1) {
+    for (let x = 0; x < image.width; x += 1) {
+      if (image.data[(y * image.width + x) * 4 + 3] === 0) continue;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+  return maxX < minX || maxY < minY
+    ? null
+    : { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+}
+
 export type BezierCropNodeMode = "corner" | "smooth";
 
 export interface BezierCropNode {
@@ -28,6 +47,50 @@ export interface CompositeGuideMaskOptions {
   guides: SceneGenerationGuide[];
   height: number;
   width: number;
+}
+
+export type ImageOptimizePresetId = "sprite-pixel-art" | "transparent-art" | "background-web";
+
+export interface ImageOptimizePreset {
+  format: "png" | "webp" | "jpeg";
+  id: ImageOptimizePresetId;
+  label: string;
+  lossless: boolean;
+  quality?: number;
+  resize: "nearest-neighbor" | "high-quality";
+  trimAlpha: boolean;
+}
+
+export const imageOptimizePresets: readonly ImageOptimizePreset[] = [
+  {
+    format: "png",
+    id: "sprite-pixel-art",
+    label: "Sprite / pixel art",
+    lossless: true,
+    resize: "nearest-neighbor",
+    trimAlpha: false
+  },
+  {
+    format: "png",
+    id: "transparent-art",
+    label: "Transparency",
+    lossless: true,
+    resize: "high-quality",
+    trimAlpha: true
+  },
+  {
+    format: "webp",
+    id: "background-web",
+    label: "Background",
+    lossless: false,
+    quality: 88,
+    resize: "high-quality",
+    trimAlpha: false
+  }
+];
+
+export function imageOptimizePreset(id: ImageOptimizePresetId): ImageOptimizePreset {
+  return imageOptimizePresets.find((preset) => preset.id === id) ?? imageOptimizePresets[0]!;
 }
 
 function clampWhole(value: number, min: number, max: number) {
