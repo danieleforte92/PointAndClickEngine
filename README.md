@@ -15,6 +15,7 @@ The public Creator Alpha path is visible in three focused surfaces:
 - **Player:** [complete deterministic sample loop](docs/assets/player.jpg)
 - **AI Studio:** [Advanced open with Candidate Output reachable](docs/assets/ai-studio-advanced.png)
 - **Asset Studio:** [mock asset inspection and cleanup workspace](docs/assets/asset_studio.jpg)
+- **Test Lab:** [embedded runtime and logical-state comparison](docs/assets/test-lab.png)
 
 Release page: [GitHub `v0.4.0-alpha.1`](https://github.com/danieleforte92/PointAndClickEngine/releases/tag/v0.4.0-alpha.1)
 for the Windows x64 package, Squirrel installer, checksums, release evidence,
@@ -24,12 +25,18 @@ and source archive.
 
 - Open the Electron editor and create, open, or start from a starter project.
 - Edit layered 2D scenes, hotspots, pickups, actors, player start, and walk areas.
-- Author linear dialogue and scene-transition flows.
-- Import or drop image assets and assign them to scenes, actors, pickups, or the player.
-- Use Asset Studio as the canonical place for asset info, chroma cleanup, crop,
-  generation guides, and animation packs.
+- Author and diagnose narrative graphs with ten node families, typed connections,
+  deterministic auto-layout, pan/zoom, minimap, and persisted editor positions.
+- Browse project content through Resources, including scenes, image and audio
+  assets, animation packs, flows, locales, items, prompt packs, style bibles,
+  workflows, and recipes.
+- Import or drop image and audio assets, inspect their usages, and assign them to
+  scenes, actors, pickups, the player, or sound cues.
+- Use Asset Studio as the canonical place for asset info, non-destructive chroma
+  cleanup, crop, optimization, generation guides, and animation packs.
 - Configure player asset, animation pack, scale-by-depth, and walk speed.
-- Run the sample adventure in the web player or editor preview.
+- Run the current project in Test Lab, inspect runtime state, and replay the same
+  logical actions in a browser to find the first state divergence.
 - Test waypoint movement, pending interactions, save slots, autosave, and
   browser/Electron persistence in the runtime.
 - Migrate a v1 project with `pointclick migrate`, including dry-run and backup
@@ -41,7 +48,8 @@ and source archive.
   experimental opt-in cloud provider.
 - Ask the local deterministic copilot for reviewable narrative and puzzle beats;
   it never changes runtime behavior or project files by itself.
-- Generate and import image assets from a local ComfyUI API workflow.
+- Generate temporary image candidates in batches, review warnings and provenance,
+  then explicitly apply a selected candidate to the project.
 - Validate project documents from the CLI and CI.
 
 The current public sample is **The Isle of Echoes**, a compact two-scene
@@ -88,22 +96,26 @@ In the editor, start with one of these paths:
 2. **Create From Starter** for a minimal editable project.
 3. **Open Project** and choose `apps/sample-game/project` to inspect the sample.
 
-Use **Play from here** for the isolated Electron preview or **Browser** to open
-the player in your system browser.
+Use **Play** to enter an isolated Test Lab session. From Test Lab, choose
+**Browser** to replay the recorded logical actions in your system browser and
+compare both runtime traces.
 
 ## Try This First
 
 1. Open `apps/sample-game/project`.
 2. In **Scene**, move a hotspot, pickup, player start, or walk-area point.
 3. In **Player**, choose the player asset or animation pack and adjust walk speed.
-4. In **AI**, generate a mock prompt pack, then review the background, prop,
-   character, and animation prompts.
-5. If ComfyUI is running, install a workflow preset, save a generation recipe,
+4. In **Narrative**, open a flow, edit its graph, and run diagnostics.
+5. In **AI**, generate a mock prompt pack or a small candidate batch. Apply one
+   approved candidate; it remains temporary until that action.
+6. If ComfyUI is running, install a workflow preset, save a generation recipe,
    and generate/import one image asset.
-6. Drop or import an image in an inspector, then try **Remove Background** on a
+7. Drop or import an image in an inspector, then try **Remove Background** on a
    flat chroma output.
-7. Open **Build** and run validation.
-8. Preview the sample and play the dock-to-tavern loop.
+8. Choose **Play**, complete part of the dock-to-tavern loop in Test Lab, then
+   open **Browser**, refresh telemetry, and inspect **Compare**.
+9. Open **Build**, resolve validation or dirty-draft blockers, and export a
+   static web build to an empty folder.
 
 ## AI Is Local-First And Reviewable
 
@@ -127,8 +139,10 @@ Creator Alpha does not require paid provider keys.
   subscriptions do not replace API billing.
 
 AI output is treated as draft authoring material. Prompt packs are saved only
-after approval, image generation imports normal asset documents, and provider
-provenance stays visible. Generated image assets record provider id, provider
+after approval. Generated images first live in a session-only candidate store;
+only **Apply to Project** writes the selected candidate as a normal asset, and
+assignment is a separate authoring action. Discarded candidates never enter the
+project. Generated image assets record provider id, provider
 job id, prompt, seed, model, workflow id, recipe id, workflow family,
 references, masks, parent asset lineage, warnings, latency/cost when available,
 and prompt pack target links when available.
@@ -183,13 +197,15 @@ packages/core          Deterministic commands, events, state, and RNG
 packages/flows         Narrative flow execution
 packages/runtime       Renderer-independent adventure orchestration
 packages/renderer-2d   PixiJS layered scene renderer
+packages/audio         Runtime audio-cue resolution
 packages/cli           Project validation commands
 ```
 
 ## Current Limitations
 
 - Creator Alpha focuses on 2D layered scenes; hybrid 3D is schema-planned only.
-- Flow authoring is structured but not a full graph editor yet.
+- Narrative graphs cover the built-in node families; custom node plugins and
+  free-form third-party graph extensions are not part of Creator Alpha.
 - Character Gym has an MVP editor workflow for spritesheet slicing, clip
   preview, pack editing, and player/actor assignment; generated animation-sheet
   consistency still needs stronger presets.
@@ -212,6 +228,7 @@ packages/cli           Project validation commands
 - [Project Format](docs/project-format.md)
 - [Git Project History Guide](docs/git-project-history.md)
 - [Authoring Tutorial](docs/authoring-tutorial.md)
+- [Studio Workflows](docs/studio-workflows.md)
 - [AI Prompt Pack Guide](docs/ai-prompt-pack-guide.md)
 - [Character Gym Guide](docs/character-gym-guide.md)
 - [Sample Demo Checklist](docs/sample-demo-checklist.md)

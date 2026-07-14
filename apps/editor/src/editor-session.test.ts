@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { FlowDocument, ItemDocument, LocaleDocument, SceneDocument } from "@pointclick/contracts";
 import {
   buildRecoverySnapshot,
+  buildFlowNodes,
   buildNarrativeRelationIndex,
   clampSceneRect,
   clampScenePoint,
@@ -145,6 +146,30 @@ describe("editor-session navigation targets", () => {
       })
     ).toBe("scene");
     expect(workspaceForNavigationTarget({ workspace: "build", diagnosticId: "asset.file-missing" })).toBe("build");
+  });
+});
+
+describe("editor-session narrative drafts", () => {
+  it("round-trips every supported flow node family without changing the domain model", () => {
+    const flow: FlowDocument = {
+      schemaVersion: 1,
+      id: "all-nodes",
+      name: "All nodes",
+      startNodeId: "choice",
+      nodes: [
+        { id: "choice", type: "choice", promptKey: "choice.prompt", choices: [{ id: "yes", labelKey: "choice.yes", next: "condition" }] },
+        { id: "condition", type: "condition", when: { type: "flag-equals", key: "door.open", value: true }, ifTrue: "sub", ifFalse: "inventory" },
+        { id: "sub", type: "sub-flow", flowId: "inspect-tavern-door", next: "wait" },
+        { id: "inventory", type: "inventory", action: "add", itemId: "rusty-hook", next: "wait" },
+        { id: "wait", type: "wait", durationMs: 250, next: "cue" },
+        { id: "cue", type: "cue", cue: { type: "sound", key: "door-sfx" }, next: "end" },
+        { id: "end", type: "end" }
+      ],
+      editorLayout: { nodes: { choice: { x: 24, y: 48 } }, viewport: { x: 1, y: 2, zoom: 0.8 } }
+    };
+    const draft = createFlowDraft(flow);
+    expect(draft?.editorLayout).toEqual(flow.editorLayout);
+    expect(buildFlowNodes(draft?.nodes ?? [])).toEqual(flow.nodes);
   });
 });
 

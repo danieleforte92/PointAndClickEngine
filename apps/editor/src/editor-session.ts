@@ -1,6 +1,8 @@
 import type {
+  ConditionExpression,
   CursorValue,
   FlowDocument,
+  FlowEditorLayout,
   FlowNode,
   Hotspot,
   HotspotUseItemFlow,
@@ -79,7 +81,7 @@ export function sceneSelectionTargetFor({
 }
 
 export type FlagValueKind = "string" | "number" | "boolean";
-export type DraftNodeType = "line" | "set-flag" | "change-scene" | "end";
+export type DraftNodeType = FlowNode["type"];
 
 export interface HotspotDraft {
   cursor: string;
@@ -207,9 +209,79 @@ export interface FlowEndDraftNode {
   type: "end";
 }
 
-export type FlowDraftNode = FlowLineDraftNode | FlowFlagDraftNode | FlowChangeSceneDraftNode | FlowEndDraftNode;
+export interface FlowConditionDraft {
+  itemId: string;
+  key: string;
+  type: ConditionExpression["type"];
+  value: string;
+  valueKind: FlagValueKind;
+}
+
+export interface FlowChoiceDraftNode {
+  choices: Array<{
+    id: string;
+    labelKey: string;
+    next: string;
+    when: FlowConditionDraft | null;
+  }>;
+  id: string;
+  promptKey: string;
+  type: "choice";
+}
+
+export interface FlowConditionDraftNode {
+  id: string;
+  ifFalse: string;
+  ifTrue: string;
+  type: "condition";
+  when: FlowConditionDraft;
+}
+
+export interface FlowSubFlowDraftNode {
+  flowId: string;
+  id: string;
+  next: string;
+  type: "sub-flow";
+}
+
+export interface FlowInventoryDraftNode {
+  action: "add" | "remove";
+  id: string;
+  itemId: string;
+  next: string;
+  type: "inventory";
+}
+
+export interface FlowWaitDraftNode {
+  durationMs: string;
+  id: string;
+  next: string;
+  type: "wait";
+}
+
+export interface FlowCueDraftNode {
+  cueKey: string;
+  cueType: "camera-shake" | "fade" | "sound" | "emote";
+  cueValue: string;
+  id: string;
+  next: string;
+  type: "cue";
+}
+
+export type FlowDraftNode =
+  | FlowLineDraftNode
+  | FlowFlagDraftNode
+  | FlowChangeSceneDraftNode
+  | FlowChoiceDraftNode
+  | FlowConditionDraftNode
+  | FlowSubFlowDraftNode
+  | FlowInventoryDraftNode
+  | FlowWaitDraftNode
+  | FlowCueDraftNode
+  | FlowEndDraftNode;
 
 export interface FlowDraft {
+  editorLayout?: FlowEditorLayout;
   id: string;
   name: string;
   nodes: FlowDraftNode[];
@@ -562,9 +634,38 @@ export function inferFlagValueKind(value: string | number | boolean): FlagValueK
   return "string";
 }
 
+function createConditionDraft(condition: ConditionExpression): FlowConditionDraft {
+  return condition.type === "flag-equals"
+    ? {
+        itemId: "",
+        key: condition.key,
+        type: "flag-equals",
+        value: String(condition.value),
+        valueKind: inferFlagValueKind(condition.value)
+      }
+    : {
+        itemId: condition.itemId,
+        key: "",
+        type: "item-in-inventory",
+        value: "",
+        valueKind: "boolean"
+      };
+}
+
+function buildConditionExpression(condition: FlowConditionDraft): ConditionExpression {
+  if (condition.type === "item-in-inventory") {
+    return { type: "item-in-inventory", itemId: condition.itemId.trim() };
+  }
+  let value: string | number | boolean = condition.value;
+  if (condition.valueKind === "boolean") value = condition.value.trim().toLowerCase() === "true";
+  if (condition.valueKind === "number") value = Number(condition.value);
+  return { type: "flag-equals", key: condition.key.trim(), value };
+}
+
 export function createFlowDraft(flow: FlowDocument | null): FlowDraft | null {
   if (!flow) return null;
   return {
+    ...(flow.editorLayout ? { editorLayout: structuredClone(flow.editorLayout) } : {}),
     id: flow.id,
     name: flow.name,
     nodes: flow.nodes.map((node) => {
@@ -598,10 +699,48 @@ export function createFlowDraft(flow: FlowDocument | null): FlowDraft | null {
           type: "change-scene"
         };
       }
-      return {
-        id: node.id,
-        type: "end"
-      };
+      if (node.type === "choice") {
+        return {
+          choices: node.choices.map((choice) => ({
+            id: choice.id,
+            labelKey: choice.labelKey,
+            next: choice.next,
+            when: choice.when ? createConditionDraft(choice.when) : null
+          })),
+          id: node.id,
+          promptKey: node.promptKey,
+          type: "choice"
+        };
+      }
+      if (node.type === "condition") {
+        return {
+          id: node.id,
+          ifFalse: node.ifFalse,
+          ifTrue: node.ifTrue,
+          type: "condition",
+          when: createConditionDraft(node.when)
+        };
+      }
+      if (node.type === "sub-flow") {
+        return { flowId: node.flowId, id: node.id, next: node.next, type: "sub-flow" };
+      }
+      if (node.type === "inventory") {
+        return { action: node.action, id: node.id, itemId: node.itemId, next: node.next, type: "inventory" };
+      }
+      if (node.type === "wait") {
+        return { durationMs: String(node.durationMs), id: node.id, next: node.next, type: "wait" };
+      }
+      if (node.type === "cue") {
+        return {
+          cueKey: node.cue.key ?? "",
+          cueType: node.cue.type,
+          cueValue: node.cue.value ?? "",
+          id: node.id,
+          next: node.next,
+          type: "cue"
+        };
+      }
+      return { id: node.id, type: "end" };
     }),
     startNodeId: flow.startNodeId
   };
@@ -853,10 +992,11 @@ export function generateNodeId(nodes: FlowDraftNode[], prefix: string): string {
 }
 
 export function createNewFlowNode(type: DraftNodeType, nodes: FlowDraftNode[]): FlowDraftNode {
+  const next = nextNodeTarget(nodes);
   if (type === "line") {
     return {
       id: generateNodeId(nodes, "line"),
-      next: nextNodeTarget(nodes),
+      next,
       speakerId: "speaker",
       textKey: "dialogue.new-line",
       type: "line"
@@ -866,7 +1006,7 @@ export function createNewFlowNode(type: DraftNodeType, nodes: FlowDraftNode[]): 
     return {
       id: generateNodeId(nodes, "flag"),
       key: "story.flag",
-      next: nextNodeTarget(nodes),
+      next,
       type: "set-flag",
       value: "true",
       valueKind: "boolean"
@@ -875,13 +1015,42 @@ export function createNewFlowNode(type: DraftNodeType, nodes: FlowDraftNode[]): 
   if (type === "change-scene") {
     return {
       id: generateNodeId(nodes, "scene"),
-      next: nextNodeTarget(nodes),
+      next,
       playerStartEnabled: false,
       playerStartX: "",
       playerStartY: "",
       targetSceneId: "",
       type: "change-scene"
     };
+  }
+  if (type === "choice") {
+    return {
+      choices: [{ id: "option-1", labelKey: "dialogue.choice.option", next, when: null }],
+      id: generateNodeId(nodes, "choice"),
+      promptKey: "dialogue.choice.prompt",
+      type: "choice"
+    };
+  }
+  if (type === "condition") {
+    return {
+      id: generateNodeId(nodes, "condition"),
+      ifFalse: next,
+      ifTrue: next,
+      type: "condition",
+      when: { itemId: "", key: "story.flag", type: "flag-equals", value: "true", valueKind: "boolean" }
+    };
+  }
+  if (type === "sub-flow") {
+    return { flowId: "", id: generateNodeId(nodes, "sub-flow"), next, type: "sub-flow" };
+  }
+  if (type === "inventory") {
+    return { action: "add", id: generateNodeId(nodes, "inventory"), itemId: "", next, type: "inventory" };
+  }
+  if (type === "wait") {
+    return { durationMs: "500", id: generateNodeId(nodes, "wait"), next, type: "wait" };
+  }
+  if (type === "cue") {
+    return { cueKey: "", cueType: "sound", cueValue: "", id: generateNodeId(nodes, "cue"), next, type: "cue" };
   }
   return {
     id: generateNodeId(nodes, "end"),
@@ -926,6 +1095,49 @@ export function buildFlowNodes(nodes: FlowDraftNode[]): FlowNode[] {
           : {}),
         targetSceneId: node.targetSceneId.trim(),
         type: "change-scene"
+      };
+    }
+    if (node.type === "choice") {
+      return {
+        choices: node.choices.map((choice) => ({
+          id: choice.id.trim(),
+          labelKey: choice.labelKey.trim(),
+          next: choice.next.trim(),
+          ...(choice.when ? { when: buildConditionExpression(choice.when) } : {})
+        })),
+        id: node.id.trim(),
+        promptKey: node.promptKey.trim(),
+        type: "choice"
+      };
+    }
+    if (node.type === "condition") {
+      return {
+        id: node.id.trim(),
+        ifFalse: node.ifFalse.trim(),
+        ifTrue: node.ifTrue.trim(),
+        type: "condition",
+        when: buildConditionExpression(node.when)
+      };
+    }
+    if (node.type === "sub-flow") {
+      return { flowId: node.flowId.trim(), id: node.id.trim(), next: node.next.trim(), type: "sub-flow" };
+    }
+    if (node.type === "inventory") {
+      return { action: node.action, id: node.id.trim(), itemId: node.itemId.trim(), next: node.next.trim(), type: "inventory" };
+    }
+    if (node.type === "wait") {
+      return { durationMs: Number(node.durationMs), id: node.id.trim(), next: node.next.trim(), type: "wait" };
+    }
+    if (node.type === "cue") {
+      return {
+        cue: {
+          type: node.cueType,
+          ...(node.cueKey.trim() ? { key: node.cueKey.trim() } : {}),
+          ...(node.cueValue.trim() ? { value: node.cueValue.trim() } : {})
+        },
+        id: node.id.trim(),
+        next: node.next.trim(),
+        type: "cue"
       };
     }
     return {

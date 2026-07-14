@@ -184,9 +184,10 @@ async function waitForPreviewTarget(editorTargetId, timeoutMs = 30_000) {
   while (Date.now() - startedAt < timeoutMs) {
     const preview = (await targets()).find(
       (target) =>
-        target.type === "page" &&
+        (target.type === "page" || target.type === "iframe") &&
         target.targetId !== editorTargetId &&
-        target.url.startsWith("http://127.0.0.1:")
+        target.url.startsWith("http://127.0.0.1:") &&
+        target.url.includes("runtimeTarget=embedded")
     );
     if (preview) return preview;
     await new Promise((resolve) => setTimeout(resolve, 250));

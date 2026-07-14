@@ -118,6 +118,10 @@ export class AdventureEngine {
     return this.resolveLocale(this.requestedLocale);
   }
 
+  get activeFlowNodeId(): string | null {
+    return this.flowSession?.currentNodeId ?? null;
+  }
+
   get localeInfo(): { requested: string; active: string; fallback: string } {
     return {
       requested: this.requestedLocale,

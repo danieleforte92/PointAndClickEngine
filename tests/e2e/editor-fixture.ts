@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import path from "node:path";
+import type { AssetDocument, FlowDocument, ItemDocument } from "@pointclick/contracts";
 import {
   loadProjectFromDirectory,
   loadProjectHistory,
@@ -7,13 +8,17 @@ import {
   validateProjectFiles
 } from "../../packages/project-io/src/index";
 
-export async function installEditorMock(page: Page) {
+interface EditorMockOptions {
+  embeddedPreviewBaseUrl?: string;
+}
+
+export async function installEditorMock(page: Page, options: EditorMockOptions = {}) {
   const projectDirectory = path.resolve("apps/starter-game/project");
   const loaded = await loadProjectFromDirectory(projectDirectory);
   const bundle = loaded.bundle;
   const scenes = Object.values(bundle.scenes);
   const layeredScene = scenes.find((scene) => scene.type === "layered-2d") ?? null;
-  const assets = [
+  const assets: AssetDocument[] = [
     ...Object.values(bundle.assets),
     {
       id: "mock-cabin-art",
@@ -21,6 +26,15 @@ export async function installEditorMock(page: Page) {
       path: "assets/mock-cabin-art.svg",
       schemaVersion: 1,
       source: "imported"
+    },
+    {
+      channel: "sfx",
+      id: "mock-audio-cue",
+      kind: "audio",
+      path: "assets/mock-audio-cue.ogg",
+      schemaVersion: 1,
+      source: "imported",
+      volume: 0.8
     }
   ];
   const animationPacks = Object.values(bundle.animationPacks);
@@ -28,8 +42,8 @@ export async function installEditorMock(page: Page) {
   const styleBibles = Object.values(bundle.styleBibles);
   const workflowTemplates = Object.values(bundle.workflowTemplates);
   const generationRecipes = Object.values(bundle.generationRecipes);
-  const flows = Object.values(bundle.flows);
-  const items = Object.values(bundle.items);
+  const existingFlows = Object.values(bundle.flows);
+  const existingItems = Object.values(bundle.items);
   const locales = Object.values(bundle.locales);
   const history = await loadProjectHistory(projectDirectory);
   const diagnostics = [
@@ -37,6 +51,30 @@ export async function installEditorMock(page: Page) {
     ...(await validateProjectFiles({ directory: projectDirectory, bundle }))
   ];
   const sceneId = layeredScene?.id ?? bundle.manifest.initialSceneId;
+  const items: ItemDocument[] = existingItems.length ? existingItems : [
+    { id: "mock-item", labelKey: "item.mock", name: "Mock item", schemaVersion: 1 }
+  ];
+  const flows: FlowDocument[] = existingFlows.length ? existingFlows : [{
+    id: "mock-complete-flow",
+    name: "Complete graph fixture",
+    nodes: [
+      { id: "line", type: "line", speakerId: "narrator", textKey: "flow.mock.line", next: "set-flag" },
+      { id: "set-flag", type: "set-flag", key: "mock-ready", value: true, next: "change-scene" },
+      { id: "change-scene", type: "change-scene", targetSceneId: sceneId, next: "choice" },
+      { id: "choice", type: "choice", promptKey: "flow.mock.choice", choices: [
+        { id: "inspect", labelKey: "flow.mock.inspect", next: "condition" },
+        { id: "skip", labelKey: "flow.mock.skip", next: "wait" }
+      ] },
+      { id: "condition", type: "condition", when: { type: "flag-equals", key: "mock-ready", value: true }, ifTrue: "sub-flow", ifFalse: "inventory" },
+      { id: "sub-flow", type: "sub-flow", flowId: "mock-complete-flow", next: "inventory" },
+      { id: "inventory", type: "inventory", action: "add", itemId: "mock-item", next: "wait" },
+      { id: "wait", type: "wait", durationMs: 250, next: "cue" },
+      { id: "cue", type: "cue", cue: { type: "sound", key: "mock-audio-cue" }, next: "end" },
+      { id: "end", type: "end" }
+    ],
+    schemaVersion: 1,
+    startNodeId: "line"
+  }];
   const promptPackJob = {
     id: "mock-editor-ai-test",
     provider: "mock",
@@ -146,12 +184,63 @@ export async function installEditorMock(page: Page) {
   };
 
   await page.addInitScript(
-    ({ snapshot: editorSnapshot, generatedPromptPackJob }) => {
+    ({ snapshot: editorSnapshot, generatedPromptPackJob, embeddedPreviewBaseUrl }) => {
+      const imageGenerationListeners: Array<(event: unknown) => void> = [];
+      const runtimeSnapshot = {
+        activeFlowId: null,
+        activeNodeId: null,
+        audio: [],
+        dialogueKey: null,
+        events: ["character/moved"],
+        flags: {},
+        inventory: [],
+        path: [],
+        player: { x: 32, y: 48 },
+        sceneId: editorSnapshot.activeSceneId,
+        sequence: 1
+      };
+      const runtimeAction = {
+        point: { x: 32, y: 48 },
+        sequence: 0,
+        type: "move-player" as const
+      };
       window.pointClick = {
+        applyAssetCandidate: async () => {
+          const testWindow = window as typeof window & { __pointClickAppliedCandidateCount?: number };
+          testWindow.__pointClickAppliedCandidateCount = (testWindow.__pointClickAppliedCandidateCount ?? 0) + 1;
+          return { assetId: "mock-applied-candidate", assetPath: "assets/mock-candidate.svg", snapshot: editorSnapshot };
+        },
         applyCommand: async () => editorSnapshot,
+        cancelImageGeneration: async () => undefined,
         clearRecovery: async () => undefined,
+        closePreviewSession: async () => undefined,
         createBlankProject: async () => editorSnapshot,
         createProjectFromStarter: async () => editorSnapshot,
+        createPreviewSession: async (request) => {
+          const testWindow = window as typeof window & {
+            __pointClickPreviewSceneBackground?: string;
+            __pointClickPreviewSceneId?: string;
+          };
+          testWindow.__pointClickPreviewSceneId = request.sceneId;
+          const previewScene = request.sceneId ? request.bundle.scenes[request.sceneId] : undefined;
+          testWindow.__pointClickPreviewSceneBackground = previewScene?.type === "layered-2d"
+            ? previewScene.background
+            : undefined;
+          const embeddedUrl = embeddedPreviewBaseUrl
+            ? new URL(embeddedPreviewBaseUrl)
+            : new URL("about:blank");
+          if (request.sceneId && embeddedUrl.protocol !== "about:") {
+            embeddedUrl.searchParams.set("scene", request.sceneId);
+          }
+          return {
+            browserUrl: embeddedUrl.toString(),
+            embeddedUrl: embeddedUrl.toString(),
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            id: "mock-preview-session"
+          };
+        },
+        discardAssetCandidate: async () => undefined,
+        exportWebBuild: async () => null,
         importAssetFiles: async () => ({ assetIds: [], snapshot: editorSnapshot }),
         importAssets: async () => editorSnapshot,
         generatePromptPack: async (request) => {
@@ -183,10 +272,21 @@ export async function installEditorMock(page: Page) {
             message: "Image generation is intentionally mocked in this browser test."
           };
         },
+        onImageGenerationEvent: (listener) => {
+          imageGenerationListeners.push(listener as (event: unknown) => void);
+          return () => {
+            const index = imageGenerationListeners.indexOf(listener as (event: unknown) => void);
+            if (index >= 0) imageGenerationListeners.splice(index, 1);
+          };
+        },
         installWorkflowPreset: async () => editorSnapshot,
         loadProject: async () => editorSnapshot,
         loadRecovery: async () => null,
         openPreview: async () => undefined,
+        openPreviewInBrowser: async () => {
+          const testWindow = window as typeof window & { __pointClickBrowserPreviewCount?: number };
+          testWindow.__pointClickBrowserPreviewCount = (testWindow.__pointClickBrowserPreviewCount ?? 0) + 1;
+        },
         openInBrowser: async () => undefined,
         pickProject: async () => editorSnapshot,
         saveProcessedImageAsset: async () => ({ assetIds: [], snapshot: editorSnapshot }),
@@ -199,9 +299,56 @@ export async function installEditorMock(page: Page) {
           summary: { errorCount: 0, warningCount: 0, infoCount: 0 },
           diagnostics: []
         }),
-        saveRecovery: async () => undefined
+        readPreviewTelemetry: async () => ({
+          actions: [runtimeAction],
+          browserActions: [runtimeAction],
+          browserSnapshots: [runtimeSnapshot],
+          snapshots: [runtimeSnapshot]
+        }),
+        saveRecovery: async () => undefined,
+        startImageGeneration: async (request) => {
+          const testWindow = window as typeof window & {
+            __pointClickLastImageRequest?: Record<string, unknown>;
+          };
+          testWindow.__pointClickLastImageRequest = {
+            allowRemoteProvider: request.allowRemoteProvider,
+            providerId: request.providerId,
+            targetId: request.targetId
+          };
+          const queuedJob = {
+            candidateIds: [],
+            completed: 0,
+            id: "mock-image-job",
+            requested: request.batchSize ?? 1,
+            status: "queued" as const
+          };
+          window.setTimeout(() => {
+            const candidate = {
+              hasAlphaPixels: false,
+              height: request.height,
+              id: "mock-candidate",
+              mimeType: "image/svg+xml",
+              model: "mock-image-v1",
+              previewDataUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#173442"/><circle cx="160" cy="90" r="55" fill="#d9a561"/></svg>')}`,
+              provider: request.providerId === "comfyui" ? "comfyui-local" : request.providerId,
+              providerJobId: "mock-provider-job",
+              seed: request.seed ?? 42,
+              targetId: request.targetId,
+              warnings: [],
+              width: request.width
+            };
+            const candidateJob = { ...queuedJob, candidateIds: [candidate.id], completed: 1, status: "running" as const };
+            for (const listener of imageGenerationListeners) listener({ type: "candidate", candidate, job: candidateJob });
+            for (const listener of imageGenerationListeners) listener({ type: "completed", job: { ...candidateJob, status: "completed" as const } });
+          }, 0);
+          return queuedJob;
+        }
       };
     },
-    { snapshot, generatedPromptPackJob: promptPackJob }
+    {
+      snapshot,
+      generatedPromptPackJob: promptPackJob,
+      embeddedPreviewBaseUrl: options.embeddedPreviewBaseUrl ?? null
+    }
   );
 }

@@ -4,7 +4,6 @@ import {
   Clapperboard,
   Crosshair,
   Eraser,
-  ExternalLink,
   FilePlus2,
   FolderOpen,
   Hammer,
@@ -12,6 +11,10 @@ import {
   Library,
   MousePointer2,
   Package,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Play,
   Plus,
   Redo2,
@@ -21,7 +24,7 @@ import {
   Undo2,
   UserRound
 } from "lucide-react";
-import type { ReactNode } from "react";
+import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import {
   capabilityBadgeLabel,
   capabilityStatusTone,
@@ -88,9 +91,6 @@ export function WorkspaceTabs({ activeWorkspace, onWorkspaceChange }: WorkspaceT
         >
           <WorkspaceIcon workspace={item.workspace} />
           <span className="workspace-tab-label">{item.label}</span>
-          <Badge className="compact" tone={capabilityStatusTone(item.status)}>
-            {capabilityBadgeLabel(item.status)}
-          </Badge>
         </button>
       ))}
     </nav>
@@ -100,11 +100,11 @@ export function WorkspaceTabs({ activeWorkspace, onWorkspaceChange }: WorkspaceT
 interface TopbarActionsProps {
   canRedo: boolean;
   canUndo: boolean;
+  diagnosticCount: number;
   hasProject: boolean;
   isDirty: boolean;
   onCreateBlankProject: () => void;
   onCreateProjectFromStarter: () => void;
-  onOpenBrowser: () => void;
   onOpenProject: () => void;
   onPlay: () => void;
   onRedo: () => void;
@@ -122,12 +122,27 @@ interface ProjectMapPanelProps {
   healthDetail: string;
   healthLabel: string;
   healthTone: "good" | "warn" | "error";
+  onClose: () => void;
   onOpenProject: () => void;
 }
 
 interface InspectorPanelProps {
   children: ReactNode;
   detail: string;
+  onClose: () => void;
+}
+
+interface CollapsedPanelRailProps {
+  label: string;
+  onOpen: () => void;
+  side: "left" | "right";
+}
+
+interface PanelResizeHandleProps {
+  label: string;
+  onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onResize: (delta: number) => void;
+  side: "left" | "right";
 }
 
 interface ProjectStartScreenProps {
@@ -196,9 +211,13 @@ interface BuildWorkspaceIssue {
 
 interface BuildWorkspaceProps {
   blockingIssueCount: number;
+  canExport: boolean;
   creatorPathSteps: CreatorPathStep[];
   dirtyDraftCount: number;
   issues: BuildWorkspaceIssue[];
+  exportState: "idle" | "running";
+  exportStatus: string;
+  onExportWeb: () => void;
   onOpenCreatorPathStep: (step: CreatorPathStep) => void;
   onRunValidation: () => void;
   previewReadinessLabel: string;
@@ -244,7 +263,7 @@ interface WorkflowTemplateSummaryProps {
   outputNodeId: string;
 }
 
-type AssetToolId = "info" | "chroma" | "crop" | "guide" | "animation";
+type AssetToolId = "info" | "chroma" | "crop" | "optimize" | "guide" | "animation";
 
 interface AssetStudioSidebarProps {
   activeTool: AssetToolId;
@@ -272,6 +291,7 @@ interface WorkspaceStageToolbarProps {
   badgeLabel: string;
   badgeTone: "good" | "warn" | "error" | "muted";
   canUseSceneTools: boolean;
+  contextualControls?: ReactNode;
   detail: string;
   isSceneWorkspace: boolean;
   onSceneToolChange: (tool: string) => void;
@@ -340,6 +360,7 @@ export function WorkspaceStageToolbar({
   badgeLabel,
   badgeTone,
   canUseSceneTools,
+  contextualControls,
   detail,
   isSceneWorkspace,
   onSceneToolChange,
@@ -355,6 +376,7 @@ export function WorkspaceStageToolbar({
           onToolChange={onSceneToolChange}
         />
       ) : null}
+      {contextualControls}
       <div className="canvas-meta">
         <span className="canvas-meta-primary">{primaryLabel}</span>
         <span>{detail}</span>
@@ -471,15 +493,21 @@ export function ProjectMapPanel({
   healthDetail,
   healthLabel,
   healthTone,
+  onClose,
   onOpenProject
 }: ProjectMapPanelProps) {
   return (
     <aside className="project-panel panel">
       <div className="panel-heading">
         <span>Project</span>
-        <IconButton label="Open project" onClick={onOpenProject}>
-          <FolderOpen size={13} />
-        </IconButton>
+        <div className="panel-heading-actions">
+          <IconButton label="Open project" onClick={onOpenProject}>
+            <FolderOpen size={13} />
+          </IconButton>
+          <IconButton label="Collapse project panel" onClick={onClose}>
+            <PanelLeftClose size={13} />
+          </IconButton>
+        </div>
       </div>
       <div className="tree">{children}</div>
       <div className="project-health">
@@ -774,9 +802,13 @@ function readinessDescription({
 
 export function BuildWorkspace({
   blockingIssueCount,
+  canExport,
   creatorPathSteps,
   dirtyDraftCount,
+  exportState,
+  exportStatus,
   issues,
+  onExportWeb,
   onOpenCreatorPathStep,
   onRunValidation,
   previewReadinessLabel,
@@ -825,6 +857,22 @@ export function BuildWorkspace({
         </p>
         <p className="diagnostic-meta">Last run: {validationLastRunLabel}</p>
         <p className="diagnostic-meta">Saved target: {savedTarget}</p>
+      </section>
+      <section className="overview-card">
+        <span className="overview-label">Web export</span>
+        <strong>Static browser build</strong>
+        <p>{exportStatus}</p>
+        <div className="build-actions">
+          <Button
+            className="play-action"
+            disabled={!canExport || exportState === "running"}
+            icon={<Package size={iconSize} />}
+            variant="primary"
+            onClick={onExportWeb}
+          >
+            {exportState === "running" ? "Exporting..." : "Export Web Build"}
+          </Button>
+        </div>
       </section>
       <CreatorPathChecklist
         detail="Use this as the handoff gate for the whole game, including optional AI production."
@@ -972,6 +1020,7 @@ export function AssetStudioSidebar({
     { icon: Image, id: "info", label: "Info" },
     { icon: Eraser, id: "chroma", label: "Chroma Key" },
     { icon: Scissors, id: "crop", label: "Crop" },
+    { icon: Image, id: "optimize", label: "Optimize" },
     { icon: Crosshair, id: "guide", label: "Generation Guide" },
     { icon: Package, id: "animation", label: "Animation Pack" }
   ];
@@ -1009,15 +1058,51 @@ export function AssetStudioSidebar({
   );
 }
 
-export function InspectorPanel({ children, detail }: InspectorPanelProps) {
+export function InspectorPanel({ children, detail, onClose }: InspectorPanelProps) {
   return (
     <aside className="inspector-panel panel">
       <div className="panel-heading">
         <span>Inspector</span>
-        <small>{detail}</small>
+        <div className="panel-heading-actions">
+          <small>{detail}</small>
+          <IconButton label="Collapse inspector panel" onClick={onClose}>
+            <PanelRightClose size={13} />
+          </IconButton>
+        </div>
       </div>
       <div className="inspector-content">{children}</div>
     </aside>
+  );
+}
+
+export function CollapsedPanelRail({ label, onOpen, side }: CollapsedPanelRailProps) {
+  const OpenIcon = side === "left" ? PanelLeftOpen : PanelRightOpen;
+  return (
+    <aside className={`collapsed-panel-rail ${side}`}>
+      <IconButton label={`Open ${label.toLowerCase()} panel`} onClick={onOpen}>
+        <OpenIcon size={15} />
+      </IconButton>
+      <span>{label}</span>
+    </aside>
+  );
+}
+
+export function PanelResizeHandle({ label, onPointerDown, onResize, side }: PanelResizeHandleProps) {
+  return (
+    <div
+      aria-label={label}
+      aria-orientation="vertical"
+      className={`panel-resize-handle ${side}`}
+      role="separator"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        const screenDelta = event.key === "ArrowRight" ? 16 : -16;
+        onResize(side === "right" ? screenDelta : -screenDelta);
+      }}
+      onPointerDown={onPointerDown}
+    />
   );
 }
 
@@ -1054,11 +1139,11 @@ export function SceneToolPalette({
 export function TopbarActions({
   canRedo,
   canUndo,
+  diagnosticCount,
   hasProject,
   isDirty,
   onCreateBlankProject,
   onCreateProjectFromStarter,
-  onOpenBrowser,
   onOpenProject,
   onPlay,
   onRedo,
@@ -1094,9 +1179,12 @@ export function TopbarActions({
         </details>
       </div>
       <div className="action-cluster run-cluster" aria-label="Preview actions">
-        <Button className="secondary-action compact-action" disabled={!hasProject} icon={<ExternalLink size={iconSize} />} onClick={onOpenBrowser}>
-          Browser
-        </Button>
+        <div className={`topbar-project-state ${isDirty ? "dirty" : "saved"}`} aria-label="Project save and diagnostic status">
+          <span>{!hasProject ? "No project" : isDirty ? "Drafts pending" : "Saved"}</span>
+          <Badge className="compact" tone={diagnosticCount > 0 ? "warn" : "good"}>
+            {diagnosticCount} issue{diagnosticCount === 1 ? "" : "s"}
+          </Badge>
+        </div>
         <Button className="play-action compact-action" disabled={!hasProject} icon={<Play size={iconSize} />} variant="primary" onClick={onPlay}>
           {isDirty ? "Draft Preview" : "Play Project"}
         </Button>

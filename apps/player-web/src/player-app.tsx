@@ -1,8 +1,20 @@
-import type { Layered2DScene, ProjectBundle } from "@pointclick/contracts";
+import type {
+  Layered2DScene,
+  ProjectBundle,
+  RuntimeDebugSnapshot,
+  RuntimeInputAction,
+  Verb
+} from "@pointclick/contracts";
+import {
+  AUDIO_CHANNELS,
+  AudioMixer,
+  resolveAudioAssetCue
+} from "@pointclick/audio";
 import { PixiSceneRenderer } from "@pointclick/renderer-2d";
 import { AdventureEngine, type RuntimeFrame } from "@pointclick/runtime";
 import { sampleBundle } from "@pointclick/sample-game";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createBrowserAudioBackend } from "./browser-audio.js";
 
 type DemoStep = {
   id: "inspect-door" | "collect-hook" | "use-hook";
@@ -255,21 +267,90 @@ function formatEvent(
   }
 }
 
+function createRuntimeDebugSnapshot(frame: RuntimeFrame, engine: AdventureEngine): RuntimeDebugSnapshot {
+  return {
+    sequence: frame.state.sequence,
+    sceneId: frame.state.sceneId,
+    player: frame.state.player,
+    flags: frame.state.flags,
+    inventory: frame.state.inventory,
+    activeFlowId: frame.state.activeFlowId,
+    activeNodeId: engine.activeFlowNodeId,
+    dialogueKey: frame.dialogue?.textKey ?? null,
+    path: frame.pathProgress?.path ?? [],
+    events: frame.events.map((event) => event.type),
+    audio: frame.presentationCues
+      .filter((cue) => cue.type === "sound" && cue.key)
+      .map((cue) => cue.key!)
+  };
+}
+
+function replayRuntimeAction(engine: AdventureEngine, action: RuntimeInputAction): RuntimeFrame {
+  switch (action.type) {
+    case "move-player": {
+      if (!action.point) throw new Error("Replay move-player action is missing a point.");
+      const planned = engine.walkTo(action.point.x, action.point.y);
+      return engine.isMoving ? engine.completeMovement() : planned;
+    }
+    case "activate-target": {
+      if (!action.targetId) throw new Error("Replay activate-target action is missing a target.");
+      const activated =
+        action.value === "actor"
+          ? engine.interactActor(action.targetId)
+          : action.value === "pickup"
+            ? engine.interactPickup(action.targetId)
+            : engine.interactHotspot(action.targetId);
+      return engine.isMoving ? engine.completeMovement() : activated;
+    }
+    case "select-verb":
+      return engine.selectVerb((action.value ?? "walk") as Verb);
+    case "select-item":
+      if (!action.targetId) throw new Error("Replay select-item action is missing an item.");
+      return engine.toggleSelectedItem(action.targetId);
+    case "continue-dialogue":
+      return engine.advanceDialogue();
+    case "select-choice":
+      if (!action.targetId) throw new Error("Replay select-choice action is missing a choice.");
+      return engine.chooseDialogue(action.targetId);
+    case "cancel":
+      return engine.clearSelectedItem();
+  }
+}
+
 export function PlayerApp() {
   const hostRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<PixiSceneRenderer | null>(null);
   const frameRef = useRef<RuntimeFrame | null>(null);
+  const telemetryAbortRef = useRef<AbortController | null>(null);
+  const telemetryQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const runtimeActionSequenceRef = useRef(0);
+  const replayStartedRef = useRef(false);
+  const playedAudioFrameRef = useRef("");
   const [bundle, setBundle] = useState<ProjectBundle | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [audioCaptionText, setAudioCaptionText] = useState<string | null>(null);
   const [surfaceMode, setSurfaceMode] = useState<PlayerSurfaceMode>(() =>
     readSurfaceMode(),
   );
   const assetBaseUrl =
     new URLSearchParams(window.location.search).get("assetBaseUrl") ??
     undefined;
+  const telemetryUrl =
+    new URLSearchParams(window.location.search).get("telemetryUrl") ??
+    undefined;
+  const runtimeTarget =
+    new URLSearchParams(window.location.search).get("runtimeTarget") === "browser" ? "browser" : "embedded";
+  const replayUrl = new URLSearchParams(window.location.search).get("replayUrl") ?? undefined;
   const engine = useMemo(
     () => (bundle ? new AdventureEngine(bundle) : null),
     [bundle],
+  );
+  const audioMixer = useMemo(
+    () =>
+      bundle
+        ? new AudioMixer(createBrowserAudioBackend(assetBaseUrl), bundle.locales)
+        : null,
+    [assetBaseUrl, bundle],
   );
   const [frame, setFrame] = useState<RuntimeFrame | null>(null);
   const scene = engine?.currentScene as Layered2DScene | undefined;
@@ -306,11 +387,42 @@ export function PlayerApp() {
         )
       : "None";
   const latestEventLabel = recentEvents[0] ?? "ready";
-  const captionText =
+  const presentationCaption =
     frame?.presentationCues
+      .filter((cue) => cue.type !== "sound")
       .map((cue) => (cue.key ? localize(bundle ?? sampleBundle, cue.key, cue.key) : cue.value))
       .filter((value): value is string => Boolean(value))
       .at(-1) ?? null;
+  const captionText = audioCaptionText ?? presentationCaption;
+  const postRuntimeTelemetry = useCallback(
+    (payload: { action?: RuntimeInputAction; snapshot?: RuntimeDebugSnapshot }): Promise<void> => {
+      if (!telemetryUrl) return Promise.resolve();
+      telemetryAbortRef.current ??= new AbortController();
+      telemetryQueueRef.current = telemetryQueueRef.current.then(async () => {
+        const response = await fetch(telemetryUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version: 1, source: runtimeTarget, ...payload }),
+          signal: telemetryAbortRef.current?.signal ?? null
+        });
+        if (!response.ok) throw new Error(`Runtime telemetry failed with HTTP ${response.status}.`);
+      }).catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          console.warn("Runtime telemetry was not accepted", error);
+        }
+      });
+      return telemetryQueueRef.current;
+    },
+    [runtimeTarget, telemetryUrl]
+  );
+  const recordRuntimeAction = useCallback(
+    (action: Omit<RuntimeInputAction, "sequence">) => {
+      const entry = { ...action, sequence: runtimeActionSequenceRef.current } as RuntimeInputAction;
+      runtimeActionSequenceRef.current += 1;
+      void postRuntimeTelemetry({ action: entry });
+    },
+    [postRuntimeTelemetry]
+  );
   useEffect(() => {
     let cancelled = false;
 
@@ -339,6 +451,41 @@ export function PlayerApp() {
     frameRef.current = nextFrame;
     setFrame(nextFrame);
   }, [engine]);
+
+  useEffect(() => {
+    if (!audioMixer || !bundle || !frame) return;
+    const soundCues = frame.presentationCues.filter(
+      (cue) => cue.type === "sound" && cue.key,
+    );
+    const fingerprint = `${frame.state.sequence}:${soundCues
+      .map((cue) => cue.key)
+      .join("|")}`;
+    if (soundCues.length === 0 || fingerprint === playedAudioFrameRef.current) {
+      return;
+    }
+    playedAudioFrameRef.current = fingerprint;
+
+    for (const soundCue of soundCues) {
+      const resolution = resolveAudioAssetCue(soundCue.key!, bundle.assets);
+      if (!resolution.cue) {
+        console.warn(resolution.issue);
+        continue;
+      }
+      const caption = audioMixer.play(resolution.cue, {
+        requestedLocale: bundle.manifest.defaultLocale,
+        projectLocale: bundle.manifest.defaultLocale,
+      });
+      if (caption) setAudioCaptionText(caption.text);
+    }
+  }, [audioMixer, bundle, frame]);
+
+  useEffect(
+    () => () => {
+      if (!audioMixer) return;
+      for (const channel of AUDIO_CHANNELS) audioMixer.stopChannel(channel);
+    },
+    [audioMixer],
+  );
 
   useEffect(() => {
     const host = hostRef.current;
@@ -386,6 +533,11 @@ export function PlayerApp() {
           const currentFrame = frameRef.current;
           if (!currentFrame) return;
 
+          if (currentFrame.state.activeVerb === "walk") {
+            recordRuntimeAction({ type: "move-player", point: position });
+          } else {
+            recordRuntimeAction({ type: "select-verb", value: "walk" });
+          }
           const nextFrame =
             currentFrame.state.activeVerb === "walk"
               ? activeEngine.walkTo(position.x, position.y)
@@ -396,14 +548,17 @@ export function PlayerApp() {
           publishAndAnimate(nextFrame);
         },
         onActor: (actorId) => {
+          recordRuntimeAction({ type: "activate-target", targetId: actorId, value: "actor" });
           const nextFrame = activeEngine.interactActor(actorId);
           publishAndAnimate(nextFrame);
         },
         onHotspot: (hotspotId) => {
+          recordRuntimeAction({ type: "activate-target", targetId: hotspotId, value: "hotspot" });
           const nextFrame = activeEngine.interactHotspot(hotspotId);
           publishAndAnimate(nextFrame);
         },
         onPickup: (pickupId) => {
+          recordRuntimeAction({ type: "activate-target", targetId: pickupId, value: "pickup" });
           const nextFrame = activeEngine.interactPickup(pickupId);
           publishAndAnimate(nextFrame);
         },
@@ -441,7 +596,7 @@ export function PlayerApp() {
       renderer.destroy();
       rendererRef.current = null;
     };
-  }, [assetBaseUrl, bundle, engine, rendererReady, scene]);
+  }, [assetBaseUrl, bundle, engine, recordRuntimeAction, rendererReady, scene]);
 
   useEffect(() => {
     if (!frame || !engine) return;
@@ -450,8 +605,48 @@ export function PlayerApp() {
     rendererRef.current?.renderVisibleActors(engine.visibleActors().map((actor) => actor.id));
   }, [engine, frame]);
 
+  useEffect(() => {
+    if (!frame || !engine || !telemetryUrl || engine.isMoving) return;
+    void postRuntimeTelemetry({ snapshot: createRuntimeDebugSnapshot(frame, engine) });
+  }, [engine, frame, postRuntimeTelemetry, telemetryUrl]);
+
+  useEffect(() => {
+    if (!engine || !frame || !replayUrl || runtimeTarget !== "browser" || replayStartedRef.current) return;
+    replayStartedRef.current = true;
+    let cancelled = false;
+    void fetch(replayUrl, { signal: telemetryAbortRef.current?.signal ?? null })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Runtime trace could not be loaded (HTTP ${response.status}).`);
+        const payload = (await response.json()) as { version?: unknown; actions?: RuntimeInputAction[] };
+        if (payload.version !== 1 || !Array.isArray(payload.actions)) throw new Error("Runtime trace is invalid.");
+        let nextFrame = frameRef.current;
+        for (const action of payload.actions) {
+          if (cancelled) return;
+          await postRuntimeTelemetry({ action });
+          nextFrame = replayRuntimeAction(engine, action);
+          frameRef.current = nextFrame;
+          await postRuntimeTelemetry({ snapshot: createRuntimeDebugSnapshot(nextFrame, engine) });
+        }
+        if (!cancelled && nextFrame) setFrame(nextFrame);
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          console.warn("Runtime trace replay failed", error);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [engine, frame, postRuntimeTelemetry, replayUrl, runtimeTarget]);
+
+  useEffect(() => () => {
+    telemetryAbortRef.current?.abort();
+    telemetryAbortRef.current = null;
+  }, [telemetryUrl]);
+
   const advanceDialogue = () => {
     if (!engine) return;
+    recordRuntimeAction({ type: "continue-dialogue" });
     const nextFrame = engine.advanceDialogue();
     if (!nextFrame) return;
 
@@ -467,6 +662,7 @@ export function PlayerApp() {
   const selectVerb = (verb: "walk" | "look" | "use" | "talk") => {
     if (!engine) return;
 
+    recordRuntimeAction({ type: "select-verb", value: verb });
     const nextFrame = engine.selectVerb(verb);
     frameRef.current = nextFrame;
     setFrame(nextFrame);
@@ -475,6 +671,7 @@ export function PlayerApp() {
   const toggleItem = (itemId: string) => {
     if (!engine) return;
 
+    recordRuntimeAction({ type: "select-item", targetId: itemId });
     const nextFrame = engine.toggleSelectedItem(itemId);
     frameRef.current = nextFrame;
     setFrame(nextFrame);
@@ -494,6 +691,7 @@ export function PlayerApp() {
 
   const chooseDialogue = (choiceId: string) => {
     if (!engine) return;
+    recordRuntimeAction({ type: "select-choice", targetId: choiceId });
     const nextFrame = engine.chooseDialogue(choiceId);
     frameRef.current = nextFrame;
     setFrame(nextFrame);
@@ -507,6 +705,7 @@ export function PlayerApp() {
       if (event.key === " " || event.key === "Enter") {
         if (!frameRef.current?.dialogue) return;
         event.preventDefault();
+        recordRuntimeAction({ type: "continue-dialogue" });
         const nextFrame = engine.advanceDialogue();
         frameRef.current = nextFrame;
         rendererRef.current?.renderPlayer(nextFrame.state.player);
@@ -529,9 +728,14 @@ export function PlayerApp() {
         event.preventDefault();
         const current = frameRef.current;
         if (!current) return;
+        const point = {
+          x: current.state.player.x + direction.x,
+          y: current.state.player.y + direction.y
+        };
+        recordRuntimeAction({ type: "move-player", point });
         const planned = engine.walkTo(
-          current.state.player.x + direction.x,
-          current.state.player.y + direction.y,
+          point.x,
+          point.y,
         );
         const nextFrame = engine.isMoving ? engine.completeMovement() : planned;
         frameRef.current = nextFrame;
@@ -558,6 +762,7 @@ export function PlayerApp() {
       if (!verb) return;
 
       event.preventDefault();
+      recordRuntimeAction({ type: "select-verb", value: verb });
       const nextFrame = engine.selectVerb(verb);
       frameRef.current = nextFrame;
       setFrame(nextFrame);
@@ -565,7 +770,7 @@ export function PlayerApp() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [engine, surfaceMode]);
+  }, [engine, recordRuntimeAction, surfaceMode]);
 
   if (loadError) {
     return (

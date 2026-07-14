@@ -7,8 +7,14 @@ type RegisterIpc = <Args extends unknown[], Result>(
 ) => void;
 
 export interface EditorIpcHandlers {
+  applyAssetCandidate: (candidateId: string) => unknown;
+  cancelImageGeneration: (jobId: string) => unknown;
+  createPreviewSession: (request: EditorPreviewRequest) => unknown;
+  closePreviewSession: (sessionId: string) => unknown;
   openPreview: (request?: EditorPreviewRequest) => unknown;
   openPreviewInBrowser: (request?: EditorPreviewRequest) => unknown;
+  openPreviewSessionInBrowser: (sessionId: string) => unknown;
+  readPreviewTelemetry: (sessionId: string) => unknown;
   loadProject: (projectDirectory?: string) => unknown;
   pickProject: (window: BrowserWindow) => unknown;
   createBlankProject: (window: BrowserWindow) => unknown;
@@ -19,6 +25,9 @@ export interface EditorIpcHandlers {
   promptPack: (request: unknown) => unknown;
   authoringSuggestions: (request?: { sceneId?: string }) => unknown;
   imageAsset: (request: unknown) => unknown;
+  startImageGeneration: (request: unknown) => unknown;
+  discardAssetCandidate: (candidateId: string) => unknown;
+  exportWebBuild: (window: BrowserWindow) => unknown;
   installWorkflowPreset: (presetId: string) => unknown;
   applyProjectCommand: (command: unknown) => unknown;
   validateProject: () => unknown;
@@ -29,8 +38,14 @@ export interface EditorIpcHandlers {
 }
 
 export function registerEditorIpcHandlers(register: RegisterIpc, handlers: EditorIpcHandlers): void {
+  register("ai:apply-asset-candidate", async (_window, candidateId: string) => handlers.applyAssetCandidate(candidateId));
+  register("ai:cancel-image-generation", async (_window, jobId: string) => handlers.cancelImageGeneration(jobId));
+  register("preview:create-session", async (_window, request: EditorPreviewRequest) => handlers.createPreviewSession(request));
+  register("preview:close-session", async (_window, sessionId: string) => handlers.closePreviewSession(sessionId));
   register("preview:open", async (_window, request?: EditorPreviewRequest) => handlers.openPreview(request));
   register("preview:browser", async (_window, request?: EditorPreviewRequest) => handlers.openPreviewInBrowser(request));
+  register("preview:open-session-browser", async (_window, sessionId: string) => handlers.openPreviewSessionInBrowser(sessionId));
+  register("preview:telemetry", async (_window, sessionId: string) => handlers.readPreviewTelemetry(sessionId));
   register("project:load", async (_window, projectDirectory?: string) => handlers.loadProject(projectDirectory));
   register("project:pick", async (window) => handlers.pickProject(window));
   register("project:create-blank", async (window) => handlers.createBlankProject(window));
@@ -41,6 +56,9 @@ export function registerEditorIpcHandlers(register: RegisterIpc, handlers: Edito
   register("ai:prompt-pack", async (_window, request: unknown) => handlers.promptPack(request));
   register("ai:authoring-suggestions", async (_window, request?: { sceneId?: string }) => handlers.authoringSuggestions(request));
   register("ai:image-asset", async (_window, request: unknown) => handlers.imageAsset(request));
+  register("ai:start-image-generation", async (_window, request: unknown) => handlers.startImageGeneration(request));
+  register("ai:discard-asset-candidate", async (_window, candidateId: string) => handlers.discardAssetCandidate(candidateId));
+  register("build:export-web", async (window) => handlers.exportWebBuild(window));
   register("workflow-preset:install", async (_window, presetId: string) => handlers.installWorkflowPreset(presetId));
   register("project:command", async (_window, command: unknown) => handlers.applyProjectCommand(command));
   register("project:validate", async () => handlers.validateProject());

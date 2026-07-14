@@ -951,6 +951,12 @@ describe("loadProjectFromDirectory", () => {
       type: "flow/update",
       flowId: "look-tavern-door",
       patch: {
+        editorLayout: {
+          nodes: {
+            "mara-one": { x: 120, y: 80 }
+          },
+          viewport: { x: 10, y: 20, zoom: 1.1 }
+        },
         name: "Inspect the tavern door again",
         nodes: sourceFlow.nodes,
         startNodeId: "mara-one"
@@ -959,16 +965,25 @@ describe("loadProjectFromDirectory", () => {
 
     const flow = updated.bundle.flows["look-tavern-door"];
     expect(flow).toMatchObject({
+      editorLayout: {
+        nodes: { "mara-one": { x: 120, y: 80 } },
+        viewport: { x: 10, y: 20, zoom: 1.1 }
+      },
       name: "Inspect the tavern door again",
       startNodeId: "mara-one"
     });
 
     const flowPath = path.join(projectRoot, "flows", "look-tavern-door.flow.json");
     const flowFile = JSON.parse(await readFile(flowPath, "utf8")) as {
+      editorLayout?: unknown;
       name: string;
       startNodeId: string;
     };
     expect(flowFile.name).toBe("Inspect the tavern door again");
+    expect(flowFile.editorLayout).toEqual({
+      nodes: { "mara-one": { x: 120, y: 80 } },
+      viewport: { x: 10, y: 20, zoom: 1.1 }
+    });
     expect(flowFile.startNodeId).toBe("mara-one");
   });
 
@@ -1938,6 +1953,70 @@ describe("loadProjectFromDirectory", () => {
     expect(assetFile.generation).toMatchObject({
       dimensions: { width: 1280, height: 720 },
       seed: 42
+    });
+  });
+
+  it("persists audio metadata and non-destructive processed image lineage", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-project-io-"));
+    const projectRoot = path.join(tempRoot, "project");
+
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+    await mkdir(path.join(projectRoot, "assets", "imported"), { recursive: true });
+    await writeFile(path.join(projectRoot, "assets", "imported", "source.png"), "source", "utf8");
+    await writeFile(path.join(projectRoot, "assets", "imported", "optimized.webp"), "optimized", "utf8");
+    await writeFile(path.join(projectRoot, "assets", "imported", "dock.ogg"), "audio", "utf8");
+
+    const updated = await applyProjectCommand(projectRoot, {
+      type: "asset/import",
+      assets: [
+        {
+          documentPath: "assets/source.asset.json",
+          filePath: "assets/imported/source.png",
+          id: "source",
+          kind: "image",
+          source: "imported"
+        },
+        {
+          documentPath: "assets/optimized.asset.json",
+          filePath: "assets/imported/optimized.webp",
+          id: "optimized",
+          kind: "image",
+          source: "processed",
+          processing: {
+            parentAssetId: "source",
+            operations: [{ type: "optimize", parameters: { quality: 88 } }],
+            format: "webp",
+            quality: 88,
+            dimensions: { width: 1280, height: 720 },
+            processedAt: "2026-07-14T10:00:00.000Z"
+          }
+        },
+        {
+          captionKey: "audio.dock",
+          channel: "ambience",
+          documentPath: "assets/dock.asset.json",
+          filePath: "assets/imported/dock.ogg",
+          id: "dock",
+          kind: "audio",
+          loop: true,
+          source: "imported",
+          volume: 0.65
+        }
+      ]
+    });
+
+    expect(updated.bundle.assets.optimized).toMatchObject({
+      kind: "image",
+      source: "processed",
+      processing: { parentAssetId: "source", format: "webp", quality: 88 }
+    });
+    expect(updated.bundle.assets.dock).toMatchObject({
+      kind: "audio",
+      channel: "ambience",
+      captionKey: "audio.dock",
+      loop: true,
+      volume: 0.65
     });
   });
 

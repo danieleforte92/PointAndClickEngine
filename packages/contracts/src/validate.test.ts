@@ -682,6 +682,64 @@ describe("project contracts", () => {
     ).toEqual({ valid: true, errors: [] });
   });
 
+  it("accepts audio assets and processed image lineage without changing schema version", () => {
+    expect(
+      validateDocument("asset", {
+        schemaVersion: 1,
+        id: "dock-ambience",
+        kind: "audio",
+        path: "assets/imported/dock-ambience.ogg",
+        source: "imported",
+        channel: "ambience",
+        volume: 0.7,
+        loop: true,
+        captionKey: "audio.dock-ambience"
+      })
+    ).toEqual({ valid: true, errors: [] });
+
+    expect(
+      validateDocument("asset", {
+        schemaVersion: 2,
+        id: "dock-background-web",
+        kind: "image",
+        path: "assets/imported/dock-background-web.webp",
+        source: "processed",
+        processing: {
+          parentAssetId: "dock-background-source",
+          operations: [
+            { type: "trim-alpha" },
+            { type: "optimize", parameters: { preset: "background", quality: 88 } }
+          ],
+          format: "webp",
+          quality: 88,
+          dimensions: { width: 1280, height: 720 },
+          processedAt: "2026-07-14T10:00:00.000Z"
+        }
+      })
+    ).toEqual({ valid: true, errors: [] });
+  });
+
+  it("accepts optional narrative editor layout while keeping old flows valid", () => {
+    const baseFlow = {
+      schemaVersion: 1,
+      id: "layout-test",
+      name: "Layout Test",
+      startNodeId: "end",
+      nodes: [{ id: "end", type: "end" }]
+    };
+    expect(validateDocument("flow", baseFlow)).toEqual({ valid: true, errors: [] });
+    expect(
+      validateDocument("flow", {
+        ...baseFlow,
+        schemaVersion: 2,
+        editorLayout: {
+          nodes: { end: { x: 420, y: 160 } },
+          viewport: { x: 12, y: -8, zoom: 1.15 }
+        }
+      })
+    ).toEqual({ valid: true, errors: [] });
+  });
+
   it("rejects prompt pack suggested actors with invalid ids", () => {
     const result = validateDocument("promptPack", {
       schemaVersion: 1,

@@ -27,21 +27,18 @@ Open **AI Studio** in the editor.
 2. Write or revise the art brief and choose the Prompt Pack provider.
    Use the gear beside the provider selector to configure credentials, model,
    base URL, and remote-provider consent in a session-only modal.
-3. Choose an image provider in the Generate step when you want to create an
-   asset. The gear beside that selector opens the corresponding image-provider
-   configuration modal.
-4. Generate a candidate prompt pack.
-5. Review background, prop, character, animation, target, actor, and provenance
-   sections.
-6. Save only when the candidate is approved.
+3. In **Context**, choose the project target and inspect its scene/style inputs.
+4. In **Recipe**, lock the workflow, output contract, references, and recipe.
+5. In **Generate**, choose an image provider and a batch size from one to four.
+   The gear beside the selector opens session-only provider configuration.
+6. Review each temporary image in **Review & Apply**, including dimensions,
+   seed, alpha warnings, provider/model, latency, cost, and provenance.
+7. Choose **Apply to Project** for one approved image or **Discard** for any
+   unwanted candidate. Assigning the resulting asset is a separate action.
 
-AI Studio keeps Brief, Targets, Generate, and Review in one central vertical
-scroll surface. Opening **Advanced** from Generate, Review, or the contextual
-summary opens the same workspace and moves Advanced into view automatically.
-The section remains keyboard reachable through its native disclosure control,
-shows a visible focus ring, and accepts mouse-wheel or touchpad scrolling.
-**Candidate Output** is part of the Advanced surface and can be reached without
-leaving the central panel.
+The five-step surface is **Brief**, **Context**, **Recipe**, **Generate**, and
+**Review & Apply**. Advanced workflow installation and recipe controls remain
+available from Recipe and Generate without bypassing explicit approval.
 
 Available Prompt Pack providers:
 
@@ -88,8 +85,8 @@ The API key field is optional; LM Studio commonly accepts any bearer value.
 
 ## Local Image Generation With ComfyUI
 
-ComfyUI is used after a prompt pack exists. The editor can generate one target at
-a time and import the resulting PNG into the project asset library.
+ComfyUI is used after a prompt pack exists. The editor can generate up to four
+candidates for one target without immediately importing them into the project.
 
 AI Studio can also start from a **free target prompt** opened from Scene. Use
 the Generate action on a background, layer, player, hotspot, pickup, or actor to
@@ -109,13 +106,16 @@ through the normal Review & Apply and provenance flow.
 7. Set a timeout long enough for the workflow. Krea/Qwen workflows can take many
    minutes on 8GB GPUs.
 8. Install a compatible workflow preset, then click **Save Recipe**.
-9. Click **Generate And Import Asset**.
+9. Choose a batch size and click **Generate Candidates**.
+10. Review the temporary results, then apply one approved candidate to the
+    project or discard it. Apply does not assign it to a scene entity.
 
 The editor installs pre-validated ComfyUI API templates into `workflows/` and
 `workflow-templates/`, compiles approved targets into reviewable
 `generation-recipes/`, queues through `POST /prompt`, polls
-`GET /history/{prompt_id}`, downloads the generated image through `/view`, saves
-it under `assets/imported`, and registers a normal image asset document.
+`GET /history/{prompt_id}`, and downloads the generated image through `/view`
+into a session-only candidate store. Only **Apply to Project** saves the selected
+bytes under `assets/imported` and registers a normal image asset document.
 
 Default Creator Alpha presets are 16:9 and friendly to local 8GB GPUs:
 
@@ -163,11 +163,11 @@ ComfyUI checkpoint names include subfolders. If queueing fails with
 ### Optional Cloud Image Providers
 
 AI Studio also exposes optional text-to-image beta providers behind the same
-asset import and provenance path:
+candidate review, application, and provenance path:
 
 - **OpenAI image** can call either the Images API (`/images/generations`) or the
   Responses API image-generation tool. The editor reads base64 image output and
-  imports it as a normal generated asset.
+  exposes it as a temporary candidate before project application.
 - **Google image** can call the Gemini API image path or Vertex AI Imagen
   `:predict` endpoint. Gemini API uses an API key; Vertex AI uses a Google Cloud
   project, location, and OAuth access token.
@@ -268,14 +268,15 @@ Recommended workflow families:
 - **Background removal / alpha output**: generate on chroma, remove the chroma
   background inside ComfyUI, and save a PNG with alpha.
 
-If a workflow saves an RGB PNG without alpha, the imported asset is still valid,
+If a workflow saves an RGB PNG without alpha, the applied asset is still valid,
 but it is not a transparent-ready prop or character. Use the prompt preview and
 workflow name to make this limitation visible before relying on the asset for
 runtime composition.
 
-The editor imports ComfyUI output as a normal asset. If a workflow produces a
-clean flat chroma background without alpha, use **Asset Studio > Chroma Key** to
-save a processed PNG while keeping the source asset unchanged.
+After approval, the editor applies ComfyUI output as a normal asset. If a
+workflow produces a clean flat chroma background without alpha, use **Asset
+Studio > Chroma Key** to save a processed PNG while keeping the source asset
+unchanged.
 
 Generated ComfyUI assets are marked with `source: "generated"` and store
 provenance when available: provider, model, seed, positive and negative prompt,
@@ -289,9 +290,11 @@ either local server to a public network without authentication and firewalling.
 
 ## Provider Boundary
 
-Providers return a complete candidate `PromptPackDocument` and never mutate
-project files directly. The Electron main process owns configured provider calls
-so API keys are not sent from the renderer to arbitrary browser fetches.
+Prompt providers return a complete candidate `PromptPackDocument`; image
+providers return candidate bytes and provenance. Neither mutates project files
+directly. The Electron main process owns configured provider calls and the
+session-only image candidate store, so API keys and unapproved image bytes are
+not exposed to arbitrary renderer fetches or canonical project state.
 
 Provider integrations must document:
 

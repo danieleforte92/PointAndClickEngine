@@ -75,6 +75,79 @@ pnpm validate:starter
 
 `validate` checks schemas, cross-document references, and registered asset files.
 
+## Flow Editor Layout
+
+Flows may persist graph positions and the last viewport as optional authoring
+metadata:
+
+```json
+{
+  "editorLayout": {
+    "nodes": {
+      "start": { "x": 80, "y": 160 },
+      "greeting": { "x": 360, "y": 160 }
+    },
+    "viewport": { "x": 12, "y": 24, "zoom": 0.9 }
+  }
+}
+```
+
+The runtime ignores `editorLayout`. Omitting it remains valid for existing
+schema-v1 and migrated projects; the editor can produce a deterministic layout
+when no positions are saved.
+
+## Asset Documents
+
+`assets/<id>.asset.json` is a discriminated union. Every asset has `kind`,
+`path`, `source`, and an optional content hash. Image assets may carry generation
+and processing provenance. Audio assets carry playback defaults:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "dock-waves",
+  "kind": "audio",
+  "path": "assets/audio/dock-waves.ogg",
+  "source": "imported",
+  "channel": "ambience",
+  "volume": 0.65,
+  "loop": true,
+  "captionKey": "audio.dock-waves"
+}
+```
+
+Valid audio channels are `music`, `ambience`, `sfx`, and `voice`. A narrative
+sound cue references the asset by ID; validation rejects missing or non-audio
+targets.
+
+Image processing never overwrites its source. A derived asset points to one
+parent and records the exact operation chain:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "rusty-hook-web",
+  "kind": "image",
+  "path": "assets/processed/rusty-hook-web.webp",
+  "source": "processed",
+  "processing": {
+    "parentAssetId": "rusty-hook-source",
+    "operations": [
+      { "type": "trim-alpha" },
+      { "type": "optimize", "parameters": { "preset": "web", "quality": 82 } }
+    ],
+    "format": "webp",
+    "quality": 82,
+    "dimensions": { "width": 256, "height": 256 },
+    "processedAt": "2026-07-14T12:00:00.000Z"
+  }
+}
+```
+
+Processing operation types are `crop`, `remove-background`, `trim-alpha`,
+`resize`, `optimize`, and `convert`. Parent lineage participates in validation
+and the Resources usage graph.
+
 ## Animation Packs
 
 Animation packs bind one spritesheet asset to named clips:
@@ -294,6 +367,19 @@ Flows can change scenes with a `change-scene` node:
 
 The transition is applied through the same command/event core as walking,
 inventory, and flags.
+
+## Runtime Traces
+
+`RuntimeTrace` and `RuntimeDebugSnapshot` are public contracts used by Test Lab,
+but they are not canonical project documents. A trace contains a versioned list
+of logical input actions such as `move-player`, `activate-target`,
+`continue-dialogue`, and `select-choice`. A debug snapshot contains logical
+runtime state: scene, player position, flags, inventory, active flow/node,
+dialogue key, path, emitted event names, and audio cue IDs.
+
+Electron Embedded and external Browser tracks are kept separate inside an
+expiring preview session. Test Lab compares snapshots at logical action
+boundaries rather than persisting DOM events or animation timing into a project.
 
 Current schemas are TypeBox definitions compiled with Ajv. TypeScript types are
 derived from the same definitions, preventing the runtime and validators from

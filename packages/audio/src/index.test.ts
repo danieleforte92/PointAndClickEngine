@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { AudioMixer, type AudioHandle, type AudioCue } from "./index";
+import { AudioMixer, resolveAudioAssetCue, type AudioHandle, type AudioCue } from "./index";
 
 function cue(id: string, channel: AudioCue["channel"]): AudioCue {
   return { id, channel, source: `${id}.ogg`, captionKey: `${id}.caption` };
@@ -44,5 +44,34 @@ describe("audio mixer", () => {
       locale: "en",
       text: "Door"
     });
+  });
+});
+
+describe("audio asset resolution", () => {
+  it("maps sound keys to typed audio assets and rejects image assets", () => {
+    const audio = resolveAudioAssetCue("door", {
+      door: {
+        schemaVersion: 1,
+        id: "door",
+        kind: "audio",
+        path: "assets/door.ogg",
+        source: "imported",
+        channel: "sfx",
+        volume: 0.75
+      }
+    });
+    expect(audio.cue).toMatchObject({ id: "door", channel: "sfx", volume: 0.75 });
+
+    expect(
+      resolveAudioAssetCue("door", {
+        door: {
+          schemaVersion: 1,
+          id: "door",
+          kind: "image",
+          path: "assets/door.png",
+          source: "imported"
+        }
+      }).issue
+    ).toContain("non-audio");
   });
 });
