@@ -15,7 +15,19 @@ function isRegistryPackage(node) {
   if (!node || typeof node !== 'object' || typeof node.version !== 'string') return false;
   const resolved = typeof node.resolved === 'string' ? node.resolved : '';
   const path = typeof node.path === 'string' ? node.path : '';
-  return resolved.startsWith(DEFAULT_REGISTRY) || /[\\/]node_modules[\\/]/i.test(path);
+  let isDefaultRegistry = false;
+  try {
+    const resolvedUrl = new URL(resolved);
+    const registryUrl = new URL(DEFAULT_REGISTRY);
+    isDefaultRegistry =
+      resolvedUrl.protocol === registryUrl.protocol &&
+      resolvedUrl.hostname === registryUrl.hostname &&
+      resolvedUrl.port === registryUrl.port;
+  } catch {
+    // A missing or malformed resolved URL is still eligible when pnpm gives us
+    // an absolute node_modules path below.
+  }
+  return isDefaultRegistry || /[\\/]node_modules[\\/]/i.test(path);
 }
 
 function packageName(node) {
