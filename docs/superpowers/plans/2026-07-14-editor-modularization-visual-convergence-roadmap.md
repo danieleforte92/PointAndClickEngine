@@ -1,8 +1,9 @@
 # Editor Modularization and Visual Convergence Roadmap
 
-Status: in progress (characterization, theme contract, and bounded extraction waves implemented locally; PR split pending)
+Status: consolidation checkpoint ready (PR-03 foundation, PR-04 core seams, and the first AI/Scenes/Assets structural tranche are implemented locally)
 Base: `develop` at `6a1d2ec` (alpha.3 source preparation)
-Date: 2026-07-14
+Current HEAD: `f1cf7f8` (`chore: establish creator alpha editor foundation`)
+Date: 2026-07-15
 
 ## Current implementation checkpoint
 
@@ -15,9 +16,21 @@ Date: 2026-07-14
 - Pure editor lookup, asset, validation, selection, and provider-boundary
   helpers live in `apps/editor/src/editor-ui-model.ts`, covered by focused unit
   tests. Workspace stage-toolbar decisions now live in
-  `apps/editor/src/editor-workspace-model.ts` with focused tests. The monolith
-  is currently 14,399 lines; the legacy CSS is 5,286 lines with 650 literal
-  color occurrences.
+  `apps/editor/src/editor-workspace-model.ts` with focused tests. The shared
+  async error-to-status policy now lives in
+  `apps/editor/src/editor-status-policy.ts` and all 55 editor error paths now
+  use the shared formatter, including the 12 feature-local asset, validation,
+  export, and cleanup paths. The typed
+  project/session controller now composes the command bus,
+  project hydration, recovery, stable resource selection, and draft cleanup
+  seams. `editor-feature-controller.ts` now owns the injectable boundary for
+  preview, import/processing, AI generation, candidate handoff, validation,
+  and export operations. AI Studio owns its workflow reducer and extracted
+  stepper shell; Scenes and Assets now have matching feature-local reducers and
+  workspace boundaries. The monolith is currently 13,027 lines; `editor.css`
+  is 3,431 lines with 434 literal color occurrences. The remaining feature
+  markup and orchestration still lives in `EditorApp` and is the next launchpad
+  target.
 - Scene/document defaults, ID allocation, viewport guardrails, and layer
   validation now live in `apps/editor/src/editor-authoring-model.ts` with
   focused tests. The final provider-config breakpoint is isolated in
@@ -28,12 +41,61 @@ Date: 2026-07-14
 - Authoring mutations now pass through an injectable `EditorCommandBus` seam;
   project manifest hydration and overview draft reset now live in
   `apps/editor/src/editor-project-session.ts` with focused tests. Initial
-  project/recovery loading and recovery persistence now use the same adapter;
-  the remaining controller work will move reconciliation and status policy out
-  of `EditorApp` without changing the public gateway contract.
-- The full validation matrix is green locally: 48 Vitest files / 296 tests,
-  13 Playwright tests, workspace typecheck, sample/starter validation, theme
-  contract, documentation check, budget check, and the packaged editor build.
+  project/recovery loading, recovery persistence, reconciliation, and status
+  policy now use the same controller/adapter seams without changing the public
+  gateway contract.
+- The implementation gates are green locally: 55 Vitest files / 315 tests,
+  1 skip, 13 Playwright tests, workspace typecheck, sample/starter validation,
+  theme contract, documentation check, budget check, and the packaged editor
+  build.
+
+## Consolidated delivery checkpoint
+
+- The current branch is delivered as one consolidation PR toward `develop`;
+  the original PR-03/04 and PR-05/06/07 packaging is retained as workstream
+  labels, not split retroactively into four review branches.
+- PR-04 core seams are complete: command execution, session/recovery adapters,
+  selection reconciliation, draft cleanup, shared status policy, and feature
+  operations sit behind typed controller boundaries.
+- The AI/Scenes/Assets wave is a structural tranche, not final feature closure:
+  the stepper, tree, viewport, preview, crop/chroma/optimize panels, reducers,
+  and CSS slices are extracted, while dialogs, inspectors, and remaining
+  feature orchestration still need local ownership.
+- `EditorGateway`, navigation targets, `packages/contracts`, and the project
+  schema remain unchanged. The shared handoff contract now has an explicit
+  `ui/shared` ownership boundary with compatibility re-exports.
+- `pnpm check:release` still stops in provenance validation because four
+  existing tracked editor-baseline PNGs are not covered by the provenance
+  inventory (`01-overview`, `02-build`, `03-ai-assets`, and
+  `04-test-lab-return`). This release-evidence task is recorded, but no asset
+  source or redistribution claim is inferred by the editor refactor.
+
+## Next execution sequence
+
+1. Finish the consolidation PR and record the full repository gates.
+2. Run an integrator-owned, baseline-neutral launchpad that moves the remaining
+   AI, Scenes, and Assets markup/CSS behind typed `model`/`actions` props.
+3. Start three feature worktrees in parallel: AI completion, Scenes completion,
+   and Assets completion. Shared-owned files remain integrator-only.
+4. After Wave A completion, repeat the serial launchpad for Narrative,
+   Shell/Project/Build, and Test Lab/player feedback, then start their three
+   parallel feature branches.
+5. Reserve intentional visual tuning, compatibility removal, and final budget
+   ratchets for PR-11.
+
+## Shared launchpad and multi-agent ownership
+
+- The coordinator owns `EditorApp`, root style imports, `editor.css`, shared
+  contracts, E2E fixtures, manifests, and final integration.
+- AI, Scenes, and Assets agents own only their respective `features/<name>/**`,
+  feature styles, and focused specs after the launchpad merge.
+- A contract gap is a small prerequisite change owned by the coordinator; no
+  feature agent edits shared files opportunistically.
+- Every branch uses its own Git worktree, targets `develop`, opens as draft,
+  and is rebased after each sibling merge.
+- Structural waves preserve the current screenshots. Feature stylesheet files
+  remain at or below 800 lines; split a feature stylesheet before adding a
+  second large responsibility.
 
 ## Purpose
 
@@ -47,14 +109,14 @@ reference for density, hierarchy, and legibility. The target is a compact
 technical studio, not the surrounding marketing/dashboard composition shown in
 the mockups.
 
-## Baseline
+## Starting baseline (historical)
 
 | Area | Current evidence | Consequence |
 |---|---:|---|
-| `ui/editor-app.tsx` | 14,399 physical lines after bounded extraction; the `EditorApp` component remains the primary hotspot | Primary architecture and merge-conflict hotspot |
+| `ui/editor-app.tsx` | 14,399 physical lines at roadmap creation; the `EditorApp` component remains the primary hotspot | Primary architecture and merge-conflict hotspot |
 | React state in `EditorApp` | More than 120 local state declarations, 25 effects, and about 60 async handlers | Feature behavior has no practical ownership boundary |
 | Gateway use | About 63 gateway calls, including 31 `applyCommand` calls | Persistence and UI reconciliation are repeated across features |
-| `ui/editor.css` | 5,286 physical lines and 650 literal color occurrences | Cascade, color semantics, and feature ownership are unclear |
+| `ui/editor.css` | 5,286 physical lines and 650 literal color occurrences at roadmap creation | Cascade, color semantics, and feature ownership are unclear |
 | Late CSS overrides | A second editor skin starts around line 3,658; selectors such as `.scene-viewport` are defined in multiple layers | Visual changes are difficult to predict and review |
 | `ui/editor-shell.tsx` | 1,196 lines covering shell, Project, Build, Assets, and timeline UI | The extracted shell is itself becoming a second monolith |
 | UI tests | Feature E2E specs exist, but `apps/editor/src/ui/**` is excluded from Vitest coverage | Refactoring depends on fragile end-to-end selectors and has no visual gate |
@@ -190,25 +252,31 @@ contract between AI, Scenes, and Assets.
 flowchart TD
   P1["PR-01 Characterization and visual baseline"]
   P2["PR-02 Scoped theme contract"]
-  P3["PR-03 Mechanical workspace cut"]
-  P4["PR-04 Project/session controllers"]
-  P5["PR-05 Scenes"]
-  P6["PR-06 AI Studio"]
-  P7["PR-07 Assets"]
-  P8["PR-08 Narrative and graphs"]
-  P9["PR-09 Shell, Project, and Build"]
-  P10["PR-10 Test Lab and player feedback"]
-  P11["PR-11 Integration and ratchets"]
+  P3["PR-03 foundation"]
+  C1["Consolidation: PR-04 + Wave A tranche"]
+  LA["Wave A completion launchpad"]
+  P5["AI completion"]
+  P6["Scenes completion"]
+  P7["Assets completion"]
+  LB["Wave B boundary launchpad"]
+  P8["Narrative and graphs"]
+  P9["Shell, Project, and Build"]
+  P10["Test Lab and player feedback"]
+  P11["Visual convergence and final ratchets"]
 
   P1 --> P3
   P2 --> P3
-  P3 --> P4
-  P4 --> P5
-  P4 --> P6
-  P4 --> P7
-  P4 --> P8
-  P4 --> P9
-  P4 --> P10
+  P3 --> C1
+  C1 --> LA
+  LA --> P5
+  LA --> P6
+  LA --> P7
+  P5 --> LB
+  P6 --> LB
+  P7 --> LB
+  LB --> P8
+  LB --> P9
+  LB --> P10
   P5 --> P11
   P6 --> P11
   P7 --> P11
@@ -217,10 +285,10 @@ flowchart TD
   P10 --> P11
 ```
 
-PR-01 and PR-02 can be developed in parallel. PR-03 and PR-04 are intentionally
-serial and integrator-owned: they create the physical ownership boundaries that
-make later parallel work safe. PR-05 through PR-10 are delivered in two waves
-of three agents.
+PR-01 and PR-02 were the parallel prerequisite wave. PR-03, the consolidation
+checkpoint, and each launchpad are serial and integrator-owned. Only after a
+launchpad is merged do three feature agents work in parallel; this keeps
+`EditorApp`, root CSS, shared contracts, and the E2E fixture conflict-free.
 
 ## PR plan
 
@@ -280,8 +348,9 @@ Scope:
 - Remove the late duplicate skin layer by relocating rules, not redesigning
   them in this PR.
 
-Intermediate ratchet: `editor-app.tsx` below 9,000 physical lines, with no
-visual snapshot changes beyond approved rendering noise.
+Status: delivered in the current foundation checkpoint. The original line
+target is retained as a final convergence objective; the current ratchet is
+13,200 lines with no intentional visual diff.
 
 ### PR-04 - Project/session controllers and command bus
 
@@ -299,26 +368,30 @@ Scope:
 - Keep navigation in the existing typed reducer and preserve the injectable
   gateway seam.
 
-Done when presentation components contain no gateway calls and `EditorApp` is
-below 1,500 lines of composition and cross-feature orchestration.
+Status: core seams delivered in the consolidation checkpoint. Presentation
+components contain no gateway calls; the `EditorApp` composition-root target is
+completed incrementally by the feature-completion waves below.
 
 ### Wave A - Three parallel feature PRs
 
-All branches start from `develop` after PR-04 is merged.
+The current consolidation contains the first structural tranche. The completion
+wave starts only after the integrator-owned launchpad is merged.
 
 | PR | Branch | Exclusive scope | Visual target |
 |---|---|---|---|
-| PR-05 Scenes | `codex/editor-scenes` | Scene tree, stage, viewport overlays, direct manipulation, toolbar, inspector, Scene CSS and E2E | Blue tools/hotspots, green walk path, violet selection, clear surface depth |
-| PR-06 AI Studio | `codex/editor-ai` | Stepper, provider dialogs, target context, generation/review, handoff, AI CSS and E2E | Violet workflow, explicit state colors, consistent cards and controls |
-| PR-07 Assets | `codex/editor-assets` | Browser, crop, chroma, optimize, guide, animation, Asset CSS and E2E | Neutral navy library surfaces, blue tools, no native light controls |
+| AI completion | `codex/editor-ai-completion` | Provider dialogs, workflow controller, generation/review/apply, handoff and focused E2E | Baseline-neutral |
+| Scenes completion | `codex/editor-scenes-completion` | Inspector, direct manipulation, layer/guide controller and focused E2E | Baseline-neutral |
+| Assets completion | `codex/editor-assets-completion` | Browser/import, processing, Character Gym controller and focused E2E | Baseline-neutral |
 
-Each PR completes both controller cleanup and token-based visual migration for
-its owned feature. No agent edits another feature or a shared-owned file.
+Each completion PR owns only its feature directory and corresponding styles.
+Intentional visual migration is deferred to PR-11; no agent edits another
+feature or a shared-owned file.
 
 ### Wave B - Three parallel feature PRs
 
-These can start after PR-04; scheduling them after Wave A keeps the active squad
-to one coordinator plus three feature agents.
+These start after Wave A completion and the second serial boundary launchpad.
+Scheduling them this way keeps the active squad to one coordinator plus three
+feature agents without shared-file collisions.
 
 | PR | Branch | Exclusive scope | Visual target |
 |---|---|---|---|
@@ -392,9 +465,10 @@ Every PR must run:
 7. `pnpm check` before the PR is marked ready, as required by
    `CONTRIBUTING.md`.
 
-PR-03, PR-04, and PR-11 additionally require the full editor E2E suite and a
-build. PR-11 requires green Windows and Ubuntu CI, Windows package verification,
-packaged Electron smoke, CodeQL, and dependency audit.
+The consolidation checkpoint, both launchpads, and PR-11 additionally require
+the full editor E2E suite and a build. PR-11 requires green Windows and Ubuntu
+CI, Windows package verification, packaged Electron smoke, CodeQL, and
+dependency audit.
 
 Visual baselines use fixed fixtures, DPR 1, disabled animation, and frozen
 timestamps at these viewports:

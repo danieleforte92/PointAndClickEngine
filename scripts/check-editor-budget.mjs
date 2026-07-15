@@ -4,12 +4,12 @@ import { execFileSync } from "node:child_process";
 const budgets = [
   {
     file: "apps/editor/src/ui/editor-app.tsx",
-    lines: 15194,
+    lines: 13200,
     colors: 26
   },
   {
     file: "apps/editor/src/ui/editor.css",
-    lines: 5334,
+    lines: 4700,
     colors: 660
   },
   {

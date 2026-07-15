@@ -11,7 +11,9 @@ export interface EditorCommandBus {
   apply(command: EditorProjectCommand): Promise<EditorProjectSnapshot>;
 }
 
-export function createEditorCommandBus(gateway: EditorGateway): EditorCommandBus {
+export type EditorCommandGateway = Pick<EditorGateway, "applyCommand">;
+
+export function createEditorCommandBus(gateway: EditorCommandGateway): EditorCommandBus {
   return {
     apply: (command) => gateway.applyCommand(command)
   };

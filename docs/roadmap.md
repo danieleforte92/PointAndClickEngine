@@ -24,8 +24,10 @@ beta gates pass.
 1. Correct the public candidate metadata and publish the matching Windows
    artifacts.
 2. Complete the editor modularization and visual convergence initiative. The
-   target is a composition-root `EditorApp`, feature-local controllers and
-   styles, semantic theme tokens, and deterministic visual baselines.
+   current checkpoint has the PR-04 command/session/error seams and the first
+   AI/Scenes/Assets structural tranche implemented locally. The next gate is
+   one consolidation PR, followed by a serial ownership launchpad and three
+   parallel feature-completion workstreams.
 3. Keep the player behavior stable while the editor theme is migrated; defer
    the player visual refresh to its own reviewed surface.
 4. Align active documentation with the shipped schema-v2, graph editor, static
@@ -34,6 +36,9 @@ beta gates pass.
    packaged smoke, and release-evidence checks to the beta gate.
 6. Track the current 720 kB minified player bundle as a non-blocking
    performance item and decide code-splitting boundaries after editor stability.
+
+The engineering execution details, ownership rules, budgets, and gate evidence
+live in the [Editor Modularization and Visual Convergence Roadmap](superpowers/plans/2026-07-14-editor-modularization-visual-convergence-roadmap.md).
 
 ## Product direction after beta
 

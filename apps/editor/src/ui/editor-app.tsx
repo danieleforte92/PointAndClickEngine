@@ -127,7 +127,6 @@ import {
   createHotspotKey,
   createPickupKey,
   cursorOptions,
-  discardSavedDraft,
   getDirtyState,
   hexColorPattern,
   initializeEditorSession,
@@ -152,6 +151,7 @@ import {
   type NarrativeFlowReference,
   type SceneDraft,
   type SceneLayerDraft,
+  type SceneSelectionTool,
   type SceneSelectionTarget,
   type ScenePointDraftValue,
   type SceneRectDraftValue,
@@ -220,18 +220,26 @@ import {
   type ImageGenerationQueueJob,
   type StartImageGenerationRequest
 } from "../image-generation";
-import { workflowPresets } from "../workflow-presets";
-import { createEditorCommandBus } from "../editor-command-bus";
-import { createBrowserEditorGateway, type EditorGateway } from "../editor-gateway";
 import {
-  emptyProjectSettingsDraft,
-  hydrateEditorProject,
-  loadEditorProjectSession,
-  projectAnimationPackSelectionFor,
-  projectAssetSelectionFor,
-  projectLoadStatusFor,
-  projectSettingsDraftFor,
-  syncEditorRecovery
+  aiStudioSteps,
+  assetTypeForGenerationTarget,
+  dimensionsForGenerationTarget,
+  expectedAlphaForBackgroundMode,
+  imageGenerationContextForTarget,
+  suggestedGenerationGuideIds,
+  type AiStudioStep,
+  type CandidateHandoffContext,
+  type GeneratedAssetHandoff,
+  type ImageGenerationEntityKind,
+  type ImageGenerationSceneContext
+} from "./features/ai/ai-studio-model";
+import { workflowPresets } from "../workflow-presets";
+import { createBrowserEditorGateway, type EditorGateway } from "../editor-gateway";
+import { createEditorFeatureController } from "../editor-feature-controller";
+import { createEditorProjectController } from "../editor-project-controller";
+import { formatEditorError } from "../editor-status-policy";
+import {
+  emptyProjectSettingsDraft
 } from "../editor-project-session";
 import {
   createEditorNavigationState,
@@ -251,6 +259,17 @@ import { createBuildReadinessIssues, createValidationReport } from "../validatio
 import { NarrativeGraph } from "./narrative-graph";
 import { FlowNodeFields } from "./flow-node-fields";
 import { TestLab } from "./test-lab";
+import { aiStudioReducer, initialAiStudioState } from "./features/ai/ai-studio-state";
+import { AiStudioSteps } from "./features/ai/ai-studio-steps";
+import { AiStudioWorkspace } from "./features/ai/ai-studio-workspace";
+import { assetStudioReducer, initialAssetStudioState, type AssetStudioTool } from "./features/assets/asset-studio-state";
+import { AssetStudioWorkspace } from "./features/assets/asset-studio-workspace";
+import { AssetStudioPreview } from "./features/assets/asset-studio-preview";
+import { AssetStudioToolPanel } from "./features/assets/asset-studio-tool-panel";
+import { initialSceneStudioState, sceneStudioReducer } from "./features/scenes/scene-studio-state";
+import { SceneTree } from "./features/scenes/scene-tree";
+import { SceneViewport } from "./features/scenes/scene-viewport";
+import { ScenesWorkspace } from "./features/scenes/scenes-workspace";
 import {
   buildProjectResourceIndex,
   filterProjectResources,
@@ -324,7 +343,6 @@ interface AnimationPackDraft {
   clips: AnimationClipDraft[];
 }
 
-type ImageGenerationEntityKind = "scene-background" | "layer" | "actor" | "pickup" | "player" | "hotspot" | "asset";
 type EntityAssetTargetKind = "scene-background" | "layer" | "player" | "actor" | "pickup";
 type TargetBackgroundMode = NonNullable<PromptPackGenerationTarget["backgroundMode"]>;
 type FreePromptTargetKind = "scene-background" | "layer" | "player" | "hotspot" | "pickup" | "actor";
@@ -425,40 +443,7 @@ interface FreePromptTarget {
   sceneId: string;
 }
 
-type AssetTool = "info" | "chroma" | "crop" | "optimize" | "guide" | "animation";
-
-type AiStudioStep = "brief" | "context" | "recipe" | "generate" | "review";
-
-const aiStudioSteps: Array<{ id: AiStudioStep; label: string; detail: string }> = [
-  { id: "brief", label: "Brief", detail: "Set the art direction." },
-  { id: "context", label: "Context", detail: "Choose the project target." },
-  { id: "recipe", label: "Recipe", detail: "Lock workflow and inputs." },
-  { id: "generate", label: "Generate", detail: "Create temporary candidates." },
-  { id: "review", label: "Review & Apply", detail: "Approve changes explicitly." }
-];
-
-interface ImageGenerationSceneContext {
-  entityId?: string;
-  entityKind: ImageGenerationEntityKind;
-  intendedUse: PromptPackGenerationTarget["intendedUse"];
-  sceneId: string;
-  targetId: string;
-}
-
-interface GeneratedAssetHandoff extends ImageGenerationSceneContext {
-  assetId: string;
-  assetPath: string;
-  backgroundMode?: PromptPackGenerationTarget["backgroundMode"];
-  expectedAlpha: boolean;
-  hasAlphaPixels: boolean;
-  outputWarning?: string;
-  seed: number;
-}
-
-interface CandidateHandoffContext extends ImageGenerationSceneContext {
-  backgroundMode?: PromptPackGenerationTarget["backgroundMode"];
-  expectedAlpha: boolean;
-}
+type AssetTool = AssetStudioTool;
 
 interface BackgroundCleanupTarget {
   assetId: string;
@@ -1029,7 +1014,7 @@ type AssetCropInteraction =
       nodeIndex: number;
     };
 
-type SceneTool = "select" | "actor" | "hotspot" | "pickup" | "player-start" | "walk-area";
+type SceneTool = SceneSelectionTool;
 type SceneInspectorTarget = "scene" | "player";
 
 interface SceneViewPreferences {
@@ -1192,127 +1177,10 @@ function generationGuideColor(guide: SceneGenerationGuide) {
   return guide.color ?? generationGuideRoleColors[guide.role];
 }
 
-function targetMatchesGenerationGuide(target: PromptPackGenerationTarget, guide: SceneGenerationGuide): boolean {
-  if (target.guideIds?.includes(guide.id)) return true;
-  const source = guide.source;
-  if (source?.kind && target.sourceEntityKind && source.kind === target.sourceEntityKind) {
-    return source.id ? source.id === target.sourceEntityId : true;
-  }
-  if (target.sourceEntityKind === "actor" && (guide.role === "actor" || guide.role === "npc")) return true;
-  if (target.sourceEntityKind === "pickup" && guide.role === "pickup") return true;
-  if (target.sourceEntityKind === "player" && guide.role === "player") return true;
-  if (target.intendedUse === "scene-background" && (guide.role === "background" || guide.role === "context")) return true;
-  if (target.intendedUse === "prop" && (guide.role === "prop" || guide.role === "pickup")) return true;
-  if (
-    (target.intendedUse === "character-reference" || target.intendedUse === "animation-reference" || target.intendedUse === "sprite-sheet") &&
-    (guide.role === "actor" || guide.role === "npc" || guide.role === "player")
-  ) {
-    return true;
-  }
-  return guide.role === "mask";
-}
-
-function suggestedGenerationGuideIds(
-  target: PromptPackGenerationTarget | null,
-  guides: SceneGenerationGuide[]
-): string[] {
-  if (!target) return [];
-  return guides.filter((guide) => targetMatchesGenerationGuide(target, guide)).map((guide) => guide.id);
-}
-
 function focusEditorField(element: HTMLInputElement | HTMLSelectElement | null) {
   if (!element) return;
   element.focus();
   element.scrollIntoView({ behavior: "smooth", block: "center" });
-}
-
-function imageGenerationContextForTarget(
-  target: PromptPackGenerationTarget,
-  scene: Layered2DScene
-): ImageGenerationSceneContext {
-  if (target.intendedUse === "scene-background") {
-    return {
-      entityKind: "scene-background",
-      intendedUse: target.intendedUse,
-      sceneId: scene.id,
-      targetId: target.id
-    };
-  }
-
-  const pickup = scene.pickups.find((entry) => entry.id === target.id);
-  if (target.sourceEntityKind === "layer" && target.sourceEntityId) {
-    return {
-      entityId: target.sourceEntityId,
-      entityKind: "layer",
-      intendedUse: target.intendedUse,
-      sceneId: scene.id,
-      targetId: target.id
-    };
-  }
-
-  if (target.sourceEntityKind === "hotspot" && target.sourceEntityId) {
-    return {
-      entityId: target.sourceEntityId,
-      entityKind: "hotspot",
-      intendedUse: target.intendedUse,
-      sceneId: scene.id,
-      targetId: target.id
-    };
-  }
-
-  if (pickup) {
-    return {
-      entityId: pickup.id,
-      entityKind: "pickup",
-      intendedUse: target.intendedUse,
-      sceneId: scene.id,
-      targetId: target.id
-    };
-  }
-
-  const actor = scene.actors.find((entry) => target.id === entry.id || target.id.startsWith(`${entry.id}-`));
-  if (actor) {
-    return {
-      entityId: actor.id,
-      entityKind: "actor",
-      intendedUse: target.intendedUse,
-      sceneId: scene.id,
-      targetId: target.id
-    };
-  }
-
-  return {
-    entityKind: "asset",
-    intendedUse: target.intendedUse,
-    sceneId: scene.id,
-    targetId: target.id
-  };
-}
-
-function dimensionsForGenerationTarget(target: PromptPackGenerationTarget) {
-  const fallback = target.intendedUse === "scene-background" ? 1024 : 512;
-  return {
-    height: Math.max(64, Math.min(2048, target.height ?? fallback)),
-    width: Math.max(64, Math.min(2048, target.width ?? fallback))
-  };
-}
-
-function expectedAlphaForBackgroundMode(
-  backgroundMode: PromptPackGenerationTarget["backgroundMode"],
-  fallback: boolean
-) {
-  return backgroundMode === "transparent-alpha" ? true : backgroundMode ? false : fallback;
-}
-
-function assetTypeForGenerationTarget(
-  target: PromptPackGenerationTarget
-): AssetGenerationRecipeDocument["assetType"] {
-  if (target.intendedUse === "scene-background") return "background";
-  if (target.intendedUse === "prop") return "prop";
-  if (target.intendedUse === "character-reference") return "character";
-  if (target.intendedUse === "sprite-sheet") return "sprite-sheet";
-  if (target.intendedUse === "animation-reference") return "animation";
-  return "prop";
 }
 
 function freePromptTargetId(target: FreePromptTarget): string {
@@ -1759,15 +1627,9 @@ export interface EditorAppProps {
 }
 
 export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
-  const editorGateway = useMemo(() => injectedGateway ?? createBrowserEditorGateway(), [injectedGateway]);
-  const commandBus = useMemo(() => createEditorCommandBus(editorGateway), [editorGateway]);
-  const gateway = useMemo<EditorGateway>(
-    () => ({
-      ...editorGateway,
-      applyCommand: commandBus.apply
-    }),
-    [commandBus, editorGateway]
-  );
+  const gateway = useMemo<EditorGateway>(() => injectedGateway ?? createBrowserEditorGateway(), [injectedGateway]);
+  const featureController = useMemo(() => createEditorFeatureController(gateway), [gateway]);
+  const projectController = useMemo(() => createEditorProjectController(gateway), [gateway]);
   const [navigationState, dispatchNavigation] = useReducer(
     editorNavigationReducer,
     undefined,
@@ -1781,16 +1643,30 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     dispatchNavigation({ type: "workspace/change", workspace: nextWorkspace });
   }, []);
   const [status, setStatus] = useState("Loading project...");
+  const reportEditorError = useCallback((error: unknown, fallback: string) => {
+    setStatus(formatEditorError(error, fallback));
+  }, []);
   const [project, setProjectState] = useState<EditorProjectSnapshot | null>(null);
   const [projectSettingsDraft, setProjectSettingsDraft] = useState(emptyProjectSettingsDraft);
   const [history, setHistory] = useState<EditorHistoryState>(emptyHistory);
   const [pendingRecovery, setPendingRecovery] = useState<EditorRecoverySnapshot | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
-  const [resourceQuery, setResourceQuery] = useState("");
-  const [resourceKind, setResourceKind] = useState<"all" | ProjectResourceKind>("all");
-  const [resourceHealth, setResourceHealth] = useState<"all" | ProjectResourceHealth>("all");
-  const [resourceViewMode, setResourceViewMode] = useState<"grid" | "list">("list");
-  const [activeAssetTool, setActiveAssetTool] = useState<AssetTool>("info");
+  const [assetStudioState, dispatchAssetStudio] = useReducer(assetStudioReducer, initialAssetStudioState);
+  const { activeTool: activeAssetTool, resourceHealth, resourceKind, resourceQuery, resourceViewMode } = assetStudioState;
+  const setActiveAssetTool = useCallback((tool: AssetTool) => dispatchAssetStudio({ type: "tool/select", tool }), []);
+  const setResourceHealth = useCallback(
+    (health: "all" | ProjectResourceHealth) => dispatchAssetStudio({ type: "filter/health", health }),
+    []
+  );
+  const setResourceKind = useCallback(
+    (kind: "all" | ProjectResourceKind) => dispatchAssetStudio({ type: "filter/kind", kind }),
+    []
+  );
+  const setResourceQuery = useCallback((query: string) => dispatchAssetStudio({ type: "filter/query", query }), []);
+  const setResourceViewMode = useCallback(
+    (mode: "grid" | "list") => dispatchAssetStudio({ type: "view-mode/select", mode }),
+    []
+  );
   const [assetEditTarget, setAssetEditTarget] = useState<BackgroundCleanupTarget | null>(null);
   const cropImageFrameRef = useRef<HTMLDivElement | null>(null);
   const [cropImageSize, setCropImageSize] = useState({ width: 256, height: 256 });
@@ -1817,8 +1693,13 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
   const [assetPreviewUrls, setAssetPreviewUrls] = useState<Record<string, string>>({});
   const [assetPathDraft, setAssetPathDraft] = useState("");
   const [promptPackSceneId, setPromptPackSceneId] = useState("");
-  const [aiStep, setAiStep] = useState<AiStudioStep>("brief");
-  const [aiAdvancedOpen, setAiAdvancedOpen] = useState(false);
+  const [aiStudioState, dispatchAiStudio] = useReducer(aiStudioReducer, initialAiStudioState);
+  const { advancedOpen: aiAdvancedOpen, selectedGenerationTargetId, selectedPromptPackId, step: aiStep } = aiStudioState;
+  const setAiStep = useCallback((step: AiStudioStep) => dispatchAiStudio({ type: "step/select", step }), []);
+  const setAiAdvancedOpen = useCallback(
+    (open: boolean) => dispatchAiStudio({ type: "advanced/toggle", open }),
+    []
+  );
   const [sceneDirectionPresetId, setSceneDirectionPresetId] = useState(defaultSceneDirectionPreset.id);
   const [promptPackBrief, setPromptPackBrief] = useState(defaultSceneDirectionPreset.artBrief);
   const [promptPackJob, setPromptPackJob] = useState<PromptProviderJob | null>(null);
@@ -1876,7 +1757,10 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
   const [comfyUiGenerationStatus, setComfyUiGenerationStatus] = useState(
     "ComfyUI generation has not been queued yet."
   );
-  const [selectedGenerationTargetId, setSelectedGenerationTargetId] = useState("");
+  const setSelectedGenerationTargetId = useCallback(
+    (targetId: string) => dispatchAiStudio({ type: "generation-target/select", targetId }),
+    []
+  );
   const [imageGenerationState, setImageGenerationState] = useState<"idle" | "running">("idle");
   const [activeImageGenerationContext, setActiveImageGenerationContext] =
     useState<ImageGenerationSceneContext | null>(null);
@@ -1902,7 +1786,10 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
   const [cleanupPreviewUrl, setCleanupPreviewUrl] = useState<string | null>(null);
   const [cleanupSummary, setCleanupSummary] = useState<ChromaKeySummary | null>(null);
   const [cleanupStatus, setCleanupStatus] = useState("Pick a key color or adjust tolerance.");
-  const [selectedPromptPackId, setSelectedPromptPackId] = useState<string | null>(null);
+  const setSelectedPromptPackId = useCallback(
+    (promptPackId: string | null) => dispatchAiStudio({ type: "prompt-pack/select", promptPackId }),
+    []
+  );
   const [validationRunState, setValidationRunState] = useState<EditorValidationRunState>("idle");
   const [validationReport, setValidationReport] = useState<EditorValidationReport | null>(null);
   const [validationStatus, setValidationStatus] = useState("Validation uses saved project files.");
@@ -1917,16 +1804,42 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
   const [browserPreviewActions, setBrowserPreviewActions] = useState<RuntimeInputAction[]>([]);
   const [viewportInteraction, setViewportInteraction] = useState<ViewportInteraction | null>(null);
   const [sceneViewPreferences, setSceneViewPreferences] = useState<SceneViewPreferences>(loadSceneViewPreferences);
-  const [activeSceneTool, setActiveSceneTool] = useState<SceneTool>("select");
-  const [sceneInspectorTarget, setSceneInspectorTarget] = useState<SceneInspectorTarget>("scene");
-  const [selectedSceneLayerId, setSelectedSceneLayerId] = useState<string | null>(null);
-  const [selectedGenerationGuideId, setSelectedGenerationGuideId] = useState<string | null>(null);
+  const [sceneStudioState, dispatchSceneStudio] = useReducer(sceneStudioReducer, initialSceneStudioState);
+  const {
+    activeTool: activeSceneTool,
+    inspectorTarget: sceneInspectorTarget,
+    selectedGenerationGuideId,
+    selectedLayerId: selectedSceneLayerId
+  } = sceneStudioState;
+  const setActiveSceneTool = useCallback((tool: SceneTool) => dispatchSceneStudio({ type: "tool/select", tool }), []);
+  const setSceneInspectorTarget = useCallback(
+    (target: SceneInspectorTarget) => dispatchSceneStudio({ type: "inspector/select", target }),
+    []
+  );
+  const setSelectedSceneLayerId = useCallback(
+    (layerId: string | null) => dispatchSceneStudio({ type: "layer/select", layerId }),
+    []
+  );
+  const setSelectedGenerationGuideId = useCallback(
+    (guideId: string | null) => dispatchSceneStudio({ type: "guide/select", guideId }),
+    []
+  );
   const [selectedFlowNodeId, setSelectedFlowNodeId] = useState<string | null>(null);
   const setProject = useCallback((snapshot: EditorProjectSnapshot) => {
     setProjectState(snapshot);
-    setSelectedAssetId((current) => projectAssetSelectionFor(snapshot, current));
-    setSelectedAnimationPackId((current) => projectAnimationPackSelectionFor(snapshot, current));
-  }, []);
+    setSelectedAssetId((current) =>
+      projectController.reconcileSnapshot(snapshot, {
+        selectedAnimationPackId: null,
+        selectedAssetId: current
+      }).selectedAssetId
+    );
+    setSelectedAnimationPackId((current) =>
+      projectController.reconcileSnapshot(snapshot, {
+        selectedAnimationPackId: current,
+        selectedAssetId: null
+      }).selectedAnimationPackId
+    );
+  }, [projectController]);
   const promptProviderConfigReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const imageProviderConfigReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const aiWorkspaceRef = useRef<HTMLDivElement | null>(null);
@@ -1951,7 +1864,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
 
   useEffect(
     () =>
-      gateway.onImageGenerationEvent((event) => {
+      featureController.onImageGenerationEvent((event) => {
         setImageGenerationJob(event.job);
         if (event.type === "candidate") {
           setImageGenerationCandidates((current) =>
@@ -1988,13 +1901,13 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
         }
         setImageGenerationState("running");
       }),
-    [gateway]
+    [featureController]
   );
 
   const session = history.present;
   const scenes = project ? sceneItems(project.scenes) : [];
   useEffect(() => {
-    setProjectSettingsDraft(projectSettingsDraftFor(project));
+    setProjectSettingsDraft(projectController.projectSettingsDraftFor(project));
   }, [project]);
 
   const narrativeRelationIndex = useMemo(
@@ -2803,7 +2716,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       })
       .catch((error) => {
         if (cancelled) return;
-        setCropStatus(error instanceof Error ? error.message : "Asset preview could not be loaded for cropping.");
+        setCropStatus(formatEditorError(error, "Asset preview could not be loaded for cropping."));
       });
     setGuideStatus("Choose a saved prompt target and a scene guide source.");
 
@@ -2836,7 +2749,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
         })
         .catch((error: unknown) => {
           if (cancelled) return;
-          setOptimizeStatus(error instanceof Error ? error.message : "Optimization preview could not be rendered.");
+          setOptimizeStatus(formatEditorError(error, "Optimization preview could not be rendered."));
         });
     }, 160);
     return () => {
@@ -2863,7 +2776,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       })
       .catch((error) => {
         if (cancelled) return;
-        setStatus(error instanceof Error ? error.message : "Asset could not be previewed");
+        reportEditorError(error, "Asset could not be previewed");
       });
 
     return () => {
@@ -4218,8 +4131,8 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     recovery?: EditorRecoverySnapshot | null
   ) => {
     const loaded =
-      recovery === undefined ? await loadEditorProjectSession(gateway, snapshot) : { recovery, snapshot };
-    const hydration = hydrateEditorProject(snapshot, loaded.recovery);
+      recovery === undefined ? await projectController.loadSession(snapshot) : { recovery, snapshot };
+    const hydration = projectController.hydrate(snapshot, loaded.recovery);
 
     startTransition(() => {
       setProject(snapshot);
@@ -4238,7 +4151,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setValidationStatus("Validation uses saved project files.");
     });
 
-    setStatus(projectLoadStatusFor(snapshot, loaded.recovery));
+    setStatus(projectController.projectLoadStatusFor(snapshot, loaded.recovery));
   };
 
   useEffect(() => {
@@ -4246,12 +4159,12 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
 
     async function loadInitialProject() {
       try {
-        const loaded = await loadEditorProjectSession(gateway);
+        const loaded = await projectController.loadSession();
         if (cancelled) return;
         await hydrateProject(loaded.snapshot, loaded.recovery);
       } catch (error) {
         if (cancelled) return;
-        setStatus(error instanceof Error ? error.message : "Failed to load project");
+        reportEditorError(error, "Failed to load project");
       }
     }
 
@@ -4259,7 +4172,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [projectController, reportEditorError]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -4296,10 +4209,10 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
 
   useEffect(() => {
     if (!project || pendingRecovery) return;
-    void syncEditorRecovery(gateway, project, history.present, pendingRecovery).catch(() => {
+    void projectController.syncRecovery(project, history.present, pendingRecovery).catch(() => {
       // Recovery issues should not block normal editing.
     });
-  }, [history.present, pendingRecovery, project]);
+  }, [history.present, pendingRecovery, project, projectController]);
 
   useEffect(() => {
     setAssetPathDraft(selectedAsset?.path ?? "");
@@ -4484,7 +4397,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
 
   const discardRecovery = async () => {
     if (!project) return;
-    await gateway.clearRecovery(project.directory);
+    await projectController.clearRecovery(project.directory);
     setPendingRecovery(null);
     setStatus(`Loaded ${project.manifest.title}`);
   };
@@ -4493,7 +4406,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     if (!previewRequest) return;
     setStatus("Creating isolated Test Lab session...");
     try {
-      const session = await gateway.createPreviewSession(previewRequest);
+    const session = await featureController.createPreviewSession(previewRequest);
       setPreviewSession(session);
       setPreviewTelemetry([]);
       setBrowserPreviewTelemetry([]);
@@ -4502,15 +4415,15 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       dispatchNavigation({ type: "test-lab/open" });
       setStatus("Test Lab connected to the current project");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Test Lab could not be opened");
+      reportEditorError(error, "Test Lab could not be opened");
     }
   };
 
   const openBrowser = async () => {
     if (previewSession) {
-      await gateway.openPreviewInBrowser(previewSession.id);
+    await featureController.openPreviewInBrowser(previewSession.id);
     } else {
-      await gateway.openInBrowser(previewRequest);
+    await featureController.openInBrowser(previewRequest);
     }
     setStatus("Browser preview opened with the current project");
   };
@@ -4518,13 +4431,13 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
   const refreshPreviewTelemetry = async () => {
     if (!previewSession) return;
     try {
-      const telemetry = await gateway.readPreviewTelemetry(previewSession.id);
+    const telemetry = await featureController.readPreviewTelemetry(previewSession.id);
       setPreviewTelemetry(telemetry.snapshots);
       setBrowserPreviewTelemetry(telemetry.browserSnapshots);
       setPreviewActions(telemetry.actions);
       setBrowserPreviewActions(telemetry.browserActions);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Runtime telemetry could not be read");
+      reportEditorError(error, "Runtime telemetry could not be read");
     }
   };
 
@@ -4536,13 +4449,13 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     setPreviewActions([]);
     setBrowserPreviewActions([]);
     dispatchNavigation({ type: "test-lab/close" });
-    if (sessionId) await gateway.closePreviewSession(sessionId);
+    if (sessionId) await featureController.closePreviewSession(sessionId);
     setStatus("Returned to authoring");
   };
 
   const openProject = async () => {
     setStatus("Waiting for a project folder...");
-    const snapshot = await gateway.pickProject();
+    const snapshot = await featureController.pickProject();
     if (!snapshot) {
       setStatus(project ? `Loaded ${project.manifest.title}` : "Project selection cancelled");
       return;
@@ -4553,7 +4466,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
   const createBlankProject = async () => {
     setStatus("Choose an empty folder for the blank project...");
     try {
-      const snapshot = await gateway.createBlankProject();
+    const snapshot = await featureController.createBlankProject();
       if (!snapshot) {
         setStatus(project ? `Loaded ${project.manifest.title}` : "Project creation cancelled");
         return;
@@ -4561,14 +4474,14 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       await hydrateProject(snapshot);
       setWorkspace("overview");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Blank project could not be created");
+      reportEditorError(error, "Blank project could not be created");
     }
   };
 
   const createProjectFromStarter = async () => {
     setStatus("Choose an empty folder for the starter project...");
     try {
-      const snapshot = await gateway.createProjectFromStarter();
+    const snapshot = await featureController.createProjectFromStarter();
       if (!snapshot) {
         setStatus(project ? `Loaded ${project.manifest.title}` : "Project creation cancelled");
         return;
@@ -4576,7 +4489,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       await hydrateProject(snapshot);
       setWorkspace("overview");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Starter project could not be created");
+      reportEditorError(error, "Starter project could not be created");
     }
   };
 
@@ -4611,7 +4524,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     }
 
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "project/update-settings",
         patch: {
           defaultLocale: projectSettingsDraft.defaultLocale,
@@ -4626,14 +4539,14 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setProject(snapshot);
       setStatus(`Updated project settings for ${snapshot.manifest.title}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Project settings could not be saved");
+      reportEditorError(error, "Project settings could not be saved");
     }
   };
 
   const importAssets = async () => {
     setStatus("Importing assets...");
     try {
-      const snapshot = await gateway.importAssets();
+    const snapshot = await featureController.importAssets();
       if (!snapshot) {
         setStatus(project ? `Loaded ${project.manifest.title}` : "Asset import cancelled");
         return;
@@ -4643,7 +4556,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setWorkspace("assets");
       setStatus(`Imported asset library now contains ${snapshot.assetCount} asset(s)`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Assets could not be imported");
+      reportEditorError(error, "Assets could not be imported");
     }
   };
 
@@ -4698,7 +4611,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
 
     setStatus(`Importing ${filePaths.length} asset file(s)...`);
     try {
-      const result = await gateway.importAssetFiles(filePaths);
+    const result = await featureController.importAssetFiles(filePaths);
       const assetId = result.assetIds[0];
       const asset = assetId ? result.snapshot.assets.find((entry) => entry.id === assetId) : null;
       setProject(result.snapshot);
@@ -4712,7 +4625,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
         setStatus(`Imported ${result.assetIds.length} asset(s).`);
       }
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Dropped assets could not be imported");
+      reportEditorError(error, "Dropped assets could not be imported");
     }
   };
 
@@ -4724,7 +4637,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     const beforeIds = new Set(project.assets.map((asset) => asset.id));
     setStatus("Importing asset...");
     try {
-      const snapshot = await gateway.importAssets();
+    const snapshot = await featureController.importAssets();
       if (!snapshot) {
         setStatus("Asset import cancelled");
         return;
@@ -4738,7 +4651,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       }
       setStatus("No new asset was imported.");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Asset could not be imported");
+      reportEditorError(error, "Asset could not be imported");
     }
   };
 
@@ -4918,7 +4831,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
 
     setStatus(`Saving animation pack ${animationPack.id}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "animation-pack/upsert",
         patch: { animationPack }
       });
@@ -4926,7 +4839,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setSelectedAnimationPackId(animationPack.id);
       setStatus(`Saved animation pack ${animationPack.id}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Animation pack could not be saved");
+      reportEditorError(error, "Animation pack could not be saved");
     }
   };
 
@@ -4962,7 +4875,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     if (!selectedScene || !selectedAsset) return;
     setStatus(`Assigning ${selectedAsset.id} to ${selectedScene.id}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "scene/update",
         patch: {
           background: selectedAsset.path,
@@ -4976,7 +4889,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setProject(snapshot);
       setStatus(`Assigned ${selectedAsset.id} as the background for ${selectedScene.id}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Asset background could not be assigned");
+      reportEditorError(error, "Asset background could not be assigned");
     }
   };
 
@@ -4995,7 +4908,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
 
     setStatus(`Relinking ${selectedAsset.id}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "asset/relink",
         assetId: selectedAsset.id,
         patch: {
@@ -5005,7 +4918,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setProject(snapshot);
       setStatus(`Relinked ${selectedAsset.id} to ${nextPath}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Asset relink could not be completed");
+      reportEditorError(error, "Asset relink could not be completed");
     }
   };
 
@@ -5015,7 +4928,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     setStatus(`Deleting ${selectedAsset.id}...`);
     try {
       const deletedAssetId = selectedAsset.id;
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "asset/delete",
         assetId: deletedAssetId
       });
@@ -5023,7 +4936,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setSelectedAssetId(snapshot.assets[0]?.id ?? null);
       setStatus(`Deleted ${deletedAssetId}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Asset delete could not be completed");
+      reportEditorError(error, "Asset delete could not be completed");
     }
   };
 
@@ -5071,7 +4984,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       context.clip();
       context.drawImage(image, -crop.x, -crop.y, image.naturalWidth, image.naturalHeight);
       context.restore();
-      const result = await gateway.saveProcessedImageAsset({
+    const result = await featureController.saveProcessedImageAsset({
         dataUrl: canvas.toDataURL("image/png"),
         filenameHint: `${selectedAsset.id}-cutout.png`,
         processing: {
@@ -5095,7 +5008,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
         setCropStatus("Crop was saved, but no asset id was returned.");
       }
     } catch (error) {
-      setCropStatus(error instanceof Error ? error.message : "Crop could not be saved.");
+      setCropStatus(formatEditorError(error, "Crop could not be saved."));
     }
   };
 
@@ -5112,7 +5025,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     setOptimizeStatus(`Applying ${preset.label} preset as a derived asset...`);
     try {
       const extension = preset.format === "jpeg" ? "jpg" : preset.format;
-      const result = await gateway.saveProcessedImageAsset({
+    const result = await featureController.saveProcessedImageAsset({
         dataUrl: optimizePreview.dataUrl,
         filenameHint: `${selectedAsset.id}-${preset.id}.${extension}`,
         processing: {
@@ -5136,7 +5049,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       if (assetId) setSelectedAssetId(assetId);
       setOptimizeStatus(assetId ? `Applied ${assetId}. Review it, then use Assign explicitly.` : "Optimization completed without an asset id.");
     } catch (error) {
-      setOptimizeStatus(error instanceof Error ? error.message : "Image optimization failed.");
+      setOptimizeStatus(formatEditorError(error, "Image optimization failed."));
     }
   };
 
@@ -5164,7 +5077,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
         shape: guideShape,
         width: selectedScene.size.width
       });
-      const maskResult = await gateway.saveProcessedImageAsset({
+    const maskResult = await featureController.saveProcessedImageAsset({
         dataUrl: imagePixelDataToPngDataUrl(mask),
         filenameHint: `${selectedSavedGenerationTarget.id}-mask.png`
       });
@@ -5183,7 +5096,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
         maskAssetId: maskAsset.id,
         referenceAssetId: selectedAsset.id
       });
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "prompt-pack/upsert",
         patch: { promptPack: updatedPromptPack }
       });
@@ -5192,7 +5105,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setSelectedPromptPackId(updatedPromptPack.id);
       setGuideStatus(`Saved ${maskAsset.id} and linked it to ${updatedPromptPack.id}/${selectedSavedGenerationTarget.id}.`);
     } catch (error) {
-      setGuideStatus(error instanceof Error ? error.message : "Guide mask could not be saved.");
+      setGuideStatus(formatEditorError(error, "Guide mask could not be saved."));
     }
   };
 
@@ -5311,7 +5224,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       ...selectedSavedGenerationTarget,
       guideIds
     });
-    const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
       type: "prompt-pack/upsert",
       patch: { promptPack: updatedPromptPack }
     });
@@ -5329,7 +5242,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       await updateSelectedTargetGuideSet(nextGuideIds);
       setGuideStatus(`Guide set updated for ${selectedSavedGenerationTarget.id}.`);
     } catch (error) {
-      setGuideStatus(error instanceof Error ? error.message : "Guide set could not be updated.");
+      setGuideStatus(formatEditorError(error, "Guide set could not be updated."));
     }
   };
 
@@ -5351,7 +5264,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
         height: promptPackGuideScene.size.height,
         width: promptPackGuideScene.size.width
       });
-      const referenceResult = await gateway.saveProcessedImageAsset({
+    const referenceResult = await featureController.saveProcessedImageAsset({
         dataUrl: referenceDataUrl,
         filenameHint: `${selectedSavedGenerationTarget.id}-guide-reference.png`
       });
@@ -5366,7 +5279,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       }
 
       setProject(referenceResult.snapshot);
-      const maskResult = await gateway.saveProcessedImageAsset({
+    const maskResult = await featureController.saveProcessedImageAsset({
         dataUrl: imagePixelDataToPngDataUrl(mask),
         filenameHint: `${selectedSavedGenerationTarget.id}-guide-mask.png`
       });
@@ -5389,7 +5302,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
         referenceAssetId: referenceAsset.id,
         maskAssetId: maskAsset.id
       });
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "prompt-pack/upsert",
         patch: { promptPack: updatedPromptPack }
       });
@@ -5400,7 +5313,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
         `Compiled reference ${referenceAsset.id} and mask ${maskAsset.id}. Current ComfyUI text-to-image workflow may not consume them.`
       );
     } catch (error) {
-      setGuideStatus(error instanceof Error ? error.message : "Guide assets could not be compiled.");
+      setGuideStatus(formatEditorError(error, "Guide assets could not be compiled."));
     }
   };
 
@@ -5499,7 +5412,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
           : "Generating deterministic mock prompt pack..."
     );
     try {
-      const job = await gateway.generatePromptPack({
+    const job = await featureController.generatePromptPack({
         allowRemoteProvider: remoteProviderConsent,
         bundle: buildDraftProjectBundle(project, history.present),
         providerId: promptProviderId,
@@ -5521,7 +5434,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
           : `${selectedPromptProvider.label} returned no prompt pack candidates`
       );
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Prompt pack could not be generated");
+      reportEditorError(error, "Prompt pack could not be generated");
     } finally {
       setPromptPackGenerationState("idle");
     }
@@ -5531,13 +5444,13 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     if (!project) return;
     setAuthoringSuggestionState("running");
     try {
-      const suggestions = await gateway.generateAuthoringSuggestions(
+    const suggestions = await featureController.generateAuthoringSuggestions(
         promptPackScene ? { sceneId: promptPackScene.id } : undefined
       );
       setAuthoringSuggestions(suggestions);
       setStatus(suggestions.length ? `Generated ${suggestions.length} deterministic authoring suggestion(s).` : "No authoring suggestions are available for this scene.");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Authoring suggestions could not be generated.");
+      reportEditorError(error, "Authoring suggestions could not be generated.");
     } finally {
       setAuthoringSuggestionState("idle");
     }
@@ -5549,7 +5462,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
 
     setStatus(`Saving ${promptPack.id}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "prompt-pack/upsert",
         patch: { promptPack }
       });
@@ -5557,7 +5470,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setSelectedPromptPackId(promptPack.id);
       setStatus(`Saved prompt pack ${promptPack.id}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Prompt pack could not be saved");
+      reportEditorError(error, "Prompt pack could not be saved");
     }
   };
 
@@ -5602,7 +5515,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
 
     setStatus(`Saving target settings for ${selectedGenerationTarget.id}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "prompt-pack/upsert",
         patch: { promptPack: updatedPromptPack }
       });
@@ -5615,7 +5528,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       });
       setStatus(`Saved target settings for ${selectedGenerationTarget.id}.`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Target prompt settings could not be saved");
+      reportEditorError(error, "Target prompt settings could not be saved");
     }
   };
 
@@ -5623,12 +5536,12 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     if (!project || !selectedWorkflowPresetId) return;
     setStatus(`Installing workflow preset ${selectedWorkflowPresetId}...`);
     try {
-      const snapshot = await gateway.installWorkflowPreset(selectedWorkflowPresetId);
+    const snapshot = await featureController.installWorkflowPreset(selectedWorkflowPresetId);
       setProject(snapshot);
       setSelectedWorkflowTemplateId(selectedWorkflowPresetId);
       setStatus(`Installed workflow preset ${selectedWorkflowPresetId}.`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Workflow preset could not be installed");
+      reportEditorError(error, "Workflow preset could not be installed");
     }
   };
 
@@ -5680,14 +5593,14 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
 
     setStatus(`Saving recipe ${generationRecipe.id}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "generation-recipe/upsert",
         patch: { generationRecipe }
       });
       setProject(snapshot);
       setStatus(`Saved recipe ${generationRecipe.id}.`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Generation recipe could not be saved");
+      reportEditorError(error, "Generation recipe could not be saved");
     }
   };
 
@@ -5759,7 +5672,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     }
 
     for (const candidate of imageGenerationCandidates) {
-      await gateway.discardAssetCandidate(candidate.id);
+    await featureController.discardAssetCandidate(candidate.id);
     }
     setImageGenerationState("running");
     setActiveImageGenerationContext(selectedImageGenerationContext);
@@ -5849,11 +5762,11 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
         ...(imageProviderId === "comfyui-local" && selectedWorkflowTemplate ? { outputNodeId: selectedWorkflowTemplate.output.nodeId } : {}),
         ...(imageProviderId === "comfyui-local" && workflowPath ? { workflowPath } : {})
       };
-      const job = await gateway.startImageGeneration(imageRequest);
+    const job = await featureController.startImageGeneration(imageRequest);
       setImageGenerationJob(job);
       setAiStep("review");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Image asset could not be generated";
+      const message = formatEditorError(error, "Image asset could not be generated");
       setComfyUiGenerationStatus(message);
       setStatus(message);
       setImageGenerationState("idle");
@@ -5864,27 +5777,27 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
   const cancelImageGeneration = async () => {
     if (!imageGenerationJob || imageGenerationJob.status === "cancelled") return;
     try {
-      await gateway.cancelImageGeneration(imageGenerationJob.id);
+    await featureController.cancelImageGeneration(imageGenerationJob.id);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Image generation could not be cancelled.");
+      reportEditorError(error, "Image generation could not be cancelled.");
     }
   };
 
   const discardImageCandidate = async (candidateId: string) => {
     try {
-      await gateway.discardAssetCandidate(candidateId);
+    await featureController.discardAssetCandidate(candidateId);
       setImageGenerationCandidates((current) => current.filter((candidate) => candidate.id !== candidateId));
       setSelectedImageCandidateId((current) => (current === candidateId ? null : current));
       setStatus("Temporary image candidate discarded. The project was not changed.");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Image candidate could not be discarded.");
+      reportEditorError(error, "Image candidate could not be discarded.");
     }
   };
 
   const applyImageCandidate = async (candidate: ImageGenerationCandidate) => {
     setStatus(`Applying candidate ${candidate.id}...`);
     try {
-      const applied = await gateway.applyAssetCandidate(candidate.id);
+    const applied = await featureController.applyAssetCandidate(candidate.id);
       setProject(applied.snapshot);
       setSelectedAssetId(applied.assetId);
       setImageGenerationCandidates((current) => current.filter((entry) => entry.id !== candidate.id));
@@ -5905,7 +5818,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setComfyUiGenerationStatus(message);
       setStatus(message);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Image candidate could not be applied.");
+      reportEditorError(error, "Image candidate could not be applied.");
     }
   };
 
@@ -5914,7 +5827,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     setValidationRunState("running");
     setValidationStatus("Validating saved project files...");
     try {
-      const report = await gateway.runValidation();
+    const report = await featureController.runValidation();
       setValidationReport(report);
       setValidationRunState("completed");
       setValidationStatus(
@@ -5926,7 +5839,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       );
     } catch (error) {
       setValidationRunState("failed-to-run");
-      setValidationStatus(error instanceof Error ? error.message : "Validation could not be completed");
+      setValidationStatus(formatEditorError(error, "Validation could not be completed"));
     }
   };
 
@@ -5935,7 +5848,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     setWebExportState("running");
     setWebExportStatus("Preparing the browser runtime, project bundle, and assets...");
     try {
-      const result = await gateway.exportWebBuild();
+    const result = await featureController.exportWebBuild();
       if (!result) {
         setWebExportStatus("Web export cancelled.");
         return;
@@ -5944,7 +5857,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setWebExportStatus(message);
       setStatus(message);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Web export failed.";
+      const message = formatEditorError(error, "Web export failed.");
       setWebExportStatus(message);
       setStatus(message);
     } finally {
@@ -5958,7 +5871,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     const flowId = nextFlowId(project);
     setStatus(`Creating ${flowId}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "flow/create",
         flow: createDefaultFlowDocument(flowId)
       });
@@ -5975,7 +5888,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       }));
       setStatus(`Created ${flowId}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to create flow");
+      reportEditorError(error, "Failed to create flow");
     }
   };
 
@@ -5985,7 +5898,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     const deletedFlowId = selectedFlow.id;
     setStatus(`Deleting ${deletedFlowId}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "flow/delete",
         flowId: deletedFlowId
       });
@@ -5993,7 +5906,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setProject(snapshot);
       setHistory((current) => ({
         ...current,
-        present: discardSavedDraft(
+          present: projectController.discardSavedDraft(
           {
             ...current.present,
             activeActorId: null,
@@ -6010,7 +5923,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setWorkspace("narrative");
       setStatus(nextActiveFlowId ? `Deleted ${deletedFlowId}; selected ${nextActiveFlowId}` : `Deleted ${deletedFlowId}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to delete flow");
+      reportEditorError(error, "Failed to delete flow");
     }
   };
 
@@ -6020,7 +5933,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     const itemId = nextItemId(project);
     setStatus(`Creating ${itemId}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "item/create",
         item: {
           id: itemId,
@@ -6043,7 +5956,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       }));
       setStatus(`Created ${itemId}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to create item");
+      reportEditorError(error, "Failed to create item");
     }
   };
 
@@ -6053,7 +5966,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     const deletedItemId = selectedItem.id;
     setStatus(`Deleting ${deletedItemId}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "item/delete",
         itemId: deletedItemId
       });
@@ -6062,7 +5975,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setWorkspace("scene");
       setHistory((current) => ({
         ...current,
-        present: discardSavedDraft(
+          present: projectController.discardSavedDraft(
           {
             ...current.present,
             activeActorId: null,
@@ -6078,7 +5991,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       }));
       setStatus(nextActiveItemId ? `Deleted ${deletedItemId}; selected ${nextActiveItemId}` : `Deleted ${deletedItemId}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to delete item");
+      reportEditorError(error, "Failed to delete item");
     }
   };
 
@@ -6088,7 +6001,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     const sceneId = nextSceneId(project);
     setStatus(`Creating ${sceneId}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "scene/create",
         scene: createDefaultSceneDocument(project, sceneId)
       });
@@ -6107,7 +6020,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       }));
       setStatus(`Created ${sceneId}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to create scene");
+      reportEditorError(error, "Failed to create scene");
     }
   };
 
@@ -6117,7 +6030,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     const deletedSceneId = selectedScene.id;
     setStatus(`Deleting ${deletedSceneId}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "scene/delete",
         sceneId: deletedSceneId
       });
@@ -6125,7 +6038,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setProject(snapshot);
       setWorkspace("scene");
       setHistory((current) => {
-        const nextPresent = discardSavedDraft(
+        const nextPresent = projectController.discardSavedDraft(
           {
             ...current.present,
             activeActorId: null,
@@ -6169,7 +6082,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
           : `Deleted ${deletedSceneId}`
       );
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to delete scene");
+      reportEditorError(error, "Failed to delete scene");
     }
   };
 
@@ -6179,7 +6092,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     const hotspotId = nextHotspotId(selectedScene);
     setStatus(`Creating ${hotspotId}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "hotspot/create",
         hotspot: createDefaultHotspot(selectedScene, hotspotId),
         sceneId: selectedScene.id
@@ -6198,7 +6111,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       }));
       setStatus(`Created ${hotspotId}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to create hotspot");
+      reportEditorError(error, "Failed to create hotspot");
     }
   };
 
@@ -6209,7 +6122,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     const draftKey = createHotspotKey(selectedScene.id, deletedHotspotId);
     setStatus(`Deleting ${deletedHotspotId}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "hotspot/delete",
         hotspotId: deletedHotspotId,
         sceneId: selectedScene.id
@@ -6218,7 +6131,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setWorkspace("scene");
       setHistory((current) => ({
         ...current,
-        present: discardSavedDraft(
+          present: projectController.discardSavedDraft(
           {
             ...current.present,
             activeActorId: null,
@@ -6234,7 +6147,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       }));
       setStatus(`Deleted ${deletedHotspotId}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to delete hotspot");
+      reportEditorError(error, "Failed to delete hotspot");
     }
   };
 
@@ -6249,7 +6162,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     const pickupId = nextPickupId(selectedScene);
     setStatus(`Creating ${pickupId}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "pickup/create",
         pickup: createDefaultPickup(selectedScene, pickupId, defaultItemId),
         sceneId: selectedScene.id
@@ -6267,7 +6180,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       }));
       setStatus(`Created ${pickupId}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to create pickup");
+      reportEditorError(error, "Failed to create pickup");
     }
   };
 
@@ -6278,7 +6191,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     const draftKey = createPickupKey(selectedScene.id, deletedPickupId);
     setStatus(`Deleting ${deletedPickupId}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "pickup/delete",
         pickupId: deletedPickupId,
         sceneId: selectedScene.id
@@ -6287,7 +6200,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setWorkspace("scene");
       setHistory((current) => ({
         ...current,
-        present: discardSavedDraft(
+          present: projectController.discardSavedDraft(
           {
             ...current.present,
             activeActorId: null,
@@ -6303,7 +6216,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       }));
       setStatus(`Deleted ${deletedPickupId}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to delete pickup");
+      reportEditorError(error, "Failed to delete pickup");
     }
   };
 
@@ -6313,7 +6226,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     const actorId = nextActorId(selectedScene);
     setStatus(`Creating ${actorId}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         actor: createDefaultActor(selectedScene, actorId),
         sceneId: selectedScene.id,
         type: "actor/create"
@@ -6332,7 +6245,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setActiveSceneTool("actor");
       setStatus(`Created ${actorId}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to create actor");
+      reportEditorError(error, "Failed to create actor");
     }
   };
 
@@ -6343,7 +6256,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     const draftKey = createActorKey(selectedScene.id, deletedActorId);
     setStatus(`Deleting ${deletedActorId}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         actorId: deletedActorId,
         sceneId: selectedScene.id,
         type: "actor/delete"
@@ -6352,7 +6265,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setWorkspace("scene");
       setHistory((current) => ({
         ...current,
-        present: discardSavedDraft(
+          present: projectController.discardSavedDraft(
           {
             ...current.present,
             activeActorId: null,
@@ -6368,7 +6281,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       }));
       setStatus(`Deleted ${deletedActorId}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to delete actor");
+      reportEditorError(error, "Failed to delete actor");
     }
   };
 
@@ -7096,7 +7009,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
           : `Removed ${result.summary.transparentPixels} pixel(s); softened ${result.summary.alphaPixels} edge pixel(s).`
       );
     } catch (error) {
-      setCleanupStatus(error instanceof Error ? error.message : "Background cleanup preview failed.");
+      setCleanupStatus(formatEditorError(error, "Background cleanup preview failed."));
     }
   };
 
@@ -7125,7 +7038,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
 
     setCleanupStatus("Saving processed PNG asset...");
     try {
-      const result = await gateway.saveProcessedImageAsset({
+    const result = await featureController.saveProcessedImageAsset({
         dataUrl,
         filenameHint: backgroundCleanupTarget.filenameHint,
         processing: {
@@ -7158,7 +7071,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
         setCleanupStatus("Processed asset was saved, but no asset id was returned.");
       }
     } catch (error) {
-      setCleanupStatus(error instanceof Error ? error.message : "Processed image could not be saved.");
+      setCleanupStatus(formatEditorError(error, "Processed image could not be saved."));
     }
   };
 
@@ -7572,7 +7485,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     const patch = buildActorFromDraft(selectedActor, currentActorDraft);
     setStatus(`Saving ${selectedActor.id}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         actorId: selectedActor.id,
         patch,
         sceneId: selectedScene.id,
@@ -7581,7 +7494,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setProject(snapshot);
       setHistory((current) => ({
         ...current,
-        present: discardSavedDraft(
+          present: projectController.discardSavedDraft(
           current.present,
           "actor",
           createActorKey(selectedScene.id, selectedActor.id)
@@ -7589,7 +7502,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       }));
       setStatus(`Saved ${selectedActor.id}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to save actor");
+      reportEditorError(error, "Failed to save actor");
     }
   };
 
@@ -7634,7 +7547,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
         Object.assign(patch, { cursor: nextHotspot.cursor });
       }
 
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "hotspot/update",
         hotspotId: selectedHotspot.id,
         patch,
@@ -7644,7 +7557,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setHistory((current) =>
         ({
           ...current,
-          present: discardSavedDraft(
+          present: projectController.discardSavedDraft(
             current.present,
             "hotspot",
             createHotspotKey(selectedScene.id, selectedHotspot.id)
@@ -7653,7 +7566,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       );
       setStatus(`Saved ${selectedHotspot.id}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to save hotspot");
+      reportEditorError(error, "Failed to save hotspot");
     }
   };
 
@@ -7725,7 +7638,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
 
     setStatus(`Saving ${selectedScene.id}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "scene/update",
         patch: {
           background,
@@ -7754,11 +7667,11 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setProject(snapshot);
       setHistory((current) => ({
         ...current,
-        present: discardSavedDraft(current.present, "scene", selectedScene.id)
+        present: projectController.discardSavedDraft(current.present, "scene", selectedScene.id)
       }));
       setStatus(`Saved ${selectedScene.id}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to save scene");
+      reportEditorError(error, "Failed to save scene");
     }
   };
 
@@ -7811,7 +7724,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
         patch.pickupFlowId = pickupFlowId;
       }
 
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "pickup/update",
         pickupId: selectedPickup.id,
         patch,
@@ -7820,7 +7733,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setProject(snapshot);
       setHistory((current) => ({
         ...current,
-        present: discardSavedDraft(
+          present: projectController.discardSavedDraft(
           current.present,
           "pickup",
           createPickupKey(selectedScene.id, selectedPickup.id)
@@ -7828,7 +7741,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       }));
       setStatus(`Saved ${selectedPickup.id}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to save pickup");
+      reportEditorError(error, "Failed to save pickup");
     }
   };
 
@@ -7849,7 +7762,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
 
     setStatus(`Saving ${selectedItem.id}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "item/update",
         itemId: selectedItem.id,
         patch: {
@@ -7860,11 +7773,11 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setProject(snapshot);
       setHistory((current) => ({
         ...current,
-        present: discardSavedDraft(current.present, "item", selectedItem.id)
+        present: projectController.discardSavedDraft(current.present, "item", selectedItem.id)
       }));
       setStatus(`Saved ${selectedItem.id}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to save item");
+      reportEditorError(error, "Failed to save item");
     }
   };
 
@@ -7877,7 +7790,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
 
     setStatus(`Saving ${normalizedKey}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "locale/upsert",
         locale: localeId,
         patch: {
@@ -7888,11 +7801,11 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setProject(snapshot);
       setHistory((current) => ({
         ...current,
-        present: discardSavedDraft(current.present, "locale", localeId)
+        present: projectController.discardSavedDraft(current.present, "locale", localeId)
       }));
       setStatus(`Saved ${normalizedKey}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to save locale string");
+      reportEditorError(error, "Failed to save locale string");
     }
   };
 
@@ -7958,7 +7871,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
 
     setStatus(`Deleting ${normalizedKey}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "locale/delete",
         key: normalizedKey,
         locale: selectedLocale.locale
@@ -7966,11 +7879,11 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setProject(snapshot);
       setHistory((current) => ({
         ...current,
-        present: discardSavedDraft(current.present, "locale", selectedLocale.locale)
+        present: projectController.discardSavedDraft(current.present, "locale", selectedLocale.locale)
       }));
       setStatus(`Deleted ${normalizedKey}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to delete locale string");
+      reportEditorError(error, "Failed to delete locale string");
     }
   };
 
@@ -8073,7 +7986,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
 
     setStatus(`Saving ${selectedFlow.id}...`);
     try {
-      const snapshot = await gateway.applyCommand({
+      const snapshot = await projectController.applyCommand({
         type: "flow/update",
         flowId: selectedFlow.id,
         patch: {
@@ -8086,11 +7999,11 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
       setProject(snapshot);
       setHistory((current) => ({
         ...current,
-        present: discardSavedDraft(current.present, "flow", selectedFlow.id)
+        present: projectController.discardSavedDraft(current.present, "flow", selectedFlow.id)
       }));
       setStatus(`Saved ${selectedFlow.id}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to save flow");
+      reportEditorError(error, "Failed to save flow");
     }
   };
 
@@ -8189,212 +8102,42 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     if (!project) {
       return <div className="tree-item tree-meta">No project loaded</div>;
     }
-
     if (workspace === "scene") {
       return (
-        <>
-          <div className="tree-section-label">Scenes</div>
-          <div className="scene-compact-selector">
-            <div
-              className="scene-compact-thumbnail"
-              style={previewSceneBackground && assetPreviewUrls[previewSceneBackground]
-                ? { backgroundImage: `url("${assetPreviewUrls[previewSceneBackground]}")` }
-                : undefined}
-              aria-hidden="true"
-            />
-            <label>
-              <span>Active scene</span>
-              <select aria-label="Active scene" value={selectedScene?.id ?? ""} onChange={(event) => selectScene(event.target.value)}>
-                {scenes.map((scene) => <option key={`scene-selector-${scene.id}`} value={scene.id}>{scene.name}</option>)}
-              </select>
-            </label>
-          </div>
-          <button className="tree-item tree-child" type="button" onClick={createScene}>
-            <span className="scene-dot muted" /> + New scene
-          </button>
-          <div className="tree-group open">Scene hierarchy</div>
-          {scenes.filter((scene) => scene.id === selectedScene?.id).map((scene) => {
-            const isActiveScene = selectedScene?.id === scene.id;
-            const isSceneRootSelected =
-              session.activeLocale === null &&
-              session.activeFlowId === null &&
-              !session.activeActorId &&
-              !session.activeHotspotId &&
-              !session.activePickupId &&
-              !session.activeItemId &&
-              isActiveScene &&
-              !isPlayerInspectorSelected &&
-              !selectedSceneLayerId &&
-              !selectedGenerationGuideId &&
-              activeSceneTool === "select";
-
-            return (
-              <div className={`scene-tree-branch ${isActiveScene ? "open" : ""}`} key={scene.id}>
-                <button
-                  className={`tree-item scene-tree-root ${isSceneRootSelected ? "selected" : ""}`}
-                  type="button"
-                  onClick={() => selectScene(scene.id)}
-                >
-                  <span className="scene-dot" /> {scene.name}
-                  {dirtyState.sceneIds.has(scene.id) ? <span className="dirty-mark">*</span> : null}
-                </button>
-                {isActiveScene && selectedScene ? (
-                  <div className="scene-tree-children">
-                    <button
-                      className={`tree-item tree-child ${isSceneRootSelected ? "selected" : ""}`}
-                      type="button"
-                      onClick={() => selectScene(scene.id)}
-                    >
-                      <span className="scene-dot muted" /> Background
-                    </button>
-                    <div className="tree-group open">Layers ({currentSceneDraft.layers.length})</div>
-                    <button className="tree-item tree-child" type="button" onClick={createSceneLayer}>
-                      <span className="scene-dot muted" /> + New layer
-                    </button>
-                    {currentSceneDraft.layers.map((layer) => (
-                      <button
-                        className={`tree-item tree-child ${selectedSceneLayerId === layer.id ? "selected" : ""}`}
-                        key={`scene-layer-tree-${layer.id}`}
-                        type="button"
-                        onClick={() => {
-                          setWorkspace("scene");
-                          setActiveSceneTool("select");
-                          setSceneInspectorTarget("scene");
-                          setSelectedSceneLayerId(layer.id);
-                          setSelectedGenerationGuideId(null);
-                          updateSessionSelection((current) => ({
-                            ...current,
-                            activeActorId: null,
-                            activeFlowId: null,
-                            activeHotspotId: null,
-                            activeItemId: null,
-                            activeLocale: null,
-                            activePickupId: null,
-                            activeSceneId: selectedScene.id
-                          }));
-                        }}
-                      >
-                        <span className="scene-dot muted" /> {layer.name || layer.id}
-                        {dirtyState.sceneIds.has(selectedScene.id) ? <span className="dirty-mark">*</span> : null}
-                      </button>
-                    ))}
-                    <button
-                      className={`tree-item tree-child ${activeSceneTool === "walk-area" ? "selected" : ""}`}
-                      type="button"
-                      onClick={() => {
-                        selectScene(scene.id);
-                        setActiveSceneTool("walk-area");
-                      }}
-                    >
-                      <span className="scene-dot muted" /> Walk area
-                    </button>
-                    <button
-                      className={`tree-item tree-child ${isPlayerInspectorSelected ? "selected" : ""}`}
-                      type="button"
-                      onClick={selectPlayerInScene}
-                    >
-                      <span className="scene-dot muted" /> Player start
-                      {dirtyState.sceneIds.has(selectedScene.id) ? <span className="dirty-mark">*</span> : null}
-                    </button>
-                    <div className="tree-group open">Actors ({selectedScene.actors.length})</div>
-                    <button className="tree-item tree-child" type="button" onClick={createActor}>
-                      <span className="scene-dot muted" /> + New actor
-                    </button>
-                    {selectedScene.actors.map((actor) => (
-                      <button
-                        className={`tree-item tree-child ${session.activeActorId === actor.id ? "selected" : ""}`}
-                        key={actor.id}
-                        type="button"
-                        onClick={() => selectActor(actor)}
-                      >
-                        <span className="scene-dot muted" /> {actor.id}
-                        {dirtyState.actorKeys.has(createActorKey(selectedScene.id, actor.id)) ? (
-                          <span className="dirty-mark">*</span>
-                        ) : null}
-                      </button>
-                    ))}
-                    <div className="tree-group open">Pickups ({selectedScene.pickups.length})</div>
-                    <button className="tree-item tree-child" type="button" onClick={createPickup}>
-                      <span className="scene-dot muted" /> + New pickup
-                    </button>
-                    {selectedScene.pickups.map((pickup) => (
-                      <button
-                        className={`tree-item tree-child ${session.activePickupId === pickup.id ? "selected" : ""}`}
-                        key={pickup.id}
-                        type="button"
-                        onClick={() => selectPickup(pickup)}
-                      >
-                        <span className="scene-dot muted" /> {pickup.id}
-                        {dirtyState.pickupKeys.has(createPickupKey(selectedScene.id, pickup.id)) ? (
-                          <span className="dirty-mark">*</span>
-                        ) : null}
-                      </button>
-                    ))}
-                    <div className="tree-group open">Hotspots ({selectedScene.hotspots.length})</div>
-                    <button className="tree-item tree-child" type="button" onClick={createHotspot}>
-                      <span className="scene-dot muted" /> + New hotspot
-                    </button>
-                    {selectedScene.hotspots.map((hotspot) => (
-                      <button
-                        className={`tree-item tree-child ${session.activeHotspotId === hotspot.id ? "selected" : ""}`}
-                        key={hotspot.id}
-                        type="button"
-                        onClick={() => selectHotspot(hotspot)}
-                      >
-                        <span className="scene-dot muted" /> {hotspot.id}
-                        {dirtyState.hotspotKeys.has(createHotspotKey(selectedScene.id, hotspot.id)) ? (
-                          <span className="dirty-mark">*</span>
-                        ) : null}
-                      </button>
-                    ))}
-                    <div className="tree-group open">Guides / AI masks ({currentGenerationGuides.length})</div>
-                    <button
-                      className="tree-item tree-child"
-                      type="button"
-                      onClick={() => createBlankGenerationGuide("rect")}
-                    >
-                      <span className="scene-dot muted" /> + New guide
-                    </button>
-                    {currentGenerationGuides.map((guide) => (
-                      <button
-                        className={`tree-item tree-child ${selectedGenerationGuide?.id === guide.id ? "selected" : ""}`}
-                        key={`scene-guide-tree-${guide.id}`}
-                        type="button"
-                        onClick={() => {
-                          setWorkspace("scene");
-                          setActiveSceneTool("select");
-                          setSceneInspectorTarget("scene");
-                          setSelectedGenerationGuideId(guide.id);
-                          setSelectedSceneLayerId(null);
-                          updateSessionSelection((current) => ({
-                            ...current,
-                            activeActorId: null,
-                            activeFlowId: null,
-                            activeHotspotId: null,
-                            activeItemId: null,
-                            activeLocale: null,
-                            activePickupId: null,
-                            activeSceneId: selectedScene.id
-                          }));
-                        }}
-                      >
-                        <span
-                          className="scene-dot muted"
-                          style={{ backgroundColor: generationGuideColor(guide) }}
-                        />{" "}
-                        {guide.name || guide.id}
-                        {dirtyState.sceneIds.has(selectedScene.id) ? <span className="dirty-mark">*</span> : null}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-          {selectedScene ? null : (
-            <div className="tree-item tree-meta">Select a scene to show player and scene entities.</div>
-          )}
-        </>
+        <SceneTree
+          activeSceneTool={activeSceneTool}
+          assetPreviewUrls={assetPreviewUrls}
+          createActor={createActor}
+          createBlankGenerationGuide={createBlankGenerationGuide}
+          createHotspot={createHotspot}
+          createPickup={createPickup}
+          createScene={createScene}
+          createSceneLayer={createSceneLayer}
+          currentGenerationGuides={currentGenerationGuides}
+          currentSceneDraft={currentSceneDraft}
+          dirtyState={dirtyState}
+          generationGuideColor={generationGuideColor}
+          isPlayerInspectorSelected={isPlayerInspectorSelected}
+          previewSceneBackground={previewSceneBackground}
+          onSelectActor={selectActor}
+          onSelectHotspot={selectHotspot}
+          onSelectPickup={selectPickup}
+          onSelectScene={selectScene}
+          onSelectPlayerInScene={selectPlayerInScene}
+          onSetActiveSceneTool={setActiveSceneTool}
+          onSetSceneInspectorTarget={setSceneInspectorTarget}
+          onSetSelectedGenerationGuideId={setSelectedGenerationGuideId}
+          onSetSelectedSceneLayerId={setSelectedSceneLayerId}
+          onSetWorkspace={setWorkspace}
+          onUpdateSessionSelection={updateSessionSelection}
+          projectAvailable={!!project}
+          scenes={scenes}
+          selectedGenerationGuide={selectedGenerationGuide}
+          selectedGenerationGuideId={selectedGenerationGuideId}
+          selectedScene={selectedScene}
+          selectedSceneLayerId={selectedSceneLayerId}
+          session={session}
+        />
       );
     }
 
@@ -9061,496 +8804,81 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
               warningIssueCount={buildWarningIssues.length}
             />
           ) : workspace === "ai" ? (
-            <div ref={aiWorkspaceRef} className="workspace-overview build-workspace ai-workspace">
-              <section className="overview-card ai-guided-shell" aria-labelledby="ai-guided-title">
-                <div className="ai-guided-heading">
-                  <div>
-                    <span className="overview-label">AI Studio workflow</span>
-                    <h2 id="ai-guided-title">Build art direction, then approve the output.</h2>
-                    <p>
-                      The mock provider is offline and deterministic. Advanced provider and workflow settings stay
-                      available below when you need them.
-                    </p>
-                  </div>
-                  <span className="capability-badge good">Local-first</span>
-                </div>
-                <nav className="ai-stepper" aria-label="AI Studio steps">
-                  {aiStudioSteps.map((step, index) => (
-                    <button
-                      aria-current={aiStep === step.id ? "step" : undefined}
-                      className={aiStep === step.id ? "active" : ""}
-                      key={step.id}
-                      type="button"
-                      onClick={() => setAiStep(step.id)}
-                    >
-                      <span>{String(index + 1).padStart(2, "0")}</span>
-                      <strong>{step.label}</strong>
-                      <small>{step.detail}</small>
-                    </button>
-                  ))}
-                </nav>
-              </section>
+            <AiStudioWorkspace
+              actions={{ onStepChange: setAiStep }}
+              model={{ currentStep: aiStep, steps: aiStudioSteps }}
+              workspaceRef={aiWorkspaceRef}
+            >
 
-              {aiStep === "brief" ? (
-                <section className="overview-card ai-guided-step" aria-labelledby="ai-brief-title">
-                  <div className="ai-guided-step-heading">
-                    <div>
-                      <span className="overview-label">01 / Brief</span>
-                      <h3 id="ai-brief-title">Give the scene a clear visual point of view.</h3>
-                    </div>
-                    <span className="prompt-chip">{selectedPromptProvider.label}</span>
-                  </div>
-                  <div className="ai-guided-grid">
-                    <label className="prompt-studio-field">
-                      Scene
-                      <select
-                        disabled={!project || layeredScenes.length === 0}
-                        value={promptPackScene?.id ?? ""}
-                        onChange={(event) => setPromptPackSceneId(event.target.value)}
-                      >
-                        {layeredScenes.map((scene) => (
-                          <option key={`guided-scene-${scene.id}`} value={scene.id}>
-                            {scene.name} ({scene.id})
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="prompt-studio-field provider-selector-field">
-                      <span>Prompt provider</span>
-                      <div className="provider-selector-row">
-                        <select
-                          aria-label="Prompt provider"
-                          value={promptProviderId}
-                          onChange={(event) => setPromptProviderId(event.target.value as PromptProviderId)}
-                        >
-                          {promptProviderDescriptors.map((provider) => (
-                            <option key={`guided-prompt-provider-${provider.id}`} value={provider.id}>
-                              {provider.label}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          ref={(element) => {
-                            promptProviderConfigReturnFocusRef.current = element;
-                          }}
-                          aria-label="Configure prompt provider"
-                          className="icon-action provider-settings-button"
-                          title="Configure prompt provider"
-                          type="button"
-                          onClick={(event) => openPromptProviderConfig(event.currentTarget)}
-                        >
-                          <Settings2 size={iconSize} />
-                        </button>
-                      </div>
-                      <span className={`provider-boundary-status ${promptProviderBoundary.tone}`}>
-                        <span className="capability-badge compact">{promptProviderBoundary.label}</span>
-                        {promptProviderBoundary.detail}
-                      </span>
-                    </div>
-                    <label className="prompt-studio-field">
-                      Visual style
-                      <select value={visualStylePresetId} onChange={(event) => setVisualStylePresetId(event.target.value)}>
-                        {visualStylePresets.map((preset) => (
-                          <option key={`guided-style-${preset.id}`} value={preset.id}>
-                            {preset.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="prompt-studio-field">
-                      Mood
-                      <select value={moodPresetId} onChange={(event) => setMoodPresetId(event.target.value)}>
-                        {moodPresets.map((preset) => (
-                          <option key={`guided-mood-${preset.id}`} value={preset.id}>
-                            {preset.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="prompt-studio-field">
-                      Setting
-                      <select value={settingPresetId} onChange={(event) => setSettingPresetId(event.target.value)}>
-                        {settingPresets.map((preset) => (
-                          <option key={`guided-setting-${preset.id}`} value={preset.id}>
-                            {preset.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="prompt-studio-field">
-                      Palette
-                      <select value={palettePresetId} onChange={(event) => setPalettePresetId(event.target.value)}>
-                        {palettePresets.map((preset) => (
-                          <option key={`guided-palette-${preset.id}`} value={preset.id}>
-                            {preset.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="prompt-studio-field ai-guided-wide-field">
-                      Art brief
-                      <textarea value={promptPackBrief} onChange={(event) => setPromptPackBrief(event.target.value)} />
-                    </label>
-                    <fieldset className="prompt-studio-field ai-guided-wide-field ai-guided-checklist">
-                      <legend>Gameplay emphasis</legend>
-                      <div>
-                        {gameplayEmphasisPresets.map((preset) => (
-                          <label key={`guided-gameplay-${preset.id}`}>
-                            <input
-                              checked={gameplayEmphasisPresetIds.includes(preset.id)}
-                              type="checkbox"
-                              onChange={() => toggleGameplayEmphasisPreset(preset.id)}
-                            />
-                            <span>{preset.label}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </fieldset>
-                  </div>
-                  <div className="ai-guided-footer">
-                    <p className="ai-guided-status" aria-live="polite">
-                      {status}
-                    </p>
-                    <button
-                      className="play-action"
-                      disabled={!project || !promptPackScene || promptPackGenerationState === "running"}
-                      type="button"
-                      onClick={() => {
-                        setAiStep("context");
-                        void generatePromptPack();
-                      }}
-                    >
-                      {promptPackGenerationState === "running" ? "Generating…" : "Generate Targets"}
-                    </button>
-                  </div>
-                </section>
-              ) : null}
-
-              {aiStep === "context" ? (
-                <section className="overview-card ai-guided-step" aria-labelledby="ai-context-title">
-                  <div className="ai-guided-step-heading">
-                    <div>
-                      <span className="overview-label">02 / Context</span>
-                      <h3 id="ai-context-title">Choose the game piece and inspect its project context.</h3>
-                    </div>
-                    <span className="prompt-chip">{imageGenerationTargets.length} target(s)</span>
-                  </div>
-                  {imageGenerationTargets.length ? (
-                    <div className="ai-target-list">
-                      {imageGenerationTargets.map((target) => (
-                        <button
-                          className={selectedGenerationTarget?.id === target.id ? "selected" : ""}
-                          key={`guided-target-${target.id}`}
-                          type="button"
-                          onClick={() => setSelectedGenerationTargetId(target.id)}
-                        >
-                          <span>{target.intendedUse}</span>
-                          <strong>{target.id}</strong>
-                          <small>{target.width ?? selectedGenerationDimensions.width} × {target.height ?? selectedGenerationDimensions.height}</small>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="ai-guided-empty" aria-live="polite">
-                      {promptPackGenerationState === "running"
-                        ? "Generating target suggestions…"
-                        : "No targets yet. Generate a prompt pack from the Brief step."}
-                    </div>
-                  )}
-                  <div className="ai-guided-footer">
-                    <p className="ai-guided-status" aria-live="polite">
-                      {promptPackCandidate?.summary ?? aiNextAction}
-                    </p>
-                    <div className="ai-guided-actions">
-                      <button className="secondary-action" type="button" onClick={() => setAiStep("brief")}>
-                        Back to Brief
-                      </button>
-                      <button
-                        className="play-action"
-                        disabled={!selectedEffectiveGenerationTarget}
-                        type="button"
-                        onClick={() => setAiStep("recipe")}
-                      >
-                        Continue to Recipe
-                      </button>
-                    </div>
-                  </div>
-                </section>
-              ) : null}
-
-              {aiStep === "recipe" ? (
-                <section className="overview-card ai-guided-step" aria-labelledby="ai-recipe-title">
-                  <div className="ai-guided-step-heading">
-                    <div>
-                      <span className="overview-label">03 / Recipe</span>
-                      <h3 id="ai-recipe-title">Lock the provider workflow and reproducible inputs.</h3>
-                    </div>
-                    <span className={`capability-badge ${aiRecipeReady ? "good" : "warn"}`}>
-                      {aiRecipeReady ? "Recipe saved" : "Recipe required"}
-                    </span>
-                  </div>
-                  <div className="ai-guided-summary-grid">
-                    <div><span>Target</span><strong>{selectedEffectiveGenerationTarget?.id ?? "Choose a target"}</strong></div>
-                    <div><span>Family</span><strong>{selectedImageWorkflowFamily}</strong></div>
-                    <div><span>Workflow</span><strong>{selectedWorkflowTemplate?.id ?? "Not installed"}</strong></div>
-                    <div><span>Output</span><strong>{selectedGenerationDimensions.width} × {selectedGenerationDimensions.height}</strong></div>
-                  </div>
-                  <p className="ai-guided-callout" aria-live="polite">
-                    {aiRecipeReady
-                      ? "The recipe is stored with the project and can be reused for deterministic iterations."
-                      : aiWorkflowReady
-                        ? "Save this workflow and target combination as a reusable recipe."
-                        : "Install or select a compatible workflow in Advanced before saving the recipe."}
-                  </p>
-                  <div className="ai-guided-footer">
-                    <p className="ai-guided-status" aria-live="polite">{status}</p>
-                    <div className="ai-guided-actions">
-                      <button className="secondary-action" type="button" onClick={() => setAiStep("context")}>
-                        Back to Context
-                      </button>
-                      {!aiRecipeReady ? (
-                        <button
-                          className="secondary-action"
-                          disabled={!selectedWorkflowTemplate || !selectedEffectiveGenerationTarget}
-                          type="button"
-                          onClick={() => void saveSelectedGenerationRecipe()}
-                        >
-                          Save Recipe
-                        </button>
-                      ) : null}
-                      <button
-                        className="play-action"
-                        disabled={!aiRecipeReady}
-                        type="button"
-                        onClick={() => setAiStep("generate")}
-                      >
-                        Continue to Generate
-                      </button>
-                    </div>
-                  </div>
-                </section>
-              ) : null}
-
-              {aiStep === "generate" ? (
-                <section className="overview-card ai-guided-step" aria-labelledby="ai-generate-title">
-                  <div className="ai-guided-step-heading">
-                    <div>
-                      <span className="overview-label">04 / Generate</span>
-                      <h3 id="ai-generate-title">Create candidates without changing the project.</h3>
-                    </div>
-                   <span className={`capability-badge ${aiRecipeReady ? "good" : "warn"}`}>
-                      {aiRecipeReady ? "Ready" : "Advanced setup needed"}
-                    </span>
-                  </div>
-                  <div className="provider-selector-panel">
-                    <div className="prompt-studio-field provider-selector-field">
-                      <span>Image provider</span>
-                      <div className="provider-selector-row">
-                        <select
-                          aria-label="Image provider"
-                          value={imageProviderId}
-                          onChange={(event) => setImageProviderId(event.target.value as ImageGenerationProviderId)}
-                        >
-                          {imageProviderOptions.map((provider) => (
-                            <option key={`guided-image-provider-${provider.value}`} value={provider.value}>
-                              {provider.label}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          ref={(element) => {
-                            imageProviderConfigReturnFocusRef.current = element;
-                          }}
-                          aria-label="Configure image provider"
-                          className="icon-action provider-settings-button"
-                          title="Configure image provider"
-                          type="button"
-                          onClick={(event) => openImageProviderConfig(event.currentTarget)}
-                        >
-                          <Settings2 size={iconSize} />
-                        </button>
-                      </div>
-                      <span className={`provider-boundary-status ${imageProviderBoundary.tone}`}>
-                        <span className="capability-badge compact">{imageProviderBoundary.label}</span>
-                        {imageProviderBoundary.detail}
-                      </span>
-                    </div>
-                    <p className="target-customization-note image-provider-note">{selectedImageProvider.detail}</p>
-                  </div>
-                  <div className="ai-guided-summary-grid">
-                    <div><span>Target</span><strong>{selectedEffectiveGenerationTarget?.id ?? "Choose a target"}</strong></div>
-                     <div><span>Provider</span><strong>{selectedImageProvider.label}</strong></div>
-                    <div><span>Workflow</span><strong>{selectedWorkflowTemplate?.id ?? "Not installed"}</strong></div>
-                    <div><span>Output</span><strong>{selectedGenerationDimensions.width} × {selectedGenerationDimensions.height}</strong></div>
-                  </div>
-                  <label className="prompt-studio-field ai-batch-field">
-                    Candidate batch
-                    <select
-                      value={imageGenerationBatchSize}
-                      onChange={(event) => setImageGenerationBatchSize(Number(event.target.value) as 1 | 2 | 3 | 4)}
-                    >
-                      {[1, 2, 3, 4].map((count) => (
-                        <option key={`image-batch-${count}`} value={count}>
-                          {count} candidate{count === 1 ? "" : "s"}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <p className="ai-guided-callout" aria-live="polite">
-                    {aiRecipeReady
-                      ? "Generated outputs stay in a temporary review queue until you explicitly apply one."
-                      : "Install a compatible workflow and save a recipe in Advanced before queueing the asset."}
-                  </p>
-                  <div className="ai-guided-footer">
-                    <p className="ai-guided-status" aria-live="polite">
-                      {comfyUiGenerationStatus}
-                    </p>
-                    <div className="ai-guided-actions">
-                      <button className="secondary-action" type="button" onClick={() => setAiStep("recipe")}>
-                        Back to Recipe
-                      </button>
-                      <button
-                        className="play-action"
-                        disabled={!selectedEffectiveGenerationTarget || imageGenerationState === "running"}
-                        type="button"
-                        onClick={() => {
-                          if (!aiRecipeReady) {
-                            openAiAdvancedSection();
-                            return;
-                          }
-                          void generateImageAsset();
-                        }}
-                      >
-                        {!aiRecipeReady
-                          ? "Open Advanced Setup"
-                          : imageGenerationState === "running"
-                            ? "Generating…"
-                            : "Generate Candidates"}
-                      </button>
-                    </div>
-                  </div>
-                </section>
-              ) : null}
-
-              {aiStep === "review" ? (
-                <section className="overview-card ai-guided-step" aria-labelledby="ai-review-title">
-                  <div className="ai-guided-step-heading">
-                    <div>
-                      <span className="overview-label">05 / Review & Apply</span>
-                      <h3 id="ai-review-title">Approve the draft before it changes the project.</h3>
-                    </div>
-                    <span className="capability-badge good">Human approval required</span>
-                  </div>
-                   {promptPackCandidate ? (
-                     <div className="ai-review-summary">
-                       <div>
-                         <span>Candidate</span>
-                         <strong>{promptPackCandidate.promptPack.id}</strong>
-                         <p>{promptPackCandidate.summary}</p>
-                       </div>
-                       <div>
-                         <span>Prompt</span>
-                         <strong>Scene background</strong>
-                         <p>{promptPackCandidate.promptPack.outputs.sceneBackgroundPrompt}</p>
-                       </div>
-                       <div>
-                         <span>Provenance</span>
-                         <strong>{promptPackCandidate.promptPack.provenance.provider}</strong>
-                        <p>{promptPackCandidate.promptPack.provenance.model} · {promptPackCandidate.promptPack.provenance.inputHash}</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="ai-guided-empty">
-                      Generate a prompt pack or asset first. Nothing has been written to the project.
-                    </div>
-                  )}
-                  {imageGenerationCandidates.length ? (
-                    <div className="ai-candidate-grid" aria-label="Temporary image candidates">
-                      {imageGenerationCandidates.map((candidate) => (
-                        <article
-                          className={selectedImageCandidateId === candidate.id ? "ai-candidate-card selected" : "ai-candidate-card"}
-                          key={candidate.id}
-                          onClick={() => setSelectedImageCandidateId(candidate.id)}
-                        >
-                          <img src={candidate.previewDataUrl} alt={`Candidate for ${candidate.targetId}`} />
-                          <div className="ai-candidate-card-body">
-                            <span className="overview-label">Temporary candidate</span>
-                            <strong>{candidate.targetId} · seed {candidate.seed}</strong>
-                            <p>{candidate.provider} · {candidate.model} · {candidate.width} × {candidate.height}</p>
-                            <p>
-                              {candidate.latencyMs === undefined ? "Latency unavailable" : `${candidate.latencyMs} ms`}
-                              {" · "}
-                              {candidate.costUsd === undefined ? "Cost unavailable" : `$${candidate.costUsd.toFixed(4)}`}
-                            </p>
-                            {candidate.warnings.map((warning) => (
-                              <p className="ai-candidate-warning" key={warning}>{warning}</p>
-                            ))}
-                            <div className="ai-candidate-actions">
-                              <button
-                                className="secondary-action compact-action"
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void discardImageCandidate(candidate.id);
-                                }}
-                              >
-                                Discard
-                              </button>
-                              <button
-                                className="play-action compact-action"
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void applyImageCandidate(candidate);
-                                }}
-                              >
-                                Apply to Project
-                              </button>
-                            </div>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="ai-guided-empty" aria-live="polite">
-                      {imageGenerationState === "running"
-                        ? `Generating ${imageGenerationJob?.requested ?? imageGenerationBatchSize} candidate(s)…`
-                        : "No temporary image candidates. Return to Generate to create a batch."}
-                    </div>
-                  )}
-                  {lastGeneratedImageAsset ? (
-                    <p className="ai-guided-callout" aria-live="polite">
-                      Generated asset {lastGeneratedImageAsset.assetId} is ready for inspection.
-                    </p>
-                  ) : null}
-                  <div className="ai-guided-footer">
-                    <p className="ai-guided-status" aria-live="polite">
-                      {status}
-                    </p>
-                     <div className="ai-guided-actions">
-                       <button className="secondary-action" type="button" onClick={() => setAiStep("context")}>
-                         Edit Context
-                       </button>
-                       {imageGenerationState === "running" ? (
-                         <button className="secondary-action" type="button" onClick={() => void cancelImageGeneration()}>
-                           Cancel Generation
-                         </button>
-                       ) : null}
-                        <button className="secondary-action" type="button" onClick={openAiAdvancedSection}>
-                         Open Advanced
-                       </button>
-                       <button
-                        className="play-action"
-                        disabled={!promptPackCandidate}
-                        type="button"
-                        onClick={() => void saveApprovedPromptPack()}
-                      >
-                        Save Approved Pack
-                      </button>
-                    </div>
-                  </div>
-                </section>
-              ) : null}
+              <AiStudioSteps
+                aiNextAction={aiNextAction}
+                aiRecipeReady={aiRecipeReady}
+                aiWorkflowReady={aiWorkflowReady}
+                comfyUiGenerationStatus={comfyUiGenerationStatus}
+                currentStep={aiStep}
+                gameplayEmphasisPresetIds={gameplayEmphasisPresetIds}
+                gameplayEmphasisPresets={gameplayEmphasisPresets}
+                imageGenerationBatchSize={imageGenerationBatchSize}
+                imageGenerationCandidates={imageGenerationCandidates}
+                imageGenerationJob={imageGenerationJob}
+                imageGenerationState={imageGenerationState}
+                imageGenerationTargets={imageGenerationTargets}
+                imageProviderBoundary={imageProviderBoundary}
+                imageProviderConfigReturnFocusRef={imageProviderConfigReturnFocusRef}
+                imageProviderId={imageProviderId}
+                imageProviderOptions={imageProviderOptions}
+                lastGeneratedImageAsset={lastGeneratedImageAsset}
+                layeredScenes={layeredScenes}
+                moodPresetId={moodPresetId}
+                moodPresets={moodPresets}
+                onApplyImageCandidate={applyImageCandidate}
+                onCancelImageGeneration={cancelImageGeneration}
+                onChangeGameplayEmphasis={toggleGameplayEmphasisPreset}
+                onChangeImageProvider={setImageProviderId}
+                onChangeImageGenerationBatchSize={setImageGenerationBatchSize}
+                onChangeMoodPreset={setMoodPresetId}
+                onChangePalettePreset={setPalettePresetId}
+                onChangePromptPackBrief={setPromptPackBrief}
+                onChangePromptPackScene={setPromptPackSceneId}
+                onChangePromptProvider={setPromptProviderId}
+                onChangeSettingPreset={setSettingPresetId}
+                onChangeVisualStylePreset={setVisualStylePresetId}
+                onDiscardImageCandidate={discardImageCandidate}
+                onGenerateImageAsset={generateImageAsset}
+                onGeneratePromptPack={generatePromptPack}
+                onOpenAiAdvancedSection={openAiAdvancedSection}
+                onOpenImageProviderConfig={openImageProviderConfig}
+                onOpenPromptProviderConfig={openPromptProviderConfig}
+                onSaveApprovedPromptPack={saveApprovedPromptPack}
+                onSaveSelectedGenerationRecipe={saveSelectedGenerationRecipe}
+                onSelectGenerationTarget={setSelectedGenerationTargetId}
+                onSelectImageCandidate={setSelectedImageCandidateId}
+                onStepChange={setAiStep}
+                palettePresetId={palettePresetId}
+                palettePresets={palettePresets}
+                projectAvailable={!!project}
+                promptPackCandidate={promptPackCandidate}
+                promptPackGenerationState={promptPackGenerationState}
+                promptPackBrief={promptPackBrief}
+                promptPackSceneId={promptPackSceneId}
+                promptProviderBoundary={promptProviderBoundary}
+                promptProviderConfigReturnFocusRef={promptProviderConfigReturnFocusRef}
+                promptProviderDescriptors={promptProviderDescriptors}
+                promptProviderId={promptProviderId}
+                selectedEffectiveGenerationTarget={selectedEffectiveGenerationTarget}
+                selectedGenerationDimensions={selectedGenerationDimensions}
+                selectedGenerationTarget={selectedGenerationTarget}
+                selectedImageProvider={selectedImageProvider}
+                selectedImageWorkflowFamily={selectedImageWorkflowFamily}
+                selectedImageCandidateId={selectedImageCandidateId}
+                selectedWorkflowTemplate={selectedWorkflowTemplate}
+                selectedPromptProvider={selectedPromptProvider}
+                status={status}
+                settingPresetId={settingPresetId}
+                settingPresets={settingPresets}
+                visualStylePresetId={visualStylePresetId}
+                visualStylePresets={visualStylePresets}
+              />
 
               <details
                 ref={aiAdvancedSectionRef}
@@ -10382,329 +9710,109 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
               </section>
                 </div>
               </details>
-            </div>
+            </AiStudioWorkspace>
           ) : workspace === "assets" ? (
-            <div className="workspace-overview build-workspace asset-workspace">
+            <AssetStudioWorkspace
+              model={{ activeTool: activeAssetTool,
+                assetCount: project.assetCount,
+                selectedAssetId: selectedAsset?.id ?? null
+              }}
+            >
               <section className="overview-card asset-studio-shell">
                 <AssetStudioSidebar
                   activeTool={activeAssetTool}
                   assetCount={project.assetCount}
                   canImport={!!project}
                   selectedAssetId={selectedAsset?.id ?? null}
-                  onImportAssets={importAssets}
-                  onToolChange={activateAssetTool}
+                   onImportAssets={importAssets}
+                   onToolChange={activateAssetTool}
+                 />
+                 <AssetStudioPreview
+                  activeAssetTool={activeAssetTool}
+                  buildAssetBytesLabel={formatAssetBytes}
+                  cropControlRadius={cropControlRadius}
+                  cropImageFrameRef={cropImageFrameRef}
+                  cropImageSize={cropImageSize}
+                  cropPath={cropPath}
+                  cropPreviewPath={cropSvgPath}
+                  insertCropNodeFromEvent={insertCropNodeFromEvent}
+                  optimizePreview={optimizePreview}
+                  selectedAsset={selectedAsset}
+                  selectedAssetHealth={selectedAssetHealth}
+                  selectedAssetUrl={selectedAssetUrl}
+                  selectedCropNode={selectedCropNode}
+                  selectedCropNodeIndex={selectedCropNodeIndex}
+                  startCropHandleInteraction={startCropHandleInteraction}
+                  startCropNodeInteraction={startCropNodeInteraction}
+                 />
+                <AssetStudioToolPanel
+                  activeAssetTool={activeAssetTool}
+                  assetEditTarget={!!assetEditTarget}
+                  assetPathDraft={assetPathDraft}
+                  buildAssetBytesLabel={formatAssetBytes}
+                  cleanupFeather={cleanupFeather}
+                  cleanupKeyColor={cleanupKeyColor}
+                  cleanupOutputCanvasRef={cleanupOutputCanvasRef}
+                  cleanupSourceCanvasRef={cleanupSourceCanvasRef}
+                  cleanupSpillReduction={cleanupSpillReduction}
+                  cleanupStatus={cleanupStatus}
+                  cleanupTolerance={cleanupTolerance}
+                  cropImageSize={cropImageSize}
+                  cropPath={cropPath}
+                  cropPreviewBounds={cropPreviewBounds}
+                  cropStatus={cropStatus}
+                  hasBackgroundCleanupTarget={!!backgroundCleanupTarget}
+                  iconSize={iconSize}
+                  imageOptimizePreset={imageOptimizePreset}
+                  imageOptimizePresets={imageOptimizePresets}
+                  onApplyAssetRelink={applyAssetRelink}
+                  onApplyOptimizedAsset={applyOptimizedAsset}
+                  onAssignAssetBackground={assignAssetBackground}
+                  onAssignSelectedProcessedAsset={assignSelectedProcessedAsset}
+                  onDeleteSelectedAsset={deleteSelectedAsset}
+                  onOpenAiStudioForAssetUsage={openAiStudioForAssetUsage}
+                  onPickCleanupColor={pickCleanupColor}
+                  onRenderBackgroundCleanupPreview={renderBackgroundCleanupPreview}
+                  onResetCropPath={resetCropPath}
+                  onSaveBackgroundCleanupAsset={saveBackgroundCleanupAsset}
+                  onSaveCroppedAsset={saveCroppedAsset}
+                  onSaveGuideMaskAsset={saveGuideMaskAsset}
+                  onSetCleanupFeather={setCleanupFeather}
+                  onSetCleanupKeyColor={setCleanupKeyColor}
+                  onSetCleanupSpillReduction={setCleanupSpillReduction}
+                  onSetCleanupTolerance={setCleanupTolerance}
+                  onSetGuideShape={setGuideShape}
+                  onSetGuideSourceId={setGuideSourceId}
+                  onSetOptimizeHeight={setOptimizeHeight}
+                  onSetOptimizePresetId={setOptimizePresetId}
+                  onSetOptimizeWidth={setOptimizeWidth}
+                  onSetSelectedCropNodeIndex={setSelectedCropNodeIndex}
+                  onSetSelectedGenerationTargetId={setSelectedGenerationTargetId}
+                  onSetSelectedPromptPackId={setSelectedPromptPackId}
+                  onUpdateAssetPathDraft={setAssetPathDraft}
+                  onUpdateCropNodeMode={updateCropNodeMode}
+                  onUpdateCropNodePosition={updateCropNodePosition}
+                  optimizePresetId={optimizePresetId}
+                  optimizePreview={optimizePreview}
+                  optimizeStatus={optimizeStatus}
+                  optimizeHeight={optimizeHeight}
+                  optimizeWidth={optimizeWidth}
+                  promptPacks={project?.promptPacks ?? []}
+                  savedPromptPackTargets={savedPromptPackTargets}
+                  selectedAsset={selectedAsset}
+                  selectedAssetHealth={selectedAssetHealth}
+                  selectedAssetUsage={selectedAssetUsage}
+                  selectedAssetUrl={selectedAssetUrl}
+                  selectedGuideSource={selectedGuideSource}
+                  selectedPromptPack={selectedPromptPack}
+                  selectedSavedGenerationTarget={selectedSavedGenerationTarget}
+                  selectedCropNode={selectedCropNode}
+                  selectedCropNodeIndex={selectedCropNodeIndex}
+                  guideSourceOptions={guideSourceOptions}
+                  guideShape={guideShape}
+                  guideStatus={guideStatus}
+                  hasSceneSelection={!!selectedScene}
                 />
-                <div className="asset-studio-preview">
-                  {activeAssetTool === "optimize" && selectedAssetUrl ? (
-                    <div className="optimize-comparison-preview" aria-label="Image optimization comparison">
-                      <figure>
-                        <div className="optimize-comparison-image checkerboard"><img src={selectedAssetUrl} alt="Source asset preview" /></div>
-                        <figcaption>
-                          <strong>Before</strong>
-                          <span>{cropImageSize.width} × {cropImageSize.height}</span>
-                          <span>{optimizePreview ? formatAssetBytes(optimizePreview.sourceBytes) : "Calculating size"}</span>
-                          <span>{optimizePreview?.sourceHasAlpha ? "Alpha" : "Opaque"}</span>
-                        </figcaption>
-                      </figure>
-                      <figure>
-                        <div className="optimize-comparison-image checkerboard">
-                          {optimizePreview ? <img src={optimizePreview.dataUrl} alt="Optimized asset preview" /> : <span>Rendering preview…</span>}
-                        </div>
-                        <figcaption>
-                          <strong>After</strong>
-                          <span>{optimizePreview ? `${optimizePreview.width} × ${optimizePreview.height}` : "Pending"}</span>
-                          <span>{optimizePreview ? formatAssetBytes(optimizePreview.outputBytes) : "Calculating size"}</span>
-                          <span>{optimizePreview ? (optimizePreview.hasAlpha ? "Alpha" : "Opaque") : "Pending"}</span>
-                        </figcaption>
-                      </figure>
-                    </div>
-                  ) : (
-                  <div
-                    className={`asset-studio-image ${selectedAssetUrl ? "has-preview" : ""} ${activeAssetTool === "crop" ? "crop-editor-active" : ""}`}
-                    ref={activeAssetTool === "crop" ? cropImageFrameRef : undefined}
-                    style={selectedAssetUrl ? { backgroundImage: `url("${selectedAssetUrl}")` } : undefined}
-                    aria-label={selectedAsset ? `${selectedAsset.id} preview` : "No asset preview"}
-                    role="img"
-                  >
-                    {selectedAssetUrl && activeAssetTool === "crop" ? (
-                      <svg
-                        className="asset-crop-overlay"
-                        viewBox={`0 0 ${cropImageSize.width} ${cropImageSize.height}`}
-                        preserveAspectRatio="xMidYMid meet"
-                      >
-                        <path className="asset-crop-mask" d={cropSvgPath} />
-                        <path className="asset-crop-outline" d={cropSvgPath} />
-                        {cropPath.map((_, index) => (
-                          <path
-                            className="asset-crop-segment-hit"
-                            d={buildBezierCropSegmentSvgPath(cropPath, index)}
-                            key={`crop-segment-${index}`}
-                            onPointerDown={(event) => insertCropNodeFromEvent(index, event)}
-                          />
-                        ))}
-                        {cropPath.map((node, index) => {
-                          const inHandle = node.inHandle;
-                          const outHandle = node.outHandle;
-                          const selected = selectedCropNodeIndex === index;
-                          return (
-                            <g className={`asset-crop-node-group ${selected ? "selected" : ""}`} key={`crop-node-${index}`}>
-                              {inHandle ? (
-                                <>
-                                  <line className="asset-crop-handle-line" x1={node.x} x2={inHandle.x} y1={node.y} y2={inHandle.y} />
-                                  <circle
-                                    className="asset-crop-handle in"
-                                    cx={inHandle.x}
-                                    cy={inHandle.y}
-                                    r={Math.max(6, cropControlRadius * 0.75)}
-                                    onPointerDown={(event) => startCropHandleInteraction(index, "inHandle", event)}
-                                  />
-                                </>
-                              ) : null}
-                              {outHandle ? (
-                                <>
-                                  <line className="asset-crop-handle-line" x1={node.x} x2={outHandle.x} y1={node.y} y2={outHandle.y} />
-                                  <circle
-                                    className="asset-crop-handle out"
-                                    cx={outHandle.x}
-                                    cy={outHandle.y}
-                                    r={Math.max(6, cropControlRadius * 0.75)}
-                                    onPointerDown={(event) => startCropHandleInteraction(index, "outHandle", event)}
-                                  />
-                                </>
-                              ) : null}
-                              <circle
-                                className={`asset-crop-node ${node.mode}`}
-                                cx={node.x}
-                                cy={node.y}
-                                r={cropControlRadius}
-                                onPointerDown={(event) => startCropNodeInteraction(index, event)}
-                              />
-                              <text className="asset-crop-node-label" x={node.x + cropControlRadius + 6} y={node.y - cropControlRadius}>
-                                {index + 1}
-                              </text>
-                            </g>
-                          );
-                        })}
-                      </svg>
-                    ) : selectedAssetUrl ? null : (
-                      <Image size={32} />
-                    )}
-                  </div>
-                  )}
-                  <div className="asset-studio-meta">
-                    <span className={`target-mode-pill ${selectedAssetHealth === "missing" ? "warn" : "good"}`}>
-                      {selectedAsset ? selectedAssetHealth : "no asset"}
-                    </span>
-                    <span>{selectedAsset?.kind ?? "image"}</span>
-                    <span>{selectedAsset?.path ?? "No path"}</span>
-                  </div>
-                </div>
-                <div className="asset-studio-tool-panel">
-                  {activeAssetTool === "info" ? (
-                    <>
-                      <span className="overview-label">Selected asset</span>
-                      <strong>{selectedAsset?.id ?? "No asset selected"}</strong>
-                      <p>{selectedAsset ? `${selectedAsset.kind} - ${selectedAsset.path}` : "Choose an asset from the project tree."}</p>
-                      {selectedAsset ? (
-                        <div className="asset-path-editor">
-                          <label>
-                            Asset path
-                            <input value={assetPathDraft} onChange={(event) => setAssetPathDraft(event.target.value)} />
-                          </label>
-                          <div className="build-actions">
-                            <button className="secondary-action compact-action" type="button" onClick={applyAssetRelink}>
-                              <ExternalLink size={iconSize} /> Relink
-                            </button>
-                            <button
-                              className="secondary-action compact-action"
-                              disabled={!selectedScene || selectedAsset.kind !== "image" || selectedAssetHealth === "missing"}
-                              type="button"
-                              onClick={assignAssetBackground}
-                            >
-                              <Image size={iconSize} /> Set Background
-                            </button>
-                            <button
-                              className="secondary-action compact-action"
-                              disabled={selectedAsset.kind !== "image"}
-                              type="button"
-                              onClick={openAiStudioForAssetUsage}
-                            >
-                              <WandSparkles size={iconSize} /> AI Target
-                            </button>
-                            <button
-                              className="secondary-action compact-action"
-                              disabled={selectedAssetUsage.length > 0}
-                              type="button"
-                              onClick={deleteSelectedAsset}
-                            >
-                              <Trash2 size={iconSize} /> Delete Unused
-                            </button>
-                          </div>
-                        </div>
-                      ) : null}
-                      <div className="diagnostic-list">
-                        {selectedAssetUsage.length ? (
-                          selectedAssetUsage.map((usage, index) => (
-                            <div className="diagnostic-item" key={`asset-usage-${index}-${usage.detail}`}>
-                              <div>
-                                <strong>{usage.detail}</strong>
-                                <p>{usage.sceneName ? `${usage.sceneName} (${usage.sceneId})` : usage.type}</p>
-                              </div>
-                            </div>
-                          ))
-                        ) : (
-                          <p>No saved reference uses this asset yet.</p>
-                        )}
-                      </div>
-                    </>
-                  ) : activeAssetTool === "chroma" ? (
-                    <>
-                      <span className="overview-label">Chroma Key</span>
-                      <strong>{selectedAsset?.id ?? "Select an asset"}</strong>
-                      <div className="cleanup-preview-grid compact">
-                        <div className="cleanup-preview-pane">
-                          <span>Source</span>
-                          <canvas ref={cleanupSourceCanvasRef} className="cleanup-canvas" onPointerDown={pickCleanupColor} />
-                        </div>
-                        <div className="cleanup-preview-pane checkerboard-pane">
-                          <span>Preview</span>
-                          <canvas ref={cleanupOutputCanvasRef} className="cleanup-canvas" />
-                        </div>
-                      </div>
-                      <div className="cleanup-controls">
-                        <label>Key color<input value={cleanupKeyColor} onChange={(event) => setCleanupKeyColor(event.target.value)} /></label>
-                        <label>Tolerance<input min="0" max="255" type="range" value={cleanupTolerance} onChange={(event) => setCleanupTolerance(event.target.value)} /><small>{cleanupTolerance}</small></label>
-                        <label>Feather<input min="0" max="120" type="range" value={cleanupFeather} onChange={(event) => setCleanupFeather(event.target.value)} /><small>{cleanupFeather}</small></label>
-                        <label className="checkbox-field"><input checked={cleanupSpillReduction} type="checkbox" onChange={(event) => setCleanupSpillReduction(event.target.checked)} />Reduce spill</label>
-                      </div>
-                      <div className="cleanup-status-row"><p>{cleanupStatus}</p></div>
-                      <div className="build-actions">
-                        <button className="secondary-action compact-action" disabled={!backgroundCleanupTarget} type="button" onClick={renderBackgroundCleanupPreview}>Refresh</button>
-                        <button className="play-action compact-action" disabled={!backgroundCleanupTarget} type="button" onClick={saveBackgroundCleanupAsset}>Save New PNG</button>
-                      </div>
-                    </>
-                  ) : activeAssetTool === "crop" ? (
-                    <>
-                      <span className="overview-label">Crop</span>
-                      <strong>{selectedAsset?.id ?? "Select an asset"}</strong>
-                      <div className="crop-stats-grid">
-                        <div><span>Image</span><strong>{cropImageSize.width} x {cropImageSize.height}</strong></div>
-                        <div><span>Output</span><strong>{cropPreviewBounds.width} x {cropPreviewBounds.height}</strong></div>
-                        <div><span>Nodes</span><strong>{cropPath.length}</strong></div>
-                        <div><span>Mode</span><strong>{selectedCropNode?.mode ?? "corner"}</strong></div>
-                      </div>
-                      {selectedCropNode ? (
-                        <div className="crop-node-editor">
-                          <div className="crop-node-editor-header">
-                            <strong>Node {selectedCropNodeIndex + 1}</strong>
-                            <div className="crop-mode-toggle" role="group" aria-label="Crop node mode">
-                              {(["corner", "smooth"] as const).map((mode) => (
-                                <button
-                                  className={selectedCropNode.mode === mode ? "active" : ""}
-                                  key={`crop-node-mode-${mode}`}
-                                  type="button"
-                                  onClick={() => updateCropNodeMode(selectedCropNodeIndex, mode)}
-                                >
-                                  {mode}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="player-field-grid">
-                            <label>
-                              X
-                              <input
-                                value={String(selectedCropNode.x)}
-                                onChange={(event) => updateCropNodePosition(selectedCropNodeIndex, "x", event.target.value)}
-                              />
-                            </label>
-                            <label>
-                              Y
-                              <input
-                                value={String(selectedCropNode.y)}
-                                onChange={(event) => updateCropNodePosition(selectedCropNodeIndex, "y", event.target.value)}
-                              />
-                            </label>
-                          </div>
-                        </div>
-                      ) : null}
-                      <div className="crop-node-list">
-                        {cropPath.map((node, index) => (
-                          <button
-                            className={selectedCropNodeIndex === index ? "active" : ""}
-                            key={`crop-node-select-${index}`}
-                            type="button"
-                            onClick={() => setSelectedCropNodeIndex(index)}
-                          >
-                            {index + 1}
-                            <span>{node.mode}</span>
-                          </button>
-                        ))}
-                      </div>
-                      <p>{cropStatus}</p>
-                      <div className="build-actions">
-                        <button className="play-action compact-action" disabled={!selectedAssetUrl} type="button" onClick={saveCroppedAsset}>
-                          <Scissors size={iconSize} /> Save Cutout PNG
-                        </button>
-                        <button className="secondary-action compact-action" disabled={!selectedAssetUrl} type="button" onClick={resetCropPath}>
-                          Reset Path
-                        </button>
-                      </div>
-                    </>
-                  ) : activeAssetTool === "optimize" ? (
-                    <>
-                      <span className="overview-label">Optimize</span>
-                      <strong>{selectedAsset?.id ?? "Select an image"}</strong>
-                      <p>Apply never overwrites the source. The derived asset records its parent, operations, format, dimensions, and timestamp.</p>
-                      <div className="optimize-preset-grid">
-                        {imageOptimizePresets.map((preset) => (
-                          <button
-                            className={optimizePresetId === preset.id ? "active" : ""}
-                            key={preset.id}
-                            type="button"
-                            onClick={() => setOptimizePresetId(preset.id)}
-                          >
-                            <strong>{preset.label}</strong>
-                            <small>{preset.format.toUpperCase()} · {preset.lossless ? "lossless" : `quality ${preset.quality}`}</small>
-                          </button>
-                        ))}
-                      </div>
-                      <div className="crop-stats-grid">
-                        <div><span>Before</span><strong>{optimizePreview ? formatAssetBytes(optimizePreview.sourceBytes) : "…"}</strong></div>
-                        <div><span>After</span><strong>{optimizePreview ? formatAssetBytes(optimizePreview.outputBytes) : "…"}</strong></div>
-                        <div><span>Alpha</span><strong>{optimizePreview ? `${optimizePreview.sourceHasAlpha ? "yes" : "no"} → ${optimizePreview.hasAlpha ? "yes" : "no"}` : "…"}</strong></div>
-                        <div><span>Resize</span><strong>{imageOptimizePreset(optimizePresetId).resize}</strong></div>
-                      </div>
-                      <div className="player-field-grid">
-                        <label>Width<input min={1} placeholder={String(cropImageSize.width)} type="number" value={optimizeWidth} onChange={(event) => setOptimizeWidth(event.target.value)} /></label>
-                        <label>Height<input min={1} placeholder={String(cropImageSize.height)} type="number" value={optimizeHeight} onChange={(event) => setOptimizeHeight(event.target.value)} /></label>
-                      </div>
-                      <p>{optimizeStatus}</p>
-                      <div className="build-actions">
-                        <button className="play-action compact-action" disabled={!optimizePreview || selectedAsset?.kind !== "image"} type="button" onClick={applyOptimizedAsset}>Apply Derived Asset</button>
-                        <button className="secondary-action compact-action" disabled={!assetEditTarget || selectedAsset?.kind !== "image"} type="button" onClick={assignSelectedProcessedAsset}>Assign To Target</button>
-                      </div>
-                    </>
-                  ) : activeAssetTool === "guide" ? (
-                    <>
-                      <span className="overview-label">Generation Guide</span>
-                      <strong>{selectedSavedGenerationTarget?.id ?? "No saved target"}</strong>
-                      <p>Creates reusable reference and mask assets for custom ComfyUI workflows with LoadImage/LoadImageMask nodes.</p>
-                      <div className="prompt-studio-controls">
-                        <label className="prompt-studio-field">Saved prompt pack<select value={selectedPromptPack?.id ?? ""} onChange={(event) => setSelectedPromptPackId(event.target.value || null)}><option value="">Select pack</option>{project?.promptPacks.map((pack) => <option key={`guide-pack-${pack.id}`} value={pack.id}>{pack.id}</option>)}</select></label>
-                        <label className="prompt-studio-field">Target<select value={selectedSavedGenerationTarget?.id ?? ""} onChange={(event) => setSelectedGenerationTargetId(event.target.value)}><option value="">Select target</option>{savedPromptPackTargets.map((target) => <option key={`guide-target-${target.id}`} value={target.id}>{target.id} ({target.intendedUse})</option>)}</select></label>
-                        <label className="prompt-studio-field">Scene source<select value={selectedGuideSource?.id ?? ""} onChange={(event) => setGuideSourceId(event.target.value)}>{guideSourceOptions.map((source) => <option key={`guide-source-${source.id}`} value={source.id}>{source.label}</option>)}</select></label>
-                        <label className="prompt-studio-field">Mask shape<select value={guideShape} onChange={(event) => setGuideShape(event.target.value === "ellipse" ? "ellipse" : "rect")}><option value="rect">rect</option><option value="ellipse">ellipse</option></select></label>
-                      </div>
-                      <p>{guideStatus}</p>
-                      <div className="build-actions">
-                        <button className="play-action compact-action" disabled={!selectedAsset || !selectedPromptPack || !selectedSavedGenerationTarget || !selectedGuideSource} type="button" onClick={saveGuideMaskAsset}>
-                          <Crosshair size={iconSize} /> Save Mask And Link Target
-                        </button>
-                      </div>
-                    </>
-                  ) : null}
-                </div>
               </section>
               {activeAssetTool === "animation" ? (
               <section className="overview-card prompt-studio-card character-gym-card">
@@ -11017,7 +10125,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
                 </div>
               </section>
               ) : null}
-            </div>
+            </AssetStudioWorkspace>
           ) : workspace === "narrative" && currentFlowDraft ? (
             <NarrativeGraph
               diagnostics={flowGraphDiagnostics}
@@ -11027,559 +10135,79 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
               onSelectNode={setSelectedFlowNodeId}
             />
           ) : (
-            <div
-              className={`scene-viewport ${
-                selectedScene &&
-                activeImageGenerationContext?.entityKind === "scene-background" &&
-                activeImageGenerationContext.sceneId === selectedScene.id
-                  ? "is-generating-background"
-                  : ""
-              } ${sceneViewPreferences.gridVisible ? "show-authoring-grid" : ""} ${sceneViewPreferences.overlaysVisible ? "" : "hide-editor-overlays"}`}
-              ref={viewportRef}
-              style={
-                selectedScene
-                  ? {
-                      ...sceneBackgroundStyle(previewSceneBackground, previewSceneBackgroundUrl),
-                      aspectRatio: `${previewSceneSize.width} / ${previewSceneSize.height}`,
-                      zoom: sceneViewPreferences.zoom
-                    }
-                  : { background: "#24384a" }
-              }
-            >
-              {selectedScene &&
-              activeImageGenerationContext?.entityKind === "scene-background" &&
-              activeImageGenerationContext.sceneId === selectedScene.id ? (
-                <div className="viewport-generation-banner">
-                  <span className="viewport-generation-spinner" aria-hidden="true" />
-                  <strong>Generating background</strong>
-                </div>
-              ) : null}
-              {selectedScene && workspace === "scene" ? (
-                <div className="viewport-instruction">
-                  <strong>{selectedSceneToolLabel}</strong>
-                  <span>{selectedSceneToolHint}</span>
-                </div>
-              ) : null}
-              {selectedScene && workspace === "scene" ? (
-                <div className="viewport-quick-actions">
-                  <label className="viewport-color-control" title="Set color background draft">
-                    <span>BG</span>
-                    <input
-                      aria-label="Scene background color"
-                      type="color"
-                      value={previewSceneColor}
-                      onChange={(event) => updateSceneDraft("background", event.target.value)}
-                    />
-                  </label>
-                  <select
-                    aria-label="Scene background asset"
-                    value={imageAssets.some((asset) => asset.path === previewSceneBackground) ? previewSceneBackground : ""}
-                    onChange={(event) => {
-                      if (event.target.value) {
-                        updateSceneDraft("background", event.target.value);
+            <ScenesWorkspace model={{ activeTool: activeSceneTool, selectedSceneId: selectedScene?.id ?? null }}>
+              <SceneViewport
+                activeImageGenerationContext={activeImageGenerationContext}
+                activeSceneTool={activeSceneTool}
+                assetPathById={assetPathById}
+                assetPreviewUrls={assetPreviewUrls}
+                boundsForGenerationGuideShape={boundsForGenerationGuideShape}
+                canEditViewportScene={canEditViewportScene}
+                currentGenerationGuides={currentGenerationGuides}
+                generationGuideColor={generationGuideColor}
+                imageAssets={imageAssets}
+                insertGenerationGuidePointFromEvent={insertGenerationGuidePointFromEvent}
+                insertWalkAreaPointFromEvent={insertWalkAreaPointFromEvent}
+                onCreateActor={createActor}
+                onCreateHotspot={createHotspot}
+                onCreateSceneLayer={createSceneLayer}
+                onSelectActor={selectActor}
+                onSelectHotspot={selectHotspot}
+                onSelectPickup={selectPickup}
+                onSelectPlayerInScene={selectPlayerInScene}
+                onSetActiveSceneTool={setActiveSceneTool}
+                onSetSceneInspectorTarget={setSceneInspectorTarget}
+                onSetSelectedGenerationGuideId={setSelectedGenerationGuideId}
+                onStartActorInteraction={startActorInteraction}
+                onStartActorSpotInteraction={startActorSpotInteraction}
+                onStartGenerationGuidePointInteraction={startGenerationGuidePointInteraction}
+                onStartGenerationGuideShapeInteraction={startGenerationGuideShapeInteraction}
+                onStartHotspotInteraction={startHotspotInteraction}
+                onStartHotspotSpotInteraction={startHotspotSpotInteraction}
+                onStartPickupInteraction={startPickupInteraction}
+                onStartPlayerStartInteraction={startPlayerStartInteraction}
+                onStartWalkAreaPointInteraction={startWalkAreaPointInteraction}
+                previewActorIssueMap={previewActorIssueMap}
+                previewActors={previewActors}
+                previewHotspotIssueMap={previewHotspotIssueMap}
+                previewHotspots={previewHotspots}
+                previewPickups={previewPickups}
+                previewPickupIssueMap={previewPickupIssueMap}
+                previewPlayerAssetUrl={previewPlayerAssetUrl}
+                previewPlayerStart={previewPlayerStart}
+                previewSceneBackground={previewSceneBackground}
+                previewSceneColor={previewSceneColor}
+                previewSceneBackgroundUrl={previewSceneBackgroundUrl}
+                previewSceneLayers={previewSceneLayers}
+                previewSceneSize={previewSceneSize}
+                previewSelectedActor={previewSelectedActor}
+                previewSelectedHotspot={previewSelectedHotspot}
+                previewWalkArea={previewWalkArea}
+                previewWalkAreaPoints={previewWalkAreaPoints}
+                sceneBackgroundStyle={
+                  selectedScene
+                    ? {
+                        ...sceneBackgroundStyle(previewSceneBackground, previewSceneBackgroundUrl),
+                        aspectRatio: `${previewSceneSize.width} / ${previewSceneSize.height}`,
+                        zoom: sceneViewPreferences.zoom
                       }
-                    }}
-                  >
-                    <option value="">Image background</option>
-                    {imageAssets.map((asset) => (
-                      <option key={`viewport-bg-${asset.id}`} value={asset.path}>
-                        {asset.id}
-                      </option>
-                    ))}
-                  </select>
-                  <button type="button" onClick={() => setActiveSceneTool("walk-area")}>
-                    Walk
-                  </button>
-                  <button type="button" onClick={createHotspot}>
-                    + Hotspot
-                  </button>
-                  <button type="button" onClick={createActor}>
-                    + Actor
-                  </button>
-                  <button type="button" onClick={createSceneLayer}>
-                    + Layer
-                  </button>
-                </div>
-              ) : null}
-              {selectedScene && workspace === "scene" && sceneViewPreferences.minimapVisible ? (
-                <div className="scene-minimap" aria-label="Scene minimap" role="img">
-                  <span
-                    className="scene-minimap-point player"
-                    style={{
-                      left: `${((previewPlayerStart ?? selectedScene.playerStart).x / previewSceneSize.width) * 100}%`,
-                      top: `${((previewPlayerStart ?? selectedScene.playerStart).y / previewSceneSize.height) * 100}%`
-                    }}
-                  />
-                  {previewActors.map((actor) => (
-                    <span className="scene-minimap-point actor" key={`minimap-actor-${actor.id}`} style={{ left: `${((actor.bounds.x + actor.bounds.width / 2) / previewSceneSize.width) * 100}%`, top: `${((actor.bounds.y + actor.bounds.height / 2) / previewSceneSize.height) * 100}%` }} />
-                  ))}
-                  {previewPickups.map((pickup) => (
-                    <span className="scene-minimap-point pickup" key={`minimap-pickup-${pickup.id}`} style={{ left: `${((pickup.bounds.x + pickup.bounds.width / 2) / previewSceneSize.width) * 100}%`, top: `${((pickup.bounds.y + pickup.bounds.height / 2) / previewSceneSize.height) * 100}%` }} />
-                  ))}
-                  {previewHotspots.map((hotspot) => (
-                    <span className="scene-minimap-point hotspot" key={`minimap-hotspot-${hotspot.id}`} style={{ left: `${((hotspot.bounds.x + hotspot.bounds.width / 2) / previewSceneSize.width) * 100}%`, top: `${((hotspot.bounds.y + hotspot.bounds.height / 2) / previewSceneSize.height) * 100}%` }} />
-                  ))}
-                </div>
-              ) : null}
-              {selectedScene ? (
-              <>
-                {previewSceneLayers.map((layer) =>
-                  layer.visible !== false && layer.assetUrl && layer.bounds ? (
-                    <div
-                      className={`scene-layer-plane ${selectedSceneLayerId === layer.id ? "selected" : ""}`}
-                      key={`scene-layer-preview-${layer.id}`}
-                      style={{
-                        backgroundImage: `url("${layer.assetUrl}")`,
-                        height: `${(layer.bounds.height / previewSceneSize.height) * 100}%`,
-                        left: `${(layer.bounds.x / previewSceneSize.width) * 100}%`,
-                        opacity: layer.opacity ?? 1,
-                        top: `${(layer.bounds.y / previewSceneSize.height) * 100}%`,
-                        width: `${(layer.bounds.width / previewSceneSize.width) * 100}%`,
-                        zIndex: layer.depth
-                      }}
-                    />
-                  ) : null
-                )}
-                {selectedScene.shapes.map((shape) => (
-                  <div
-                    className={`scene-shape ${shape.shape}`}
-                    key={shape.id}
-                    style={{
-                      background: shape.fill,
-                      height: `${(shape.bounds.height / previewSceneSize.height) * 100}%`,
-                      left: `${(shape.bounds.x / previewSceneSize.width) * 100}%`,
-                      top: `${(shape.bounds.y / previewSceneSize.height) * 100}%`,
-                      width: `${(shape.bounds.width / previewSceneSize.width) * 100}%`,
-                      zIndex: shape.depth
-                    }}
-                  />
-                ))}
-                {currentGenerationGuides.length ? (
-                  <svg
-                    className="generation-guide-overlay"
-                    viewBox={`0 0 ${previewSceneSize.width} ${previewSceneSize.height}`}
-                    preserveAspectRatio="none"
-                  >
-                    {currentGenerationGuides
-                      .filter((guide) => guide.visible !== false)
-                      .map((guide) => {
-                        const bounds = boundsForGenerationGuideShape(guide.shape);
-                        const color = generationGuideColor(guide);
-                        const selected = selectedGenerationGuide?.id === guide.id;
-                        return (
-                          <g
-                            className={`generation-guide-mark ${selected ? "selected" : ""}`}
-                            key={`generation-guide-${guide.id}`}
-                            onPointerDown={(event) => {
-                              event.stopPropagation();
-                              setSelectedGenerationGuideId(guide.id);
-                              setSceneInspectorTarget("scene");
-                            }}
-                          >
-                            {guide.shape.type === "polygon" ? (
-                              <>
-                                <polygon
-                                  className="generation-guide-shape-hit"
-                                  fill={color}
-                                  points={guide.shape.points.map((point) => `${point.x},${point.y}`).join(" ")}
-                                  stroke={color}
-                                  onPointerDown={(event) => startGenerationGuideShapeInteraction(guide, "move", event)}
-                                />
-                                {selected
-                                  ? guide.shape.points.map((point, index) => {
-                                      const nextPoint = guide.shape.type === "polygon"
-                                        ? guide.shape.points[(index + 1) % guide.shape.points.length]!
-                                        : point;
-                                      return (
-                                        <line
-                                          className="generation-guide-edge-hit"
-                                          key={`generation-guide-edge-${guide.id}-${index}`}
-                                          x1={point.x}
-                                          x2={nextPoint.x}
-                                          y1={point.y}
-                                          y2={nextPoint.y}
-                                          onPointerDown={(event) => insertGenerationGuidePointFromEvent(guide, index, event)}
-                                        />
-                                      );
-                                    })
-                                  : null}
-                                {selected
-                                  ? guide.shape.points.map((point, index) => (
-                                      <g key={`generation-guide-point-${guide.id}-${index}`}>
-                                        <circle
-                                          className="generation-guide-point"
-                                          cx={point.x}
-                                          cy={point.y}
-                                          r="7"
-                                          onPointerDown={(event) =>
-                                            startGenerationGuidePointInteraction(guide, index, point, event)
-                                          }
-                                        />
-                                        <text className="generation-guide-point-label" x={point.x + 10} y={point.y - 10}>
-                                          {index + 1}
-                                        </text>
-                                      </g>
-                                    ))
-                                  : null}
-                              </>
-                            ) : guide.shape.type === "ellipse" ? (
-                              <ellipse
-                                className="generation-guide-shape-hit"
-                                cx={bounds.x + bounds.width / 2}
-                                cy={bounds.y + bounds.height / 2}
-                                fill={color}
-                                rx={bounds.width / 2}
-                                ry={bounds.height / 2}
-                                stroke={color}
-                                onPointerDown={(event) => startGenerationGuideShapeInteraction(guide, "move", event)}
-                              />
-                            ) : (
-                              <rect
-                                className="generation-guide-shape-hit"
-                                fill={color}
-                                height={bounds.height}
-                                stroke={color}
-                                width={bounds.width}
-                                x={bounds.x}
-                                y={bounds.y}
-                                onPointerDown={(event) => startGenerationGuideShapeInteraction(guide, "move", event)}
-                              />
-                            )}
-                            {selected && guide.shape.type !== "polygon" ? (
-                              <rect
-                                className="generation-guide-resize-handle"
-                                height="14"
-                                width="14"
-                                x={bounds.x + bounds.width - 7}
-                                y={bounds.y + bounds.height - 7}
-                                onPointerDown={(event) => startGenerationGuideShapeInteraction(guide, "resize", event)}
-                              />
-                            ) : null}
-                            <text x={bounds.x + 8} y={Math.max(18, bounds.y - 8)}>
-                              {guide.name}
-                            </text>
-                          </g>
-                        );
-                      })}
-                  </svg>
-                ) : null}
-                {previewWalkArea ? (
-                  <svg
-                    className="walk-region"
-                    viewBox={`0 0 ${previewSceneSize.width} ${previewSceneSize.height}`}
-                    preserveAspectRatio="none"
-                  >
-                    <polygon className="walk-region-fill" points={previewWalkAreaPoints} />
-                    <polygon className="walk-region-outline" points={previewWalkAreaPoints} />
-                    {canEditViewportScene
-                      ? previewWalkArea.points.map((point, index) => {
-                          const nextPoint =
-                            previewWalkArea.points[(index + 1) % previewWalkArea.points.length]!;
-                          return (
-                            <line
-                              className="walk-region-edge-hit"
-                              key={`walk-edge-hit-${index}`}
-                              x1={point.x}
-                              x2={nextPoint.x}
-                              y1={point.y}
-                              y2={nextPoint.y}
-                              onPointerDown={(event) => insertWalkAreaPointFromEvent(index, event)}
-                            />
-                          );
-                        })
-                      : null}
-                    {previewWalkArea.points.map((point, index) => (
-                      <g key={`walk-point-${index}`}>
-                        <circle
-                          className={`walk-region-point ${canEditViewportScene ? "editable" : ""}`}
-                          cx={point.x}
-                          cy={point.y}
-                          r="7"
-                          onPointerDown={(event) =>
-                            startWalkAreaPointInteraction(index, point, event)
-                          }
-                        />
-                        <text className="walk-region-label" x={point.x + 10} y={point.y - 10}>
-                          {index + 1}
-                        </text>
-                      </g>
-                    ))}
-                  </svg>
-                ) : null}
-                {previewActors.map((actor) => (
-                  (() => {
-                    const actorIssues = previewActorIssueMap[actor.id];
-                    const actorAssetPath = actor.assetId ? assetPathById.get(actor.assetId) : null;
-                    const actorAssetUrl = actorAssetPath ? assetPreviewUrls[actorAssetPath] : undefined;
-                    const actorIsGenerating =
-                      activeImageGenerationContext?.entityKind === "actor" &&
-                      activeImageGenerationContext.sceneId === selectedScene.id &&
-                      activeImageGenerationContext.entityId === actor.id;
-                    return (
-                  <button
-                    className={`actor-box ${selectedActor?.id === actor.id ? "selected" : ""} ${actorIssues?.hasIssues ? `has-issues ${actorIssues.tone}` : ""} ${actorIsGenerating ? "is-generating" : ""}`}
-                    key={actor.id}
-                    type="button"
-                    onClick={() => selectActor(actor)}
-                    onPointerDown={(event) => startActorInteraction("move", actor, event)}
-                    style={{
-                      height: `${(actor.bounds.height / previewSceneSize.height) * 100}%`,
-                      left: `${(actor.bounds.x / previewSceneSize.width) * 100}%`,
-                      top: `${(actor.bounds.y / previewSceneSize.height) * 100}%`,
-                      width: `${(actor.bounds.width / previewSceneSize.width) * 100}%`,
-                      backgroundImage: actorAssetUrl ? `url("${actorAssetUrl}")` : undefined,
-                      backgroundPosition: actorAssetUrl ? "center" : undefined,
-                      backgroundRepeat: actorAssetUrl ? "no-repeat" : undefined,
-                      backgroundSize: actorAssetUrl ? "100% 100%" : undefined,
-                      zIndex: actor.depth
-                    }}
-                    title={
-                      actorIssues?.hasIssues
-                        ? actorIssues.detail
-                        : activeSceneTool === "actor"
-                        ? "Click to inspect, drag to move"
-                        : "Click to inspect, drag to select and move"
-                    }
-                  >
-                    <span className="viewport-label">
-                      actor: {actor.id}
-                      {actorIssues?.hasIssues ? (
-                        <span className={`viewport-issue-badge ${actorIssues.tone}`}>
-                          {actorIssues.issueCount}
-                        </span>
-                      ) : null}
-                    </span>
-                    {actorIsGenerating ? (
-                      <span className="viewport-generation-indicator">
-                        <span className="viewport-generation-spinner" aria-hidden="true" />
-                        Generating
-                      </span>
-                    ) : null}
-                    {selectedActor?.id === actor.id ? (
-                      <span
-                        className="viewport-resize-handle"
-                        onClick={(event) => event.stopPropagation()}
-                        onPointerDown={(event) => startActorInteraction("resize", actor, event)}
-                      />
-                    ) : null}
-                  </button>
-                    );
-                  })()
-                ))}
-                {previewSelectedActor?.interactSpot ? (
-                  <button
-                    className="viewport-spot actor-interact-spot"
-                    type="button"
-                    style={{
-                      left: `${(previewSelectedActor.interactSpot.x / previewSceneSize.width) * 100}%`,
-                      top: `${(previewSelectedActor.interactSpot.y / previewSceneSize.height) * 100}%`
-                    }}
-                    title="Actor interact spot"
-                    onPointerDown={(event) =>
-                      startActorSpotInteraction("interact", previewSelectedActor.interactSpot!, event)
-                    }
-                  >
-                    I
-                  </button>
-                ) : null}
-                {previewSelectedActor?.lookSpot ? (
-                  <button
-                    className="viewport-spot actor-look-spot"
-                    type="button"
-                    style={{
-                      left: `${(previewSelectedActor.lookSpot.x / previewSceneSize.width) * 100}%`,
-                      top: `${(previewSelectedActor.lookSpot.y / previewSceneSize.height) * 100}%`
-                    }}
-                    title="Actor look spot"
-                    onPointerDown={(event) =>
-                      startActorSpotInteraction("look", previewSelectedActor.lookSpot!, event)
-                    }
-                  >
-                    L
-                  </button>
-                ) : null}
-                {(() => {
-                  const playerIsGenerating =
-                    activeImageGenerationContext?.entityKind === "player" &&
-                    activeImageGenerationContext.sceneId === selectedScene.id;
-                  return (
-                <div
-                  className={`character ${previewPlayerAssetUrl ? "has-player-asset" : ""} ${
-                    isPlayerInspectorSelected ? "selected" : ""
-                  } ${playerIsGenerating ? "is-generating" : ""}`}
-                  role="button"
-                  tabIndex={0}
-                  onClick={selectPlayerInScene}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      selectPlayerInScene();
-                    }
-                  }}
-                  onPointerDown={startPlayerStartInteraction}
-                    style={{
-                      backgroundImage: previewPlayerAssetUrl ? `url("${previewPlayerAssetUrl}")` : undefined,
-                      backgroundPosition: previewPlayerAssetUrl ? "center bottom" : undefined,
-                      backgroundRepeat: previewPlayerAssetUrl ? "no-repeat" : undefined,
-                      backgroundSize: previewPlayerAssetUrl ? "contain" : undefined,
-                      left: `${((previewPlayerStart ?? selectedScene.playerStart).x / previewSceneSize.width) * 100}%`,
-                      top: `${((previewPlayerStart ?? selectedScene.playerStart).y / previewSceneSize.height) * 100}%`
-                    }}
-                    title={
-                      activeSceneTool === "player-start"
-                        ? "Drag to move player start"
-                        : "Drag to select and move player start"
-                    }
-                  >
-                    <span />
-                    {playerIsGenerating ? (
-                      <span className="viewport-generation-indicator player-generation-indicator">
-                        <span className="viewport-generation-spinner" aria-hidden="true" />
-                        Generating
-                      </span>
-                    ) : null}
-                </div>
-                  );
-                })()}
-                {previewHotspots.map((hotspot) => (
-                  (() => {
-                    const hotspotIssues = previewHotspotIssueMap[hotspot.id];
-                    return (
-                  <button
-                    className={`hotspot-box ${selectedHotspot?.id === hotspot.id ? "selected" : ""} ${hotspotIssues?.hasIssues ? `has-issues ${hotspotIssues.tone}` : ""}`}
-                    key={hotspot.id}
-                    type="button"
-                    onClick={() => selectHotspot(hotspot)}
-                    onPointerDown={(event) => startHotspotInteraction("move", hotspot, event)}
-                    style={{
-                      height: `${(hotspot.bounds.height / previewSceneSize.height) * 100}%`,
-                      left: `${(hotspot.bounds.x / previewSceneSize.width) * 100}%`,
-                      top: `${(hotspot.bounds.y / previewSceneSize.height) * 100}%`,
-                      width: `${(hotspot.bounds.width / previewSceneSize.width) * 100}%`
-                    }}
-                    title={
-                      hotspotIssues?.hasIssues
-                        ? hotspotIssues.detail
-                        : activeSceneTool === "hotspot"
-                          ? "Click to inspect, drag to move"
-                          : "Click to inspect, drag to select and move"
-                    }
-                  >
-                    <span className="viewport-label">
-                      {hotspot.id}
-                      {hotspotIssues?.hasIssues ? (
-                        <span className={`viewport-issue-badge ${hotspotIssues.tone}`}>
-                          {hotspotIssues.issueCount}
-                        </span>
-                      ) : null}
-                    </span>
-                    {selectedHotspot?.id === hotspot.id ? (
-                      <span
-                        className="viewport-resize-handle"
-                        onClick={(event) => event.stopPropagation()}
-                        onPointerDown={(event) => startHotspotInteraction("resize", hotspot, event)}
-                      />
-                    ) : null}
-                  </button>
-                    );
-                  })()
-                ))}
-                {previewSelectedHotspot?.interactSpot ? (
-                  <button
-                    className="viewport-spot hotspot-interact-spot"
-                    type="button"
-                    style={{
-                      left: `${(previewSelectedHotspot.interactSpot.x / previewSceneSize.width) * 100}%`,
-                      top: `${(previewSelectedHotspot.interactSpot.y / previewSceneSize.height) * 100}%`
-                    }}
-                    title="Hotspot interact spot"
-                    onPointerDown={(event) =>
-                      startHotspotSpotInteraction("interact", previewSelectedHotspot.interactSpot!, event)
-                    }
-                  >
-                    I
-                  </button>
-                ) : null}
-                {previewSelectedHotspot?.lookSpot ? (
-                  <button
-                    className="viewport-spot hotspot-look-spot"
-                    type="button"
-                    style={{
-                      left: `${(previewSelectedHotspot.lookSpot.x / previewSceneSize.width) * 100}%`,
-                      top: `${(previewSelectedHotspot.lookSpot.y / previewSceneSize.height) * 100}%`
-                    }}
-                    title="Hotspot look spot"
-                    onPointerDown={(event) =>
-                      startHotspotSpotInteraction("look", previewSelectedHotspot.lookSpot!, event)
-                    }
-                  >
-                    L
-                  </button>
-                ) : null}
-                {previewPickups.map((pickup) => (
-                  (() => {
-                    const pickupIssues = previewPickupIssueMap[pickup.id];
-                    const pickupAssetPath = pickup.assetId ? assetPathById.get(pickup.assetId) : null;
-                    const pickupAssetUrl = pickupAssetPath ? assetPreviewUrls[pickupAssetPath] : undefined;
-                    const pickupIsGenerating =
-                      activeImageGenerationContext?.entityKind === "pickup" &&
-                      activeImageGenerationContext.sceneId === selectedScene.id &&
-                      activeImageGenerationContext.entityId === pickup.id;
-                    return (
-                  <button
-                    className={`pickup-box ${selectedPickup?.id === pickup.id ? "selected" : ""} ${pickupIssues?.hasIssues ? `has-issues ${pickupIssues.tone}` : ""} ${pickupIsGenerating ? "is-generating" : ""}`}
-                    key={pickup.id}
-                    type="button"
-                    onClick={() => selectPickup(pickup)}
-                    onPointerDown={(event) => startPickupInteraction("move", pickup, event)}
-                    style={{
-                      height: `${(pickup.bounds.height / previewSceneSize.height) * 100}%`,
-                      left: `${(pickup.bounds.x / previewSceneSize.width) * 100}%`,
-                      top: `${(pickup.bounds.y / previewSceneSize.height) * 100}%`,
-                      width: `${(pickup.bounds.width / previewSceneSize.width) * 100}%`,
-                      backgroundImage: pickupAssetUrl ? `url("${pickupAssetUrl}")` : undefined,
-                      backgroundPosition: pickupAssetUrl ? "center" : undefined,
-                      backgroundRepeat: pickupAssetUrl ? "no-repeat" : undefined,
-                      backgroundSize: pickupAssetUrl ? "100% 100%" : undefined
-                    }}
-                    title={
-                      pickupIssues?.hasIssues
-                        ? pickupIssues.detail
-                        : activeSceneTool === "pickup"
-                          ? "Click to inspect, drag to move"
-                          : "Click to inspect, drag to select and move"
-                    }
-                  >
-                    <span className="viewport-label">
-                      {pickup.id}
-                      {pickupIssues?.hasIssues ? (
-                        <span className={`viewport-issue-badge ${pickupIssues.tone}`}>
-                          {pickupIssues.issueCount}
-                        </span>
-                      ) : null}
-                    </span>
-                    {pickupIsGenerating ? (
-                      <span className="viewport-generation-indicator">
-                        <span className="viewport-generation-spinner" aria-hidden="true" />
-                        Generating
-                      </span>
-                    ) : null}
-                    {selectedPickup?.id === pickup.id ? (
-                      <span
-                        className="viewport-resize-handle"
-                        onClick={(event) => event.stopPropagation()}
-                        onPointerDown={(event) => startPickupInteraction("resize", pickup, event)}
-                      />
-                    ) : null}
-                  </button>
-                    );
-                  })()
-                ))}
-              </>
-            ) : (
-              <div className="empty-scene">Open a project to inspect a scene.</div>
-            )}
-            </div>
+                    : { background: "#24384a" }
+                }
+                sceneViewPreferences={sceneViewPreferences}
+                isPlayerInspectorSelected={isPlayerInspectorSelected}
+                selectedActor={selectedActor}
+                selectedGenerationGuide={selectedGenerationGuide}
+                selectedHotspot={selectedHotspot}
+                selectedPickup={selectedPickup}
+                selectedScene={selectedScene?.type === "layered-2d" ? selectedScene : null}
+                selectedSceneLayerId={selectedSceneLayerId}
+                selectedSceneToolHint={selectedSceneToolHint}
+                selectedSceneToolLabel={selectedSceneToolLabel}
+                viewportRef={viewportRef}
+                workspace={workspace}
+                updateSceneDraft={updateSceneDraft}
+              />
+            </ScenesWorkspace>
           )}
 
         </WorkspaceStagePanel>
