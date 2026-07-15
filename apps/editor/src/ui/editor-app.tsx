@@ -89,7 +89,6 @@ import { createCreatorPathSteps, type CreatorPathStep } from "../creator-path";
 import {
   AiContextSummary,
   AiProviderBoundary,
-  AssetStudioSidebar,
   BuildWorkspace,
   CollapsedPanelRail,
   iconSize,
@@ -263,13 +262,9 @@ import { aiStudioReducer, initialAiStudioState } from "./features/ai/ai-studio-s
 import { AiStudioSteps } from "./features/ai/ai-studio-steps";
 import { AiStudioWorkspace } from "./features/ai/ai-studio-workspace";
 import { assetStudioReducer, initialAssetStudioState, type AssetStudioTool } from "./features/assets/asset-studio-state";
-import { AssetStudioWorkspace } from "./features/assets/asset-studio-workspace";
-import { AssetStudioPreview } from "./features/assets/asset-studio-preview";
-import { AssetStudioToolPanel } from "./features/assets/asset-studio-tool-panel";
+import { AssetStudioLaunchpad } from "./features/assets/asset-studio-launchpad";
 import { initialSceneStudioState, sceneStudioReducer } from "./features/scenes/scene-studio-state";
-import { SceneTree } from "./features/scenes/scene-tree";
-import { SceneViewport } from "./features/scenes/scene-viewport";
-import { ScenesWorkspace } from "./features/scenes/scenes-workspace";
+import { SceneTreeLaunchpad, ScenesLaunchpad } from "./features/scenes/scenes-launchpad";
 import {
   buildProjectResourceIndex,
   filterProjectResources,
@@ -8104,39 +8099,43 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
     }
     if (workspace === "scene") {
       return (
-        <SceneTree
-          activeSceneTool={activeSceneTool}
-          assetPreviewUrls={assetPreviewUrls}
-          createActor={createActor}
-          createBlankGenerationGuide={createBlankGenerationGuide}
-          createHotspot={createHotspot}
-          createPickup={createPickup}
-          createScene={createScene}
-          createSceneLayer={createSceneLayer}
-          currentGenerationGuides={currentGenerationGuides}
-          currentSceneDraft={currentSceneDraft}
-          dirtyState={dirtyState}
-          generationGuideColor={generationGuideColor}
-          isPlayerInspectorSelected={isPlayerInspectorSelected}
-          previewSceneBackground={previewSceneBackground}
-          onSelectActor={selectActor}
-          onSelectHotspot={selectHotspot}
-          onSelectPickup={selectPickup}
-          onSelectScene={selectScene}
-          onSelectPlayerInScene={selectPlayerInScene}
-          onSetActiveSceneTool={setActiveSceneTool}
-          onSetSceneInspectorTarget={setSceneInspectorTarget}
-          onSetSelectedGenerationGuideId={setSelectedGenerationGuideId}
-          onSetSelectedSceneLayerId={setSelectedSceneLayerId}
-          onSetWorkspace={setWorkspace}
-          onUpdateSessionSelection={updateSessionSelection}
-          projectAvailable={!!project}
-          scenes={scenes}
-          selectedGenerationGuide={selectedGenerationGuide}
-          selectedGenerationGuideId={selectedGenerationGuideId}
-          selectedScene={selectedScene}
-          selectedSceneLayerId={selectedSceneLayerId}
-          session={session}
+        <SceneTreeLaunchpad
+          actions={{
+            createActor,
+            createBlankGenerationGuide,
+            createHotspot,
+            createPickup,
+            createScene,
+            createSceneLayer,
+            generationGuideColor,
+            onSelectActor: selectActor,
+            onSelectHotspot: selectHotspot,
+            onSelectPickup: selectPickup,
+            onSelectScene: selectScene,
+            onSelectPlayerInScene: selectPlayerInScene,
+            onSetActiveSceneTool: setActiveSceneTool,
+            onSetSceneInspectorTarget: setSceneInspectorTarget,
+            onSetSelectedGenerationGuideId: setSelectedGenerationGuideId,
+            onSetSelectedSceneLayerId: setSelectedSceneLayerId,
+            onSetWorkspace: setWorkspace,
+            onUpdateSessionSelection: updateSessionSelection
+          }}
+          model={{
+            activeSceneTool,
+            assetPreviewUrls,
+            currentGenerationGuides,
+            currentSceneDraft,
+            dirtyState,
+            isPlayerInspectorSelected,
+            previewSceneBackground,
+            projectAvailable: !!project,
+            scenes,
+            selectedGenerationGuide,
+            selectedGenerationGuideId,
+            selectedScene,
+            selectedSceneLayerId,
+            session
+          }}
         />
       );
     }
@@ -9712,108 +9711,117 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
               </details>
             </AiStudioWorkspace>
           ) : workspace === "assets" ? (
-            <AssetStudioWorkspace
-              model={{ activeTool: activeAssetTool,
-                assetCount: project.assetCount,
-                selectedAssetId: selectedAsset?.id ?? null
+            <AssetStudioLaunchpad
+              model={{
+                preview: {
+                  activeAssetTool,
+                  cropControlRadius,
+                  cropImageFrameRef,
+                  cropImageSize,
+                  cropPath,
+                  cropPreviewPath: cropSvgPath,
+                  optimizePreview,
+                  selectedAsset,
+                  selectedAssetHealth,
+                  selectedAssetUrl,
+                  selectedCropNode,
+                  selectedCropNodeIndex
+                },
+                sidebar: {
+                  activeTool: activeAssetTool,
+                  assetCount: project.assetCount,
+                  canImport: !!project,
+                  selectedAssetId: selectedAsset?.id ?? null
+                },
+                toolPanel: {
+                  activeAssetTool,
+                  assetEditTarget: !!assetEditTarget,
+                  assetPathDraft,
+                  cleanupFeather,
+                  cleanupKeyColor,
+                  cleanupOutputCanvasRef,
+                  cleanupSourceCanvasRef,
+                  cleanupSpillReduction,
+                  cleanupStatus,
+                  cleanupTolerance,
+                  cropImageSize,
+                  cropPath,
+                  cropPreviewBounds,
+                  cropStatus,
+                  hasBackgroundCleanupTarget: !!backgroundCleanupTarget,
+                  iconSize,
+                  imageOptimizePresets,
+                  optimizePresetId,
+                  optimizePreview,
+                  optimizeStatus,
+                  optimizeHeight,
+                  optimizeWidth,
+                  promptPacks: project?.promptPacks ?? [],
+                  savedPromptPackTargets,
+                  selectedAsset,
+                  selectedAssetHealth,
+                  selectedAssetUsage,
+                  selectedAssetUrl,
+                  selectedGuideSource,
+                  selectedPromptPack,
+                  selectedSavedGenerationTarget,
+                  selectedCropNode,
+                  selectedCropNodeIndex,
+                  guideSourceOptions,
+                  guideShape,
+                  guideStatus,
+                  hasSceneSelection: !!selectedScene
+                },
+                workspace: {
+                  activeTool: activeAssetTool,
+                  assetCount: project.assetCount,
+                  selectedAssetId: selectedAsset?.id ?? null
+                }
+              }}
+              actions={{
+                preview: {
+                  buildAssetBytesLabel: formatAssetBytes,
+                  insertCropNodeFromEvent,
+                  startCropHandleInteraction,
+                  startCropNodeInteraction
+                },
+                sidebar: {
+                  onImportAssets: importAssets,
+                  onToolChange: activateAssetTool
+                },
+                toolPanel: {
+                  buildAssetBytesLabel: formatAssetBytes,
+                  imageOptimizePreset,
+                  onApplyAssetRelink: applyAssetRelink,
+                  onApplyOptimizedAsset: applyOptimizedAsset,
+                  onAssignAssetBackground: assignAssetBackground,
+                  onAssignSelectedProcessedAsset: assignSelectedProcessedAsset,
+                  onDeleteSelectedAsset: deleteSelectedAsset,
+                  onOpenAiStudioForAssetUsage: openAiStudioForAssetUsage,
+                  onPickCleanupColor: pickCleanupColor,
+                  onRenderBackgroundCleanupPreview: renderBackgroundCleanupPreview,
+                  onResetCropPath: resetCropPath,
+                  onSaveBackgroundCleanupAsset: saveBackgroundCleanupAsset,
+                  onSaveCroppedAsset: saveCroppedAsset,
+                  onSaveGuideMaskAsset: saveGuideMaskAsset,
+                  onSetCleanupFeather: setCleanupFeather,
+                  onSetCleanupKeyColor: setCleanupKeyColor,
+                  onSetCleanupSpillReduction: setCleanupSpillReduction,
+                  onSetCleanupTolerance: setCleanupTolerance,
+                  onSetGuideShape: setGuideShape,
+                  onSetGuideSourceId: setGuideSourceId,
+                  onSetOptimizeHeight: setOptimizeHeight,
+                  onSetOptimizePresetId: setOptimizePresetId,
+                  onSetOptimizeWidth: setOptimizeWidth,
+                  onSetSelectedCropNodeIndex: setSelectedCropNodeIndex,
+                  onSetSelectedGenerationTargetId: setSelectedGenerationTargetId,
+                  onSetSelectedPromptPackId: setSelectedPromptPackId,
+                  onUpdateAssetPathDraft: setAssetPathDraft,
+                  onUpdateCropNodeMode: updateCropNodeMode,
+                  onUpdateCropNodePosition: updateCropNodePosition
+                }
               }}
             >
-              <section className="overview-card asset-studio-shell">
-                <AssetStudioSidebar
-                  activeTool={activeAssetTool}
-                  assetCount={project.assetCount}
-                  canImport={!!project}
-                  selectedAssetId={selectedAsset?.id ?? null}
-                   onImportAssets={importAssets}
-                   onToolChange={activateAssetTool}
-                 />
-                 <AssetStudioPreview
-                  activeAssetTool={activeAssetTool}
-                  buildAssetBytesLabel={formatAssetBytes}
-                  cropControlRadius={cropControlRadius}
-                  cropImageFrameRef={cropImageFrameRef}
-                  cropImageSize={cropImageSize}
-                  cropPath={cropPath}
-                  cropPreviewPath={cropSvgPath}
-                  insertCropNodeFromEvent={insertCropNodeFromEvent}
-                  optimizePreview={optimizePreview}
-                  selectedAsset={selectedAsset}
-                  selectedAssetHealth={selectedAssetHealth}
-                  selectedAssetUrl={selectedAssetUrl}
-                  selectedCropNode={selectedCropNode}
-                  selectedCropNodeIndex={selectedCropNodeIndex}
-                  startCropHandleInteraction={startCropHandleInteraction}
-                  startCropNodeInteraction={startCropNodeInteraction}
-                 />
-                <AssetStudioToolPanel
-                  activeAssetTool={activeAssetTool}
-                  assetEditTarget={!!assetEditTarget}
-                  assetPathDraft={assetPathDraft}
-                  buildAssetBytesLabel={formatAssetBytes}
-                  cleanupFeather={cleanupFeather}
-                  cleanupKeyColor={cleanupKeyColor}
-                  cleanupOutputCanvasRef={cleanupOutputCanvasRef}
-                  cleanupSourceCanvasRef={cleanupSourceCanvasRef}
-                  cleanupSpillReduction={cleanupSpillReduction}
-                  cleanupStatus={cleanupStatus}
-                  cleanupTolerance={cleanupTolerance}
-                  cropImageSize={cropImageSize}
-                  cropPath={cropPath}
-                  cropPreviewBounds={cropPreviewBounds}
-                  cropStatus={cropStatus}
-                  hasBackgroundCleanupTarget={!!backgroundCleanupTarget}
-                  iconSize={iconSize}
-                  imageOptimizePreset={imageOptimizePreset}
-                  imageOptimizePresets={imageOptimizePresets}
-                  onApplyAssetRelink={applyAssetRelink}
-                  onApplyOptimizedAsset={applyOptimizedAsset}
-                  onAssignAssetBackground={assignAssetBackground}
-                  onAssignSelectedProcessedAsset={assignSelectedProcessedAsset}
-                  onDeleteSelectedAsset={deleteSelectedAsset}
-                  onOpenAiStudioForAssetUsage={openAiStudioForAssetUsage}
-                  onPickCleanupColor={pickCleanupColor}
-                  onRenderBackgroundCleanupPreview={renderBackgroundCleanupPreview}
-                  onResetCropPath={resetCropPath}
-                  onSaveBackgroundCleanupAsset={saveBackgroundCleanupAsset}
-                  onSaveCroppedAsset={saveCroppedAsset}
-                  onSaveGuideMaskAsset={saveGuideMaskAsset}
-                  onSetCleanupFeather={setCleanupFeather}
-                  onSetCleanupKeyColor={setCleanupKeyColor}
-                  onSetCleanupSpillReduction={setCleanupSpillReduction}
-                  onSetCleanupTolerance={setCleanupTolerance}
-                  onSetGuideShape={setGuideShape}
-                  onSetGuideSourceId={setGuideSourceId}
-                  onSetOptimizeHeight={setOptimizeHeight}
-                  onSetOptimizePresetId={setOptimizePresetId}
-                  onSetOptimizeWidth={setOptimizeWidth}
-                  onSetSelectedCropNodeIndex={setSelectedCropNodeIndex}
-                  onSetSelectedGenerationTargetId={setSelectedGenerationTargetId}
-                  onSetSelectedPromptPackId={setSelectedPromptPackId}
-                  onUpdateAssetPathDraft={setAssetPathDraft}
-                  onUpdateCropNodeMode={updateCropNodeMode}
-                  onUpdateCropNodePosition={updateCropNodePosition}
-                  optimizePresetId={optimizePresetId}
-                  optimizePreview={optimizePreview}
-                  optimizeStatus={optimizeStatus}
-                  optimizeHeight={optimizeHeight}
-                  optimizeWidth={optimizeWidth}
-                  promptPacks={project?.promptPacks ?? []}
-                  savedPromptPackTargets={savedPromptPackTargets}
-                  selectedAsset={selectedAsset}
-                  selectedAssetHealth={selectedAssetHealth}
-                  selectedAssetUsage={selectedAssetUsage}
-                  selectedAssetUrl={selectedAssetUrl}
-                  selectedGuideSource={selectedGuideSource}
-                  selectedPromptPack={selectedPromptPack}
-                  selectedSavedGenerationTarget={selectedSavedGenerationTarget}
-                  selectedCropNode={selectedCropNode}
-                  selectedCropNodeIndex={selectedCropNodeIndex}
-                  guideSourceOptions={guideSourceOptions}
-                  guideShape={guideShape}
-                  guideStatus={guideStatus}
-                  hasSceneSelection={!!selectedScene}
-                />
-              </section>
               {activeAssetTool === "animation" ? (
               <section className="overview-card prompt-studio-card character-gym-card">
                 <span className="overview-label">Character Gym</span>
@@ -10125,7 +10133,7 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
                 </div>
               </section>
               ) : null}
-            </AssetStudioWorkspace>
+            </AssetStudioLaunchpad>
           ) : workspace === "narrative" && currentFlowDraft ? (
             <NarrativeGraph
               diagnostics={flowGraphDiagnostics}
@@ -10135,79 +10143,87 @@ export function EditorApp({ gateway: injectedGateway }: EditorAppProps = {}) {
               onSelectNode={setSelectedFlowNodeId}
             />
           ) : (
-            <ScenesWorkspace model={{ activeTool: activeSceneTool, selectedSceneId: selectedScene?.id ?? null }}>
-              <SceneViewport
-                activeImageGenerationContext={activeImageGenerationContext}
-                activeSceneTool={activeSceneTool}
-                assetPathById={assetPathById}
-                assetPreviewUrls={assetPreviewUrls}
-                boundsForGenerationGuideShape={boundsForGenerationGuideShape}
-                canEditViewportScene={canEditViewportScene}
-                currentGenerationGuides={currentGenerationGuides}
-                generationGuideColor={generationGuideColor}
-                imageAssets={imageAssets}
-                insertGenerationGuidePointFromEvent={insertGenerationGuidePointFromEvent}
-                insertWalkAreaPointFromEvent={insertWalkAreaPointFromEvent}
-                onCreateActor={createActor}
-                onCreateHotspot={createHotspot}
-                onCreateSceneLayer={createSceneLayer}
-                onSelectActor={selectActor}
-                onSelectHotspot={selectHotspot}
-                onSelectPickup={selectPickup}
-                onSelectPlayerInScene={selectPlayerInScene}
-                onSetActiveSceneTool={setActiveSceneTool}
-                onSetSceneInspectorTarget={setSceneInspectorTarget}
-                onSetSelectedGenerationGuideId={setSelectedGenerationGuideId}
-                onStartActorInteraction={startActorInteraction}
-                onStartActorSpotInteraction={startActorSpotInteraction}
-                onStartGenerationGuidePointInteraction={startGenerationGuidePointInteraction}
-                onStartGenerationGuideShapeInteraction={startGenerationGuideShapeInteraction}
-                onStartHotspotInteraction={startHotspotInteraction}
-                onStartHotspotSpotInteraction={startHotspotSpotInteraction}
-                onStartPickupInteraction={startPickupInteraction}
-                onStartPlayerStartInteraction={startPlayerStartInteraction}
-                onStartWalkAreaPointInteraction={startWalkAreaPointInteraction}
-                previewActorIssueMap={previewActorIssueMap}
-                previewActors={previewActors}
-                previewHotspotIssueMap={previewHotspotIssueMap}
-                previewHotspots={previewHotspots}
-                previewPickups={previewPickups}
-                previewPickupIssueMap={previewPickupIssueMap}
-                previewPlayerAssetUrl={previewPlayerAssetUrl}
-                previewPlayerStart={previewPlayerStart}
-                previewSceneBackground={previewSceneBackground}
-                previewSceneColor={previewSceneColor}
-                previewSceneBackgroundUrl={previewSceneBackgroundUrl}
-                previewSceneLayers={previewSceneLayers}
-                previewSceneSize={previewSceneSize}
-                previewSelectedActor={previewSelectedActor}
-                previewSelectedHotspot={previewSelectedHotspot}
-                previewWalkArea={previewWalkArea}
-                previewWalkAreaPoints={previewWalkAreaPoints}
-                sceneBackgroundStyle={
-                  selectedScene
+            <ScenesLaunchpad
+              model={{
+                viewport: {
+                  activeImageGenerationContext,
+                  activeSceneTool,
+                  assetPathById,
+                  assetPreviewUrls,
+                  canEditViewportScene,
+                  currentGenerationGuides,
+                  imageAssets,
+                  previewActorIssueMap,
+                  previewActors,
+                  previewHotspotIssueMap,
+                  previewHotspots,
+                  previewPickups,
+                  previewPickupIssueMap,
+                  previewPlayerAssetUrl,
+                  previewPlayerStart,
+                  previewSceneBackground,
+                  previewSceneColor,
+                  previewSceneBackgroundUrl,
+                  previewSceneLayers,
+                  previewSceneSize,
+                  previewSelectedActor,
+                  previewSelectedHotspot,
+                  previewWalkArea,
+                  previewWalkAreaPoints,
+                  sceneBackgroundStyle: selectedScene
                     ? {
                         ...sceneBackgroundStyle(previewSceneBackground, previewSceneBackgroundUrl),
                         aspectRatio: `${previewSceneSize.width} / ${previewSceneSize.height}`,
                         zoom: sceneViewPreferences.zoom
                       }
-                    : { background: "#24384a" }
+                    : { background: "#24384a" },
+                  sceneViewPreferences,
+                  isPlayerInspectorSelected,
+                  selectedActor,
+                  selectedGenerationGuide,
+                  selectedHotspot,
+                  selectedPickup,
+                  selectedScene: selectedScene?.type === "layered-2d" ? selectedScene : null,
+                  selectedSceneLayerId,
+                  selectedSceneToolHint,
+                  selectedSceneToolLabel,
+                  viewportRef,
+                  workspace
+                },
+                workspace: {
+                  activeTool: activeSceneTool,
+                  selectedSceneId: selectedScene?.id ?? null
                 }
-                sceneViewPreferences={sceneViewPreferences}
-                isPlayerInspectorSelected={isPlayerInspectorSelected}
-                selectedActor={selectedActor}
-                selectedGenerationGuide={selectedGenerationGuide}
-                selectedHotspot={selectedHotspot}
-                selectedPickup={selectedPickup}
-                selectedScene={selectedScene?.type === "layered-2d" ? selectedScene : null}
-                selectedSceneLayerId={selectedSceneLayerId}
-                selectedSceneToolHint={selectedSceneToolHint}
-                selectedSceneToolLabel={selectedSceneToolLabel}
-                viewportRef={viewportRef}
-                workspace={workspace}
-                updateSceneDraft={updateSceneDraft}
-              />
-            </ScenesWorkspace>
+              }}
+              actions={{
+                viewport: {
+                  boundsForGenerationGuideShape,
+                  generationGuideColor,
+                  insertGenerationGuidePointFromEvent,
+                  insertWalkAreaPointFromEvent,
+                  onCreateActor: createActor,
+                  onCreateHotspot: createHotspot,
+                  onCreateSceneLayer: createSceneLayer,
+                  onSelectActor: selectActor,
+                  onSelectHotspot: selectHotspot,
+                  onSelectPickup: selectPickup,
+                  onSelectPlayerInScene: selectPlayerInScene,
+                  onSetActiveSceneTool: setActiveSceneTool,
+                  onSetSceneInspectorTarget: setSceneInspectorTarget,
+                  onSetSelectedGenerationGuideId: setSelectedGenerationGuideId,
+                  onStartActorInteraction: startActorInteraction,
+                  onStartActorSpotInteraction: startActorSpotInteraction,
+                  onStartGenerationGuidePointInteraction: startGenerationGuidePointInteraction,
+                  onStartGenerationGuideShapeInteraction: startGenerationGuideShapeInteraction,
+                  onStartHotspotInteraction: startHotspotInteraction,
+                  onStartHotspotSpotInteraction: startHotspotSpotInteraction,
+                  onStartPickupInteraction: startPickupInteraction,
+                  onStartPlayerStartInteraction: startPlayerStartInteraction,
+                  onStartWalkAreaPointInteraction: startWalkAreaPointInteraction,
+                  updateSceneDraft
+                }
+              }}
+            />
           )}
 
         </WorkspaceStagePanel>
