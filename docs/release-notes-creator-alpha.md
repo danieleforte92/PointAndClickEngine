@@ -1,4 +1,17 @@
-# Creator Alpha v0.4.0-alpha.3 Release Notes
+# Creator Alpha v0.5.0-alpha Release Notes
+
+Creator Alpha v0.5.0-alpha is the Visual Authoring alpha for Point & Click
+Engine. It completes milestones M01–M09 with the scene-centered editor shell,
+schema-v3 collider authoring, global resources, Gameplay Graph transitions,
+and Narrative Graph editing.
+
+Release evidence includes unit tests, typecheck, static checks, Playwright
+coverage, accessibility assertions, 1440×900 and 1920×1080 screenshots, the
+Windows package verification, and packaged player smoke coverage.
+
+Release page: publish this candidate as GitHub prerelease tag `v0.5.0-alpha`.
+
+## Previous Creator Alpha Notes
 
 Creator Alpha v0.4.0-alpha.3 is the distribution and accessibility alpha for
 Point & Click Engine. It is a Windows-first prerelease for contributors and

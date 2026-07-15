@@ -30,12 +30,20 @@ export const workspaceCapabilities: EditorCapability[] = [
       "Scene authoring supports direct viewport editing and keeps player setup in the scene inspector."
   },
   {
-    id: "narrative",
+    id: "flows",
+    label: "Flussi",
+    status: "beta",
+    workspace: "flows",
+    summary: "Gameplay and Narrative graph authoring in one workspace.",
+    detail: "Flows derives scene transitions from existing documents and keeps full Narrative graph editing, diagnostics, and persisted layouts in the same workspace."
+  },
+  {
+    id: "narrative-legacy",
     label: "Narrative",
     status: "beta",
     workspace: "narrative",
-    summary: "Graph editing, diagnostics, and localized narrative content.",
-    detail: "Narrative authoring supports every built-in flow node, typed transitions, persisted layout, diagnostics, and localized strings."
+    summary: "Compatibility route for the narrative graph.",
+    detail: "Legacy navigation is kept as a stable compatibility target while Flussi becomes the primary graph workspace."
   },
   {
     id: "assets",

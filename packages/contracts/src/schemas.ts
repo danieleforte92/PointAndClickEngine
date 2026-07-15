@@ -3,7 +3,7 @@ import { type Static, Type } from "@sinclair/typebox";
 const Id = Type.String({ minLength: 1, pattern: "^[a-z0-9][a-z0-9-]*$" });
 const HexColor = Type.String({ pattern: "^#[0-9a-fA-F]{6}$" });
 const ProjectPath = Type.String({ minLength: 1, pattern: "^(?!/)(?![A-Za-z]:)(?!.*\\.\\.).+$" });
-export const ProjectSchemaVersionSchema = Type.Union([Type.Literal(1), Type.Literal(2)]);
+export const ProjectSchemaVersionSchema = Type.Union([Type.Literal(1), Type.Literal(2), Type.Literal(3)]);
 export const HotspotCursorSchema = Type.Union([
   Type.Literal("look"),
   Type.Literal("talk"),
@@ -38,6 +38,65 @@ export const RectSchema = Type.Object(
 export const Polygon2Schema = Type.Object(
   {
     points: Type.Array(Vector2Schema, { minItems: 3 })
+  },
+  { additionalProperties: false }
+);
+
+/** Shared authoring/runtime collider geometry. The optional hotspot `bounds`
+ * field remains accepted for v1/v2 compatibility; v3 authors should use
+ * `shape` as the source of truth. */
+export const ColliderShapeSchema = Type.Union([
+  Type.Object(
+    {
+      type: Type.Literal("rect"),
+      bounds: RectSchema
+    },
+    { additionalProperties: false }
+  ),
+  Type.Object(
+    {
+      type: Type.Literal("ellipse"),
+      bounds: RectSchema
+    },
+    { additionalProperties: false }
+  ),
+  Type.Object(
+    {
+      type: Type.Literal("polygon"),
+      points: Type.Array(Vector2Schema, { minItems: 3 })
+    },
+    { additionalProperties: false }
+  )
+]);
+
+const GameplayGraphNodeLayoutSchema = Type.Object(
+  {
+    x: Type.Number(),
+    y: Type.Number()
+  },
+  { additionalProperties: false }
+);
+
+export const GameplayGraphLayoutSchema = Type.Object(
+  {
+    nodes: Type.Record(Type.String({ minLength: 1 }), GameplayGraphNodeLayoutSchema),
+    viewport: Type.Optional(
+      Type.Object(
+        {
+          x: Type.Number(),
+          y: Type.Number(),
+          zoom: Type.Number({ minimum: 0.1, maximum: 4 })
+        },
+        { additionalProperties: false }
+      )
+    )
+  },
+  { additionalProperties: false }
+);
+
+export const ProjectEditorLayoutSchema = Type.Object(
+  {
+    gameplayGraph: Type.Optional(GameplayGraphLayoutSchema)
   },
   { additionalProperties: false }
 );
@@ -93,6 +152,7 @@ export const ProjectManifestSchema = Type.Object(
     styleBibles: Type.Optional(Type.Array(ManifestDocumentReferenceSchema)),
     workflowTemplates: Type.Optional(Type.Array(ManifestDocumentReferenceSchema)),
     generationRecipes: Type.Optional(Type.Array(ManifestDocumentReferenceSchema)),
+    editorLayout: Type.Optional(ProjectEditorLayoutSchema),
     locales: Type.Array(
       Type.Object(
         {
@@ -141,6 +201,7 @@ export const HotspotSchema = Type.Object(
     id: Id,
     labelKey: Type.String({ minLength: 1 }),
     bounds: RectSchema,
+    shape: Type.Optional(ColliderShapeSchema),
     actions: HotspotActionsSchema,
     interactSpot: Type.Optional(Vector2Schema),
     lookSpot: Type.Optional(Vector2Schema),
@@ -1205,11 +1266,14 @@ export const RuntimeDebugSnapshotSchema = Type.Object(
 export type Vector2 = Static<typeof Vector2Schema>;
 export type Rect = Static<typeof RectSchema>;
 export type Polygon2 = Static<typeof Polygon2Schema>;
+export type ColliderShape = Static<typeof ColliderShapeSchema>;
 export type FlagValue = Static<typeof FlagValueSchema>;
 export type ConditionExpression = Static<typeof ConditionExpressionSchema>;
 export type Verb = Static<typeof VerbSchema>;
 export type ProjectSchemaVersion = Static<typeof ProjectSchemaVersionSchema>;
 export type ProjectManifest = Static<typeof ProjectManifestSchema>;
+export type GameplayGraphLayout = Static<typeof GameplayGraphLayoutSchema>;
+export type ProjectEditorLayout = Static<typeof ProjectEditorLayoutSchema>;
 export type SceneShape = Static<typeof SceneShapeSchema>;
 export type CursorValue = Static<typeof HotspotCursorSchema>;
 export type HotspotUseItemFlow = Static<typeof HotspotUseItemFlowSchema>;

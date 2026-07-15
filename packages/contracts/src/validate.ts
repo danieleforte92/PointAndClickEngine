@@ -1,6 +1,8 @@
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
 import addFormats from "ajv-formats";
 import type { TSchema } from "@sinclair/typebox";
+import { colliderBounds } from "./collider";
+import type { ColliderShape } from "./schemas";
 import {
   AssetGenerationRecipeDocumentSchema,
   AssetDocumentSchema,
@@ -45,9 +47,38 @@ export interface ValidationResult {
   errors: ErrorObject[];
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** v3 stores shape as the source of truth; hydrate the legacy bounds view at
+ * the validation boundary so older editor/runtime consumers remain safe. */
+function normalizeHotspotGeometry(value: unknown, mutate: boolean): unknown {
+  if (!isRecord(value) || !Array.isArray(value.hotspots)) return value;
+  let changed = false;
+  const hotspots = value.hotspots.map((hotspot) => {
+    if (!isRecord(hotspot) || hotspot.bounds !== undefined || !isRecord(hotspot.shape)) return hotspot;
+    try {
+      const bounds = colliderBounds(hotspot.shape as ColliderShape);
+      changed = true;
+      if (mutate) {
+        hotspot.bounds = bounds;
+        return hotspot;
+      }
+      return { ...hotspot, bounds };
+    } catch {
+      return hotspot;
+    }
+  });
+  return changed && !mutate ? { ...value, hotspots } : value;
+}
+
 export function validateDocument(kind: DocumentKind, value: unknown): ValidationResult {
   const validator = validators[kind];
-  const valid = validator(value);
+  const candidate = kind === "scene" || kind === "layered2dScene"
+    ? normalizeHotspotGeometry(value, false)
+    : value;
+  const valid = validator(candidate);
   return {
     valid,
     errors: valid ? [] : [...(validator.errors ?? [])]
@@ -62,6 +93,7 @@ export function assertDocument<T>(kind: DocumentKind, value: unknown): asserts v
       .join("; ");
     throw new Error(`Invalid ${kind} document: ${details}`);
   }
+  if (kind === "scene" || kind === "layered2dScene") normalizeHotspotGeometry(value, true);
 }
 
 export function exportSchema(schema: TSchema): string {

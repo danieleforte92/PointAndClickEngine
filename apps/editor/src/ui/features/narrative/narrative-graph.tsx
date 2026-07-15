@@ -14,7 +14,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useMemo } from "react";
 import { buildFlowGraph, type FlowGraphDiagnostic } from "@pointclick/authoring";
-import { buildFlowNodes, type FlowDraft, type FlowDraftNode } from "../../../editor-session";
+import { buildFlowNodes, createNewFlowNode, type DraftNodeType, type FlowDraft, type FlowDraftNode } from "../../../editor-session";
 
 interface NarrativeNodeData extends Record<string, unknown> {
   diagnosticCount: number;
@@ -197,10 +197,65 @@ export function NarrativeGraph({ diagnostics, draft, onChange, onSelectNode, sel
         <button type="button" onClick={() => onChange((current) => ({ ...current, editorLayout: buildDeterministicFlowLayout(current) }))}>
           Auto layout
         </button>
+        <button
+          type="button"
+          onClick={() => {
+            const node = createNewFlowNode("line", draft.nodes);
+            onChange((current) => ({ ...current, nodes: [...current.nodes, node] }));
+            onSelectNode(node.id);
+          }}
+        >
+          Quick add
+        </button>
+        <button
+          type="button"
+          disabled={!selectedNodeId}
+          onClick={() => {
+            if (!selectedNodeId) return;
+            const source = draft.nodes.find((node) => node.id === selectedNodeId);
+            if (!source) return;
+            const duplicate = createNewFlowNode(source.type, draft.nodes);
+            const cloned = { ...source, ...duplicate, id: duplicate.id } as FlowDraftNode;
+            onChange((current) => ({ ...current, nodes: [...current.nodes, cloned] }));
+            onSelectNode(cloned.id);
+          }}
+        >
+          Duplicate selected
+        </button>
+      </div>
+      <div className="narrative-node-palette" aria-label="Node palette">
+        {(["line", "set-flag", "change-scene", "choice", "condition", "sub-flow", "inventory", "wait", "cue", "end"] as DraftNodeType[]).map((type) => (
+          <button
+            key={type}
+            type="button"
+            onClick={() => {
+              const node = createNewFlowNode(type, draft.nodes);
+              onChange((current) => ({ ...current, nodes: [...current.nodes, node] }));
+              onSelectNode(node.id);
+            }}
+          >
+            + {nodeTypeLabels[type]}
+          </button>
+        ))}
+        <button
+          type="button"
+          disabled={!selectedNodeId || draft.nodes.length <= 1}
+          onClick={() => {
+            if (!selectedNodeId) return;
+            onChange((current) => ({
+              ...current,
+              nodes: current.nodes.filter((node) => node.id !== selectedNodeId),
+              startNodeId: current.startNodeId === selectedNodeId ? current.nodes.find((node) => node.id !== selectedNodeId)?.id ?? current.startNodeId : current.startNodeId
+            }));
+            onSelectNode(draft.startNodeId);
+          }}
+        >
+          Delete selected
+        </button>
       </div>
       <ReactFlow
         colorMode="dark"
-        deleteKeyCode={null}
+        deleteKeyCode={"Backspace"}
         edges={edges}
         fitView
         minZoom={0.25}
@@ -210,12 +265,24 @@ export function NarrativeGraph({ diagnostics, draft, onChange, onSelectNode, sel
           ...current,
           nodes: current.nodes.map((node) => node.id === connection.source ? connectDraftNode(node, connection) : node)
         }))}
+        onReconnect={(_edge, connection) => onChange((current) => ({
+          ...current,
+          nodes: current.nodes.map((node) => node.id === connection.source ? connectDraftNode(node, connection) : node)
+        }))}
         onNodeClick={(_event, node) => onSelectNode(node.id)}
+        onNodesDelete={(deleted) => {
+          const deletedIds = new Set(deleted.map((node) => node.id));
+          onChange((current) => ({
+            ...current,
+            nodes: current.nodes.filter((node) => !deletedIds.has(node.id)),
+            startNodeId: deletedIds.has(current.startNodeId) ? current.nodes.find((node) => !deletedIds.has(node.id))?.id ?? current.startNodeId : current.startNodeId
+          }));
+        }}
         onNodesChange={handleNodeChanges}
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="#244253" gap={28} size={1} />
-        <MiniMap pannable zoomable nodeColor={(node) => node.id === draft.startNodeId ? "#d39a4a" : "#167d83"} />
+        <Background color="var(--pc-border-strong)" gap={28} size={1} />
+        <MiniMap pannable zoomable nodeColor={(node) => node.id === draft.startNodeId ? "var(--pc-state-warning)" : "var(--pc-state-info)"} />
         <Controls showInteractive={false} />
       </ReactFlow>
     </section>

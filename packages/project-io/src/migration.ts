@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { safeProjectPath } from "./index";
 
-export const PROJECT_SCHEMA_VERSION = 2 as const;
+export const PROJECT_SCHEMA_VERSION = 3 as const;
 
 export type MigrationStatus = "dry-run" | "migrated" | "noop";
 
@@ -74,12 +74,26 @@ function migratedDocument(value: unknown, relativePath: string): Record<string, 
   if (!isRecord(value)) {
     throw new Error(`Migration document "${relativePath}" must be a JSON object.`);
   }
-  if (value.schemaVersion !== 1) {
+  if (value.schemaVersion !== 1 && value.schemaVersion !== 2) {
     throw new Error(
-      `Migration document "${relativePath}" has schema version ${String(value.schemaVersion)}; expected 1.`
+      `Migration document "${relativePath}" has schema version ${String(value.schemaVersion)}; expected 1 or 2.`
     );
   }
-  return { ...value, schemaVersion: PROJECT_SCHEMA_VERSION };
+
+  const next: Record<string, unknown> = { ...value, schemaVersion: PROJECT_SCHEMA_VERSION };
+  if (Array.isArray(value.hotspots)) {
+    next.hotspots = value.hotspots.map((hotspot) => {
+      if (!isRecord(hotspot) || !isRecord(hotspot.bounds) || hotspot.shape !== undefined) return hotspot;
+      return {
+        ...hotspot,
+        shape: {
+          type: "rect",
+          bounds: hotspot.bounds
+        }
+      };
+    });
+  }
+  return next;
 }
 
 function serializeJson(value: unknown): string {
@@ -133,8 +147,8 @@ export async function migrateProject(
       changedFiles: []
     };
   }
-  if (fromVersion !== 1) {
-    throw new Error(`Unsupported project schema version ${fromVersion}; expected 1 or ${PROJECT_SCHEMA_VERSION}.`);
+  if (fromVersion !== 1 && fromVersion !== 2) {
+    throw new Error(`Unsupported project schema version ${fromVersion}; expected 1, 2 or ${PROJECT_SCHEMA_VERSION}.`);
   }
 
   const relativePaths = projectDocumentPaths(directory, manifest);

@@ -62,7 +62,7 @@ export function stageToolbarModelFor({
     detail:
       workspace === "overview"
         ? "Project command center and readiness"
-        : workspace === "narrative"
+        : workspace === "narrative" || workspace === "flows"
           ? "Structured flow and locale editing"
           : workspaceCapability.summary,
     primaryLabel: workspaceCapability.label

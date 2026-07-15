@@ -2,8 +2,8 @@
 
 Open-source TypeScript engine and editor for building 2D point-and-click
 adventures with Git-friendly project files, deterministic runtime state, and
-local-first AI asset workflows. Creator Alpha `v0.4.0-alpha.3` is a
-Windows-first distribution and accessibility alpha. Static web export is
+local-first AI asset workflows. Creator Alpha `v0.5.0-alpha` is a
+Windows-first Visual Authoring and accessibility alpha. Static web export is
 available; a hosted web demo and published SDK are not part of this candidate.
 
 ![Creator Alpha scene editor](docs/assets/scene_editor.jpg)
@@ -17,7 +17,7 @@ The public Creator Alpha path is visible in four focused surfaces:
 - **Asset Studio:** [mock asset inspection and cleanup workspace](docs/assets/asset_studio.jpg)
 - **Test Lab:** [embedded runtime and logical-state comparison](docs/assets/test-lab.png)
 
-Release page: [GitHub `v0.4.0-alpha.3`](https://github.com/danieleforte92/PointAndClickEngine/releases/tag/v0.4.0-alpha.3)
+Release page: [GitHub `v0.5.0-alpha`](https://github.com/danieleforte92/PointAndClickEngine/releases/tag/v0.5.0-alpha)
 for the Windows x64 package, Squirrel installer, checksums, release evidence,
 and source archive.
 

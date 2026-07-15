@@ -1,3 +1,4 @@
+import { colliderBounds } from "@pointclick/contracts/collider";
 import type {
   AssetDocument,
   Hotspot,
@@ -13,6 +14,7 @@ import type { ImageGenerationSceneContext } from "../../shared/editor-feature-ha
 import type { SceneDraft, SceneSelectionTool, Workspace } from "../../../editor-session";
 
 export interface SceneViewPreferences {
+  fit: boolean;
   gridVisible: boolean;
   minimapVisible: boolean;
   overlaysVisible: boolean;
@@ -191,7 +193,7 @@ export function SceneViewport({
                   ? {
                       ...sceneBackgroundStyle,
                       aspectRatio: `${previewSceneSize.width} / ${previewSceneSize.height}`,
-                      zoom: sceneViewPreferences.zoom
+                      zoom: sceneViewPreferences.fit ? 1 : sceneViewPreferences.zoom
                     }
                   : { background: "#24384a" }
               }
@@ -266,9 +268,10 @@ export function SceneViewport({
                   {previewPickups.map((pickup) => (
                     <span className="scene-minimap-point pickup" key={`minimap-pickup-${pickup.id}`} style={{ left: `${((pickup.bounds.x + pickup.bounds.width / 2) / previewSceneSize.width) * 100}%`, top: `${((pickup.bounds.y + pickup.bounds.height / 2) / previewSceneSize.height) * 100}%` }} />
                   ))}
-                  {previewHotspots.map((hotspot) => (
-                    <span className="scene-minimap-point hotspot" key={`minimap-hotspot-${hotspot.id}`} style={{ left: `${((hotspot.bounds.x + hotspot.bounds.width / 2) / previewSceneSize.width) * 100}%`, top: `${((hotspot.bounds.y + hotspot.bounds.height / 2) / previewSceneSize.height) * 100}%` }} />
-                  ))}
+                  {previewHotspots.map((hotspot) => {
+                    const bounds = colliderBounds(hotspot.shape ?? { type: "rect", bounds: hotspot.bounds });
+                    return <span className="scene-minimap-point hotspot" key={`minimap-hotspot-${hotspot.id}`} style={{ left: `${((bounds.x + bounds.width / 2) / previewSceneSize.width) * 100}%`, top: `${((bounds.y + bounds.height / 2) / previewSceneSize.height) * 100}%` }} />;
+                  })}
                 </div>
               ) : null}
               {selectedScene ? (
@@ -594,6 +597,12 @@ export function SceneViewport({
                 {previewHotspots.map((hotspot) => (
                   (() => {
                     const hotspotIssues = previewHotspotIssueMap[hotspot.id];
+                    const hotspotBounds = colliderBounds(hotspot.shape ?? { type: "rect", bounds: hotspot.bounds });
+                    const hotspotClipPath = hotspot.shape?.type === "ellipse"
+                      ? "ellipse(50% 50% at 50% 50%)"
+                      : hotspot.shape?.type === "polygon"
+                        ? `polygon(${hotspot.shape.points.map((point) => `${((point.x - hotspotBounds.x) / hotspotBounds.width) * 100}% ${((point.y - hotspotBounds.y) / hotspotBounds.height) * 100}%`).join(", ")})`
+                        : undefined;
                     return (
                   <button
                     className={`hotspot-box ${selectedHotspot?.id === hotspot.id ? "selected" : ""} ${hotspotIssues?.hasIssues ? `has-issues ${hotspotIssues.tone}` : ""}`}
@@ -602,10 +611,11 @@ export function SceneViewport({
                     onClick={() => selectHotspot(hotspot)}
                     onPointerDown={(event) => startHotspotInteraction("move", hotspot, event)}
                     style={{
-                      height: `${(hotspot.bounds.height / previewSceneSize.height) * 100}%`,
-                      left: `${(hotspot.bounds.x / previewSceneSize.width) * 100}%`,
-                      top: `${(hotspot.bounds.y / previewSceneSize.height) * 100}%`,
-                      width: `${(hotspot.bounds.width / previewSceneSize.width) * 100}%`
+                      height: `${(hotspotBounds.height / previewSceneSize.height) * 100}%`,
+                      left: `${(hotspotBounds.x / previewSceneSize.width) * 100}%`,
+                      top: `${(hotspotBounds.y / previewSceneSize.height) * 100}%`,
+                      width: `${(hotspotBounds.width / previewSceneSize.width) * 100}%`,
+                      ...(hotspotClipPath ? { clipPath: hotspotClipPath } : {})
                     }}
                     title={
                       hotspotIssues?.hasIssues

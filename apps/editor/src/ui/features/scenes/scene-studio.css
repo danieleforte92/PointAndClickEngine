@@ -4,3 +4,110 @@
 .scene-workspace {
   color: var(--pc-text-primary);
 }
+.scene-navigator-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 5px 7px 8px;
+}
+
+.scene-navigator-heading .tree-section-label {
+  margin: 0;
+}
+
+.scene-navigator-heading small {
+  display: block;
+  margin-top: 3px;
+  color: var(--pc-text-subtle);
+  font-size: 0.58rem;
+}
+
+.scene-navigator-heading button {
+  padding: 5px 7px;
+  color: var(--pc-amber-400);
+  border: 1px solid var(--pc-border);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.6rem;
+}
+
+.scene-navigator-search {
+  display: grid;
+  gap: 4px;
+  margin: 0 7px 9px;
+  color: var(--pc-text-subtle);
+  font-size: 0.58rem;
+}
+
+.scene-navigator-search input {
+  width: 100%;
+  min-height: 29px;
+  padding: 0 8px;
+  color: var(--pc-text-primary);
+  border: 1px solid var(--pc-border);
+  border-radius: 4px;
+  background: var(--pc-bg-app);
+}
+
+.scene-navigator-list {
+  display: grid;
+  gap: 5px;
+  margin: 0 7px 12px;
+}
+
+.scene-navigator-card {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px;
+  color: var(--pc-text-primary);
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.scene-navigator-card:hover,
+.scene-navigator-card.active {
+  border-color: color-mix(in srgb, var(--pc-state-info) 42%, transparent);
+  background: color-mix(in srgb, var(--pc-state-info) 10%, transparent);
+}
+
+.scene-navigator-thumb {
+  width: 48px;
+  height: 30px;
+  border: 1px solid var(--pc-border);
+  border-radius: 3px;
+  background: linear-gradient(135deg, var(--pc-bg-raised), var(--pc-accent-brand));
+  background-position: center;
+  background-size: cover;
+}
+
+.scene-navigator-card strong,
+.scene-navigator-card small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scene-navigator-card strong {
+  font-size: 0.68rem;
+}
+
+.scene-navigator-card small {
+  margin-top: 2px;
+  color: var(--pc-text-subtle);
+  font-family: var(--pc-font-mono);
+  font-size: 0.55rem;
+}
+
+.scene-navigator-state {
+  color: var(--pc-accent-teal);
+  font-size: 0.62rem;
+}

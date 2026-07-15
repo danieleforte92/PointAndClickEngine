@@ -8,6 +8,8 @@ import {
   type AssetProcessingMetadata,
   type AssetGenerationRecipeDocument,
   type AssetDocument,
+  type ColliderShape,
+  type GameplayGraphLayout,
   type AnimationPackDocument,
   type AssetSource,
   type AudioChannel,
@@ -80,6 +82,7 @@ export interface ProjectDiagnostic {
 export interface HotspotPatch {
   actions: HotspotActions;
   bounds: Rect;
+  shape?: ColliderShape;
   cursor?: CursorValue;
   interactSpot?: Vector2 | null;
   labelKey: string;
@@ -148,9 +151,10 @@ export interface LocaleUpsertPatch {
 }
 
 export interface FlowPatch {
-  editorLayout?: FlowEditorLayout;
+  editorLayout?: FlowEditorLayout | undefined;
   name: string;
   nodes: FlowNode[];
+  sceneEntryTriggers?: FlowDocument["sceneEntryTriggers"] | undefined;
   startNodeId: string;
 }
 
@@ -162,6 +166,10 @@ export interface ProjectSettingsPatch {
     height: number;
     width: number;
   };
+}
+
+export interface GameplayGraphLayoutPatch {
+  layout: GameplayGraphLayout;
 }
 
 export interface PromptPackUpsertPatch {
@@ -350,8 +358,14 @@ export type ProjectSettingsUpdateCommand = {
   patch: ProjectSettingsPatch;
 };
 
+export type GameplayGraphLayoutUpdateCommand = {
+  type: "project/update-gameplay-layout";
+  patch: GameplayGraphLayoutPatch;
+};
+
 export type EditorProjectCommand =
   | ProjectSettingsUpdateCommand
+  | GameplayGraphLayoutUpdateCommand
   | HotspotUpdateCommand
   | HotspotCreateCommand
   | HotspotDeleteCommand
@@ -2223,8 +2237,12 @@ function patchHotspot(scene: Layered2DScene, hotspotId: string, patch: HotspotPa
     ...currentHotspot,
     actions: patch.actions,
     bounds: patch.bounds,
+    ...(patch.shape ? { shape: patch.shape } : currentHotspot.shape ? { shape: currentHotspot.shape } : {}),
     labelKey: patch.labelKey
   };
+  if (!patch.shape && nextHotspot.shape?.type !== "polygon") {
+    nextHotspot.shape = { type: nextHotspot.shape?.type ?? "rect", bounds: { ...patch.bounds } };
+  }
   if ("interactSpot" in patch) {
     if (patch.interactSpot) {
       nextHotspot.interactSpot = patch.interactSpot;
@@ -2436,6 +2454,7 @@ function patchFlow(flow: FlowDocument, patch: FlowPatch): FlowDocument {
   return {
     ...flow,
     ...(patch.editorLayout ? { editorLayout: patch.editorLayout } : {}),
+    ...(patch.sceneEntryTriggers ? { sceneEntryTriggers: patch.sceneEntryTriggers } : {}),
     name: patch.name,
     nodes: patch.nodes,
     startNodeId: patch.startNodeId
@@ -2791,7 +2810,7 @@ function projectDocumentSnapshots(project: LoadedProject): ProjectChangeDocument
 }
 
 function projectChangeScope(command: EditorProjectCommand): ProjectChangeScope {
-  if (command.type === "project/update-settings") return "project";
+  if (command.type === "project/update-settings" || command.type === "project/update-gameplay-layout") return "project";
   if (command.type.startsWith("scene/") || command.type.startsWith("hotspot/") || command.type.startsWith("pickup/") || command.type.startsWith("actor/")) {
     return "scene";
   }
@@ -2995,6 +3014,18 @@ async function applyProjectCommandWithoutHistory(
       viewport
     };
 
+    assertDocument<ProjectManifest>("project", nextManifest);
+    await writeJson(projectManifestPath(project), nextManifest);
+  }
+
+  if (command.type === "project/update-gameplay-layout") {
+    const nextManifest: ProjectManifest = {
+      ...project.bundle.manifest,
+      editorLayout: {
+        ...(project.bundle.manifest.editorLayout ?? {}),
+        gameplayGraph: command.patch.layout
+      }
+    };
     assertDocument<ProjectManifest>("project", nextManifest);
     await writeJson(projectManifestPath(project), nextManifest);
   }

@@ -12,6 +12,7 @@ import type {
   SceneDocument,
   Vector2
 } from "@pointclick/contracts";
+import { colliderBounds, hotspotCollider } from "@pointclick/contracts/collider";
 import {
   createInitialState,
   executeCommand,
@@ -724,7 +725,10 @@ export class AdventureEngine {
     const scene = this.currentScene;
     const hotspot = scene.hotspots.find((candidate) => candidate.id === id);
     if (!hotspot) throw new Error(`Missing hotspot "${id}" in scene "${scene.id}"`);
-    return hotspot;
+    return {
+      ...hotspot,
+      bounds: hotspot.bounds ?? colliderBounds(hotspotCollider(hotspot))
+    } as Hotspot;
   }
 
   private pickup(id: string): ScenePickup {
