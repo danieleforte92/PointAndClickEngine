@@ -64,11 +64,11 @@
     {
       "id": "documentation-media",
       "kind": "asset",
-      "paths": ["docs/assets/**"],
+      "paths": ["docs/assets/**", "tests/e2e/editor-baseline.spec.ts-snapshots/*.png"],
       "status": "approved",
       "license": "Apache-2.0",
-      "evidence": "docs/assets/sample-player-demo.png is regenerated from tests/e2e/player.spec.ts using the repository sample and capture mode.",
-      "releaseAction": "Keep the screenshot as a repository-owned release illustration and regenerate it after material UI changes."
+      "evidence": "docs/assets/sample-player-demo.png and the editor baseline PNGs are regenerated from repository-owned Playwright specs and fixtures using the capture mode.",
+      "releaseAction": "Keep the screenshots as repository-owned release illustrations and regenerate them after material UI changes."
     },
     {
       "id": "third-party-node-dependencies",
@@ -76,7 +76,7 @@
       "paths": ["package.json", "pnpm-lock.yaml"],
       "status": "approved",
       "license": "MIT/ISC and other licenses listed in THIRD_PARTY_NOTICES.md",
-      "evidence": "Resolved dependency metadata was reviewed against pnpm-lock.yaml on 2026-07-11; the direct runtime and packaging dependencies are recorded in THIRD_PARTY_NOTICES.md and pnpm audit --audit-level high passes.",
+      "evidence": "Resolved dependency metadata was reviewed against pnpm-lock.yaml on 2026-07-11; the direct runtime and packaging dependencies are recorded in THIRD_PARTY_NOTICES.md and the npm bulk advisory audit passes at high severity.",
       "releaseAction": "Keep THIRD_PARTY_NOTICES.md with source and candidate release materials and repeat the review when the lockfile changes."
     }
   ]
