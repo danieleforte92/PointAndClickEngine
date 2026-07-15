@@ -24,10 +24,11 @@ beta gates pass.
 1. Correct the public candidate metadata and publish the matching Windows
    artifacts.
 2. Complete the editor modularization and visual convergence initiative. The
-   current checkpoint has the PR-04 command/session/error seams and the first
-   AI/Scenes/Assets structural tranche implemented locally. The next gate is
-   one consolidation PR, followed by a serial ownership launchpad and three
-   parallel feature-completion workstreams.
+   PR-04 command/session/error seams, the first AI/Scenes/Assets structural
+   tranche, and the baseline-neutral ownership launchpad are now merged into
+   `develop` through the consolidation, CI/provenance, and launchpad PRs. The
+   next gate is three parallel feature-completion workstreams for AI, Scenes,
+   and Assets.
 3. Keep the player behavior stable while the editor theme is migrated; defer
    the player visual refresh to its own reviewed surface.
 4. Align active documentation with the shipped schema-v2, graph editor, static

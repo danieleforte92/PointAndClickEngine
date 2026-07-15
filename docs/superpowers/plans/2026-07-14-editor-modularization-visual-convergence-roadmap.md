@@ -1,8 +1,8 @@
 # Editor Modularization and Visual Convergence Roadmap
 
-Status: consolidation checkpoint ready (PR-03 foundation, PR-04 core seams, and the first AI/Scenes/Assets structural tranche are implemented locally)
+Status: Wave A launchpad merged; feature completion next (PR-03 foundation, PR-04 core seams, the first AI/Scenes/Assets structural tranche, and the integrator-owned launchpad are integrated in `develop`)
 Base: `develop` at `6a1d2ec` (alpha.3 source preparation)
-Current HEAD: `f1cf7f8` (`chore: establish creator alpha editor foundation`)
+Current HEAD: `47f1564` (PR-23 launchpad merged after PR-20 consolidation and PR-21 CI/provenance follow-up)
 Date: 2026-07-15
 
 ## Current implementation checkpoint
@@ -26,11 +26,11 @@ Date: 2026-07-15
   seams. `editor-feature-controller.ts` now owns the injectable boundary for
   preview, import/processing, AI generation, candidate handoff, validation,
   and export operations. AI Studio owns its workflow reducer and extracted
-  stepper shell; Scenes and Assets now have matching feature-local reducers and
-  workspace boundaries. The monolith is currently 13,027 lines; `editor.css`
-  is 3,431 lines with 434 literal color occurrences. The remaining feature
-  markup and orchestration still lives in `EditorApp` and is the next launchpad
-  target.
+  stepper shell; Scenes and Assets now have matching feature-local reducers,
+  workspace boundaries, and integrator-owned typed launchpads. The monolith is
+  currently 13,043 lines; `editor.css` is 3,431 lines with 434 literal color
+  occurrences. The remaining feature markup and orchestration still lives in
+  `EditorApp` and is now the scope of the completion workstreams.
 - Scene/document defaults, ID allocation, viewport guardrails, and layer
   validation now live in `apps/editor/src/editor-authoring-model.ts` with
   focused tests. The final provider-config breakpoint is isolated in
@@ -51,9 +51,10 @@ Date: 2026-07-15
 
 ## Consolidated delivery checkpoint
 
-- The current branch is delivered as one consolidation PR toward `develop`;
-  the original PR-03/04 and PR-05/06/07 packaging is retained as workstream
-  labels, not split retroactively into four review branches.
+- The consolidation is merged into `develop` as PR-20, with the CI/provenance
+  repair shipped first as the stacked PR-21. The original PR-03/04 and
+  PR-05/06/07 packaging remains as workstream labels, not retroactive review
+  branches.
 - PR-04 core seams are complete: command execution, session/recovery adapters,
   selection reconciliation, draft cleanup, shared status policy, and feature
   operations sit behind typed controller boundaries.
@@ -64,23 +65,24 @@ Date: 2026-07-15
 - `EditorGateway`, navigation targets, `packages/contracts`, and the project
   schema remain unchanged. The shared handoff contract now has an explicit
   `ui/shared` ownership boundary with compatibility re-exports.
-- `pnpm check:release` still stops in provenance validation because four
-  existing tracked editor-baseline PNGs are not covered by the provenance
-  inventory (`01-overview`, `02-build`, `03-ai-assets`, and
-  `04-test-lab-return`). This release-evidence task is recorded, but no asset
-  source or redistribution claim is inferred by the editor refactor.
+- The release-evidence gap is closed: the editor baseline PNGs are covered by
+  the provenance inventory, the dependency audit uses npm's bulk advisory
+  endpoint, and the post-merge CI/CodeQL gates pass on `develop`.
+- The baseline-neutral Wave A launchpad is merged as PR-23. `EditorApp` now
+  supplies explicit `model` and `actions` groups to the Scenes tree/viewport
+  and Asset Studio surfaces; AI Studio retains its existing typed workflow
+  boundary. The PR-23 CI and CodeQL gates pass on `develop`.
 
 ## Next execution sequence
 
-1. Finish the consolidation PR and record the full repository gates.
-2. Run an integrator-owned, baseline-neutral launchpad that moves the remaining
-   AI, Scenes, and Assets markup/CSS behind typed `model`/`actions` props.
-3. Start three feature worktrees in parallel: AI completion, Scenes completion,
+1. Keep the merged consolidation and launchpad evidence current in the
+   roadmap checklist and PR history.
+2. Start three feature worktrees in parallel: AI completion, Scenes completion,
    and Assets completion. Shared-owned files remain integrator-only.
-4. After Wave A completion, repeat the serial launchpad for Narrative,
+3. After Wave A completion, repeat the serial launchpad for Narrative,
    Shell/Project/Build, and Test Lab/player feedback, then start their three
    parallel feature branches.
-5. Reserve intentional visual tuning, compatibility removal, and final budget
+4. Reserve intentional visual tuning, compatibility removal, and final budget
    ratchets for PR-11.
 
 ## Shared launchpad and multi-agent ownership
@@ -91,8 +93,9 @@ Date: 2026-07-15
   feature styles, and focused specs after the launchpad merge.
 - A contract gap is a small prerequisite change owned by the coordinator; no
   feature agent edits shared files opportunistically.
-- Every branch uses its own Git worktree, targets `develop`, opens as draft,
-  and is rebased after each sibling merge.
+- The Wave A launchpad is merged; each completion branch now uses its own Git
+  worktree, targets `develop`, opens as draft, and is rebased after each sibling
+  merge.
 - Structural waves preserve the current screenshots. Feature stylesheet files
   remain at or below 800 lines; split a feature stylesheet before adding a
   second large responsibility.
@@ -254,7 +257,7 @@ flowchart TD
   P2["PR-02 Scoped theme contract"]
   P3["PR-03 foundation"]
   C1["Consolidation: PR-04 + Wave A tranche"]
-  LA["Wave A completion launchpad"]
+  LA["Wave A completion launchpad (PR-23 merged)"]
   P5["AI completion"]
   P6["Scenes completion"]
   P7["Assets completion"]
@@ -374,8 +377,9 @@ completed incrementally by the feature-completion waves below.
 
 ### Wave A - Three parallel feature PRs
 
-The current consolidation contains the first structural tranche. The completion
-wave starts only after the integrator-owned launchpad is merged.
+The current consolidation contains the first structural tranche, and the
+integrator-owned launchpad is now merged as PR-23. The completion wave can
+start with three parallel feature branches.
 
 | PR | Branch | Exclusive scope | Visual target |
 |---|---|---|---|
