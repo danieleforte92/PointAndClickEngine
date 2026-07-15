@@ -1,0 +1,13 @@
+.build-feature-workspace {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--pc-border-subtle);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-bg-panel);
+  color: var(--pc-text-primary);
+}
+
+.build-feature-workspace.good { border-color: var(--pc-state-success); }
+.build-feature-workspace.warn { border-color: var(--pc-state-warning); }
+.build-feature-workspace.error { border-color: var(--pc-state-danger); }
