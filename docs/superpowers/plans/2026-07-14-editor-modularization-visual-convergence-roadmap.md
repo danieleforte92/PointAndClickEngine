@@ -1,8 +1,8 @@
 # Editor Modularization and Visual Convergence Roadmap
 
-Status: consolidation checkpoint ready (PR-03 foundation, PR-04 core seams, and the first AI/Scenes/Assets structural tranche are implemented locally)
+Status: consolidation checkpoint merged; launchpad next (PR-03 foundation, PR-04 core seams, and the first AI/Scenes/Assets structural tranche are integrated in `develop`)
 Base: `develop` at `6a1d2ec` (alpha.3 source preparation)
-Current HEAD: `f1cf7f8` (`chore: establish creator alpha editor foundation`)
+Current HEAD: `3490236` (PR-20 consolidation merged after PR-21 CI/provenance follow-up)
 Date: 2026-07-15
 
 ## Current implementation checkpoint
@@ -51,9 +51,10 @@ Date: 2026-07-15
 
 ## Consolidated delivery checkpoint
 
-- The current branch is delivered as one consolidation PR toward `develop`;
-  the original PR-03/04 and PR-05/06/07 packaging is retained as workstream
-  labels, not split retroactively into four review branches.
+- The consolidation is merged into `develop` as PR-20, with the CI/provenance
+  repair shipped first as the stacked PR-21. The original PR-03/04 and
+  PR-05/06/07 packaging remains as workstream labels, not retroactive review
+  branches.
 - PR-04 core seams are complete: command execution, session/recovery adapters,
   selection reconciliation, draft cleanup, shared status policy, and feature
   operations sit behind typed controller boundaries.
@@ -64,15 +65,14 @@ Date: 2026-07-15
 - `EditorGateway`, navigation targets, `packages/contracts`, and the project
   schema remain unchanged. The shared handoff contract now has an explicit
   `ui/shared` ownership boundary with compatibility re-exports.
-- `pnpm check:release` still stops in provenance validation because four
-  existing tracked editor-baseline PNGs are not covered by the provenance
-  inventory (`01-overview`, `02-build`, `03-ai-assets`, and
-  `04-test-lab-return`). This release-evidence task is recorded, but no asset
-  source or redistribution claim is inferred by the editor refactor.
+- The release-evidence gap is closed: the editor baseline PNGs are covered by
+  the provenance inventory, the dependency audit uses npm's bulk advisory
+  endpoint, and the post-merge CI/CodeQL gates pass on `develop`.
 
 ## Next execution sequence
 
-1. Finish the consolidation PR and record the full repository gates.
+1. Record the merged consolidation and full repository gates in the launchpad
+   checklist.
 2. Run an integrator-owned, baseline-neutral launchpad that moves the remaining
    AI, Scenes, and Assets markup/CSS behind typed `model`/`actions` props.
 3. Start three feature worktrees in parallel: AI completion, Scenes completion,
