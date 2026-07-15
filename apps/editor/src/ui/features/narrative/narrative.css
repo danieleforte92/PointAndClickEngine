@@ -1,0 +1,17 @@
+.narrative-graph-workspace {
+  min-width: 0;
+  border: 1px solid var(--pc-border-subtle);
+  background: var(--pc-bg-panel);
+}
+
+.narrative-node {
+  border: 1px solid var(--pc-accent-brand);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-bg-raised);
+  color: var(--pc-text-primary);
+  box-shadow: var(--pc-elevation-1);
+}
+
+.narrative-node.has-diagnostics {
+  border-color: var(--pc-state-warning);
+}

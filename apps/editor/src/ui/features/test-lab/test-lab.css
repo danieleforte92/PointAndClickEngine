@@ -1,0 +1,15 @@
+.test-lab {
+  background: var(--pc-bg-canvas);
+  color: var(--pc-text-primary);
+}
+
+.test-lab-header,
+.test-lab-debug {
+  border-color: var(--pc-border-subtle);
+  background: var(--pc-bg-app);
+}
+
+.test-lab-debug nav button.active {
+  color: var(--pc-text-primary);
+  border-color: var(--pc-accent-brand);
+}

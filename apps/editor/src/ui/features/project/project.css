@@ -1,0 +1,13 @@
+.project-feature-workspace {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--pc-border-subtle);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-bg-panel);
+  color: var(--pc-text-primary);
+}
+
+.project-feature-workspace small {
+  color: var(--pc-text-muted);
+}

@@ -6,6 +6,8 @@ release-artifacts/
 .cache/
 .pnpm-store/
 build/
+!apps/editor/src/ui/features/build/
+!apps/editor/src/ui/features/build/**
 coverage/
 playwright-report/
 test-results/

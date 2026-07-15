@@ -1,0 +1,417 @@
+/* Assets feature styles mechanically extracted from editor.css.
+   Existing tokens and declarations are preserved for baseline parity. */
+
+.asset-studio-shell {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.7fr) minmax(280px, 1fr) minmax(320px, 1.25fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.asset-studio-sidebar,
+.asset-studio-preview,
+.asset-studio-tool-panel {
+  min-width: 0;
+}
+
+.asset-tool-rail {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.asset-tool-rail button {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #dbe8ee;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-start;
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
+.asset-tool-rail button:hover,
+.asset-tool-rail button.active {
+  background: rgba(123, 211, 137, 0.14);
+  border-color: rgba(123, 211, 137, 0.42);
+}
+
+.asset-studio-image {
+  align-items: center;
+  aspect-ratio: 1 / 1;
+  background-color: rgba(0, 0, 0, 0.18);
+  background-image:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.08) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.08) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.08) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.08) 75%);
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-size: 16px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.asset-studio-image.has-preview {
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+}
+
+.optimize-comparison-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.optimize-comparison-preview figure {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--pc-border, #344954);
+  border-radius: 8px;
+  background: rgba(4, 12, 17, 0.5);
+}
+
+.optimize-comparison-image {
+  display: grid;
+  aspect-ratio: 1 / 1;
+  place-items: center;
+  overflow: hidden;
+  color: var(--pc-text-muted, #879ca2);
+  font: 0.62rem/1 var(--pc-font-mono, monospace);
+}
+
+.optimize-comparison-image.checkerboard {
+  background-color: #111a20;
+  background-image:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.07) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.07) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.07) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.07) 75%);
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-size: 16px 16px;
+}
+
+.optimize-comparison-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.optimize-comparison-preview figcaption {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 10px;
+  padding: 9px 10px;
+  border-top: 1px solid var(--pc-border, #344954);
+  color: var(--pc-text-muted, #879ca2);
+  font: 0.6rem/1.3 var(--pc-font-mono, monospace);
+}
+
+.optimize-comparison-preview figcaption strong {
+  grid-column: 1 / -1;
+  color: var(--pc-paper-50, #f4eee2);
+  font: 0.72rem/1.2 var(--pc-font-ui, sans-serif);
+}
+
+.asset-studio-image.crop-editor-active {
+  position: relative;
+  cursor: crosshair;
+}
+
+.asset-crop-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+}
+
+.asset-crop-mask {
+  fill: rgba(48, 195, 140, 0.16);
+  stroke: none;
+  pointer-events: none;
+}
+
+.asset-crop-outline {
+  fill: none;
+  stroke: #9ee6c3;
+  stroke-width: 4;
+  stroke-dasharray: 16 10;
+  paint-order: stroke;
+  pointer-events: none;
+}
+
+.asset-crop-segment-hit {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.001);
+  stroke-width: 34;
+  cursor: copy;
+}
+
+.asset-crop-handle-line {
+  stroke: rgba(246, 197, 123, 0.72);
+  stroke-width: 3;
+  pointer-events: none;
+}
+
+.asset-crop-node,
+.asset-crop-handle {
+  vector-effect: non-scaling-stroke;
+}
+
+.asset-crop-node {
+  fill: #101922;
+  stroke: #eaf6f4;
+  stroke-width: 3;
+  cursor: grab;
+}
+
+.asset-crop-node.smooth {
+  fill: #d9a561;
+}
+
+.asset-crop-node-group.selected .asset-crop-node {
+  stroke: #9ee6c3;
+  stroke-width: 5;
+}
+
+.asset-crop-handle {
+  fill: #f6c57b;
+  stroke: #101922;
+  stroke-width: 3;
+  cursor: grab;
+}
+
+.asset-crop-node-label {
+  fill: #f8fbfc;
+  paint-order: stroke;
+  stroke: #0b1118;
+  stroke-width: 5px;
+  font-family: "Courier New", monospace;
+  font-size: 24px;
+  font-weight: 900;
+  pointer-events: none;
+}
+
+.asset-studio-meta {
+  color: #708995;
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
+
+.asset-studio-tool-panel {
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  display: grid;
+  gap: 12px;
+  padding-left: 16px;
+}
+
+.cleanup-preview-grid.compact {
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+}
+
+.crop-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.crop-stats-grid div,
+.crop-node-editor {
+  border: 1px solid #2f414b;
+  border-radius: 6px;
+  background: #121d26;
+}
+
+.crop-stats-grid div {
+  display: grid;
+  gap: 4px;
+  padding: 9px;
+}
+
+.crop-stats-grid span {
+  color: #708995;
+  font-size: 0.56rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.crop-stats-grid strong {
+  color: #dbe8ee;
+  font-family: "Courier New", monospace;
+  font-size: 0.68rem;
+}
+
+.crop-node-editor {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.crop-node-editor-header,
+.crop-mode-toggle,
+.crop-node-list {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.crop-node-editor-header {
+  justify-content: space-between;
+}
+
+.crop-node-editor-header strong {
+  color: #d9a561;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.crop-mode-toggle button,
+.crop-node-list button {
+  min-height: 28px;
+  border: 1px solid #30434e;
+  background: #101922;
+  color: #9cb3bc;
+  font-size: 0.62rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.crop-mode-toggle button {
+  padding: 0 8px;
+  text-transform: uppercase;
+}
+
+.crop-mode-toggle button.active,
+.crop-node-list button.active {
+  border-color: rgba(123, 211, 137, 0.54);
+  background: rgba(123, 211, 137, 0.14);
+  color: #dbe8ee;
+}
+
+.crop-node-list {
+  flex-wrap: wrap;
+}
+
+.crop-node-list button {
+  display: inline-grid;
+  min-width: 42px;
+  padding: 4px 7px;
+  line-height: 1.15;
+}
+
+.crop-node-list button span {
+  color: #708995;
+  font-size: 0.5rem;
+}
+
+.cleanup-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.cleanup-preview-pane {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cleanup-preview-pane span {
+  color: #708995;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cleanup-canvas {
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  border: 1px solid #30434e;
+  border-radius: 4px;
+  background: #101922;
+}
+
+.checkerboard-pane .cleanup-canvas {
+  background:
+    linear-gradient(45deg, rgba(217, 225, 230, 0.2) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(217, 225, 230, 0.2) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(217, 225, 230, 0.2) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(217, 225, 230, 0.2) 75%),
+    #101922;
+  background-position:
+    0 0,
+    0 10px,
+    10px -10px,
+    -10px 0;
+  background-size: 20px 20px;
+}
+
+.cleanup-controls {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.cleanup-controls label {
+  color: #708995;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cleanup-controls input {
+  width: 100%;
+  margin-top: 7px;
+}
+
+.cleanup-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #9fc9dd;
+  font-size: 0.74rem;
+}
+
+.cleanup-status-row p {
+  margin: 0;
+}
+
+.optimize-preset-grid {
+  display: grid;
+  gap: 7px;
+}
+
+.optimize-preset-grid button {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border-color: rgba(64, 115, 129, 0.45);
+  text-align: left;
+}
+
+.optimize-preset-grid button.active {
+  border-color: #d39a4a;
+  background: rgba(211, 154, 74, 0.1);
+}
+
+.optimize-preset-grid small {
+  color: var(--pc-text-muted);
+  font: 0.6rem/1.3 var(--pc-font-mono);
+  text-transform: uppercase;
+}
