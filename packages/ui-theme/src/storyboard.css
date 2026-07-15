@@ -54,6 +54,37 @@
   --pc-shadow-panel: 0 24px 60px rgba(0, 0, 0, 0.28);
   --pc-shadow-stage: 0 34px 90px rgba(0, 0, 0, 0.38);
   --pc-focus-ring: 0 0 0 3px rgba(96, 183, 177, 0.22);
+
+  /*
+   * Compatibility aliases for the semantic theme contract.  storyboard.css
+   * intentionally keeps its original palette so existing player surfaces do
+   * not change when they import this entry point.  The studio entry point
+   * overrides these aliases with the mockup-aligned palette.
+   */
+  --pc-color-deep-navy-950: var(--pc-ink-950);
+  --pc-color-deep-navy-900: var(--pc-ink-900);
+  --pc-color-deep-navy-800: var(--pc-ink-800);
+  --pc-color-violet-500: var(--pc-copper-500);
+  --pc-color-violet-600: var(--pc-copper-600);
+  --pc-color-blue-400: var(--pc-teal-400);
+  --pc-color-blue-600: var(--pc-teal-600);
+  --pc-color-green-400: var(--pc-green-400);
+  --pc-color-amber-400: var(--pc-amber-400);
+  --pc-color-red-400: var(--pc-red-400);
+
+  --pc-state-hover-surface: var(--pc-ink-800);
+  --pc-state-hover-border: var(--pc-border-strong);
+  --pc-state-selected-surface: var(--pc-amber-400);
+  --pc-state-selected-border: var(--pc-border-strong);
+  --pc-state-disabled-opacity: 0.48;
+  --pc-state-focus-ring: var(--pc-focus-ring);
+
+  --pc-elevation-0: none;
+  --pc-elevation-1: var(--pc-shadow-panel);
+  --pc-elevation-2: var(--pc-shadow-stage);
+  --pc-radius-control: var(--pc-radius-sm);
+  --pc-radius-card: var(--pc-radius-panel);
+  --pc-radius-pill: 999px;
 }
 
 .pc-button,

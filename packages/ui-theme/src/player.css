@@ -1,0 +1,3 @@
+/* Runtime/player entry point.  Keep the established storyboard palette until
+   the player receives its own product-specific visual refresh. */
+@import "./storyboard.css";

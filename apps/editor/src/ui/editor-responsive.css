@@ -1,0 +1,27 @@
+/* Responsive overrides are loaded after the base component and theme layers.
+   Keep this file limited to breakpoint-specific declarations so the cascade
+   remains easy to audit while the remaining editor CSS is extracted. */
+
+@media (max-width: 640px) {
+  .provider-config-backdrop {
+    padding: 12px;
+  }
+
+  .provider-config-body {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-config-body .prompt-studio-field:not(.provider-consent-field) {
+    grid-column: 1;
+  }
+
+  .provider-config-header,
+  .provider-config-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .provider-config-footer .build-actions {
+    justify-content: flex-end;
+  }
+}

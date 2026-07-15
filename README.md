@@ -2,7 +2,7 @@
 
 Open-source TypeScript engine and editor for building 2D point-and-click
 adventures with Git-friendly project files, deterministic runtime state, and
-local-first AI asset workflows. Creator Alpha `v0.4.0-alpha.1` is a
+local-first AI asset workflows. Creator Alpha `v0.4.0-alpha.3` is a
 Windows-first distribution and accessibility alpha. Static web export is
 available; a hosted web demo and published SDK are not part of this candidate.
 
@@ -10,14 +10,14 @@ available; a hosted web demo and published SDK are not part of this candidate.
 
 ## Creator Alpha Screenshots
 
-The public Creator Alpha path is visible in three focused surfaces:
+The public Creator Alpha path is visible in four focused surfaces:
 
 - **Player:** [complete deterministic sample loop](docs/assets/player.jpg)
 - **AI Studio:** [Advanced open with Candidate Output reachable](docs/assets/ai-studio-advanced.png)
 - **Asset Studio:** [mock asset inspection and cleanup workspace](docs/assets/asset_studio.jpg)
 - **Test Lab:** [embedded runtime and logical-state comparison](docs/assets/test-lab.png)
 
-Release page: [GitHub `v0.4.0-alpha.1`](https://github.com/danieleforte92/PointAndClickEngine/releases/tag/v0.4.0-alpha.1)
+Release page: [GitHub `v0.4.0-alpha.3`](https://github.com/danieleforte92/PointAndClickEngine/releases/tag/v0.4.0-alpha.3)
 for the Windows x64 package, Squirrel installer, checksums, release evidence,
 and source archive.
 
@@ -223,6 +223,7 @@ packages/cli           Project validation commands
 
 ## Docs
 
+- [Documentation index](docs/README.md)
 - [Roadmap](docs/roadmap.md)
 - [Architecture](docs/architecture.md)
 - [Project Format](docs/project-format.md)
@@ -233,6 +234,7 @@ packages/cli           Project validation commands
 - [Character Gym Guide](docs/character-gym-guide.md)
 - [Sample Demo Checklist](docs/sample-demo-checklist.md)
 - [Release Checklist](docs/release-checklist.md)
+- [Release Process](docs/release-process.md)
 - [Creator Alpha Support and Version Policy](docs/creator-alpha-policy.md)
 - [Provenance Inventory](provenance/inventory.json)
 - [Third-Party and Asset Notices](THIRD_PARTY_NOTICES.md)

@@ -1,20 +1,20 @@
-# Creator Alpha v0.4.0-alpha.1 Release Notes
+# Creator Alpha v0.4.0-alpha.3 Release Notes
 
-Creator Alpha v0.4.0-alpha.1 is the distribution and accessibility alpha for
+Creator Alpha v0.4.0-alpha.3 is the distribution and accessibility alpha for
 Point & Click Engine. It is a Windows-first prerelease for contributors and
 early creators who are comfortable with local developer tools. The candidate
 extends the runtime foundation and narrative authoring work with saves,
 migration, static web export, player accessibility, and verified packaging.
 
 Release page: publish this candidate as GitHub prerelease tag
-`v0.4.0-alpha.1`.
+`v0.4.0-alpha.3`.
 
 ## Public Walkthrough
 
-- [Scene editor](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.4.0-alpha.1/docs/assets/scene_editor.jpg)
-- [Player showcase loop](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.4.0-alpha.1/docs/assets/player.jpg)
-- [AI Studio with Advanced and Candidate Output](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.4.0-alpha.1/docs/assets/ai-studio-advanced.png)
-- [Asset Studio mock asset surface](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.4.0-alpha.1/docs/assets/asset_studio.jpg)
+- [Scene editor](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.4.0-alpha.3/docs/assets/scene_editor.jpg)
+- [Player showcase loop](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.4.0-alpha.3/docs/assets/player.jpg)
+- [AI Studio with Advanced and Candidate Output](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.4.0-alpha.3/docs/assets/ai-studio-advanced.png)
+- [Asset Studio mock asset surface](https://github.com/danieleforte92/PointAndClickEngine/blob/v0.4.0-alpha.3/docs/assets/asset_studio.jpg)
 
 ## What To Try First
 
@@ -62,8 +62,9 @@ Release page: publish this candidate as GitHub prerelease tag
 - This is an alpha candidate; Windows is the primary packaged target.
 - The Windows x64 package is unsigned. Signing requires a separate authorized
   certificate and recorded evidence before a non-alpha stable release.
-- Flow authoring has diagnostics and dependency inspection but is not yet a
-  full node-graph editor.
+- Flow authoring includes the built-in typed node graph, diagnostics, dependency
+  inspection, minimap, deterministic layout, and persisted editor positions;
+  custom node plugins remain out of scope.
 - Character Gym remains an MVP workflow and generated animation-sheet
   consistency needs stronger presets.
 - Transparent PNG quality depends on the selected ComfyUI workflow or a clean

@@ -1,7 +1,7 @@
 # Creator Alpha Release Tracking Issue
 
 Use this as the body for the GitHub tracking issue before tagging
-`v0.4.0-alpha.1`.
+`v0.4.0-alpha.3`.
 
 ## Goal
 
@@ -85,7 +85,8 @@ smoke notes.
 - Windows is the primary packaged target.
 - Character Gym can preview and edit packs, but generated sprite-sheet
   consistency still needs stronger presets.
-- Flow graph editing is not a full node-graph editor yet.
+- Flow authoring includes the built-in typed node graph, diagnostics, and
+  dependency inspection; custom flow-node plugins remain out of scope.
 - Transparent PNG quality depends on the selected ComfyUI workflow or clean
   chroma cleanup.
 - Reference and mask image inputs require a compatible installed ComfyUI
@@ -94,7 +95,7 @@ smoke notes.
 - OpenAI support requires API platform billing; ChatGPT subscriptions do not
   cover API calls.
 - Hosted demo, public website, and SDK publishing are later milestones; static
-  web export is included in v0.4.0-alpha.1.
+  web export is included in v0.4.0-alpha.3.
 - Cloud providers are experimental and opt-in; no provider account is required
   for the local-first authoring loop.
 

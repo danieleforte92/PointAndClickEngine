@@ -1,0 +1,9 @@
+/* Ordered editor stylesheet entrypoint. Keep the legacy component layer first
+   and apply semantic studio chrome overrides last until feature extraction is
+   complete. */
+@import "./editor.css";
+@import "./features/ai/ai-studio.css";
+@import "./features/scenes/scene-studio.css";
+@import "./features/assets/asset-studio.css";
+@import "./editor-theme.css";
+@import "./editor-responsive.css";

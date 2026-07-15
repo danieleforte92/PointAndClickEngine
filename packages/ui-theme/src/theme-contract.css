@@ -1,0 +1,147 @@
+/*
+ * PointAndClick Studio semantic theme contract.
+ *
+ * This file only declares tokens.  studio.css composes it with the existing
+ * storyboard component primitives, while player.css deliberately stays on
+ * the legacy storyboard palette.  Keeping the contract in a separate file
+ * makes importing the editor palette into a player bundle an explicit choice.
+ */
+
+:root {
+  /* Mockup palette: deep navy surfaces, violet brand, blue tools, green
+     success/path, amber attention, and red destructive feedback. */
+  --pc-color-deep-navy-950: #070b14;
+  --pc-color-deep-navy-900: #0a1020;
+  --pc-color-deep-navy-850: #101827;
+  --pc-color-deep-navy-800: #151f33;
+  --pc-color-deep-navy-700: #233452;
+
+  --pc-color-violet-700: #6d28d9;
+  --pc-color-violet-600: #6d3fe0;
+  --pc-color-violet-500: #7c4dff;
+  --pc-color-violet-400: #906bff;
+
+  --pc-color-blue-700: #0369a1;
+  --pc-color-blue-600: #0f65c0;
+  --pc-color-blue-500: #1478e8;
+  --pc-color-blue-400: #2f8cff;
+
+  --pc-color-green-600: #198d4c;
+  --pc-color-green-500: #28ad5e;
+  --pc-color-green-400: #35c76f;
+
+  --pc-color-amber-600: #b56f0c;
+  --pc-color-amber-500: #d88d12;
+  --pc-color-amber-400: #f0a51b;
+
+  --pc-color-red-600: #b42f3c;
+  --pc-color-red-500: #d83c4b;
+  --pc-color-red-400: #f0525f;
+
+  --pc-color-text-primary: #f2f5fc;
+  --pc-color-text-secondary: #aab4c8;
+  --pc-color-text-muted: #71809c;
+  --pc-color-text-disabled: #56647c;
+  --pc-color-text-on-accent: #ffffff;
+
+  --pc-color-surface-page: var(--pc-color-deep-navy-950);
+  --pc-color-surface-panel: var(--pc-color-deep-navy-900);
+  --pc-color-surface-raised: var(--pc-color-deep-navy-800);
+  --pc-color-surface-field: #0c1423;
+  --pc-color-surface-overlay: rgba(7, 11, 20, 0.94);
+  --pc-color-border-subtle: rgba(148, 163, 184, 0.2);
+  --pc-color-border-strong: rgba(144, 107, 255, 0.62);
+
+  /* Canonical names used by the editor roadmap and future primitives. */
+  --pc-bg-canvas: var(--pc-color-deep-navy-950);
+  --pc-bg-app: var(--pc-color-deep-navy-900);
+  --pc-bg-panel: var(--pc-color-surface-panel);
+  --pc-bg-raised: var(--pc-color-surface-raised);
+  --pc-bg-control: var(--pc-color-surface-field);
+  --pc-border-subtle: var(--pc-color-border-subtle);
+  --pc-border-strong: var(--pc-color-border-strong);
+  --pc-text-primary: var(--pc-color-text-primary);
+  --pc-text-secondary: var(--pc-color-text-secondary);
+  --pc-text-muted: var(--pc-color-text-muted);
+  --pc-accent-brand: var(--pc-color-violet-500);
+  --pc-accent-brand-hover: var(--pc-color-violet-400);
+  --pc-state-info: var(--pc-color-blue-400);
+  --pc-state-success: var(--pc-color-green-400);
+  --pc-state-warning: var(--pc-color-amber-400);
+  --pc-state-danger: var(--pc-color-red-400);
+  --pc-focus: var(--pc-color-blue-400);
+
+  /* State variants are named by intent so components do not depend on a
+     palette hue (for example, selected can remain violet in a high-contrast
+     theme without changing component code). */
+  --pc-state-hover-surface: var(--pc-color-deep-navy-800);
+  --pc-state-hover-border: rgba(47, 140, 255, 0.62);
+  --pc-state-hover-text: var(--pc-color-text-primary);
+  --pc-state-selected-surface: rgba(124, 77, 255, 0.26);
+  --pc-state-selected-border: var(--pc-color-violet-400);
+  --pc-state-selected-text: var(--pc-color-text-primary);
+  --pc-state-disabled-surface: rgba(100, 116, 139, 0.14);
+  --pc-state-disabled-border: rgba(100, 116, 139, 0.28);
+  --pc-state-disabled-text: var(--pc-color-text-disabled);
+  --pc-state-disabled-opacity: 0.56;
+  --pc-state-focus-border: var(--pc-color-blue-400);
+  --pc-state-focus-ring: 0 0 0 3px rgba(47, 140, 255, 0.24);
+  --pc-state-focus-outline: 2px solid var(--pc-color-blue-400);
+
+  --pc-elevation-0: none;
+  --pc-elevation-1: 0 4px 16px rgba(0, 0, 0, 0.24);
+  --pc-elevation-2: 0 16px 40px rgba(0, 0, 0, 0.32);
+  --pc-elevation-3: 0 28px 72px rgba(0, 0, 0, 0.46);
+
+  --pc-radius-xs: 4px;
+  --pc-radius-sm: 6px;
+  --pc-radius-md: 10px;
+  --pc-radius-lg: 14px;
+  --pc-radius-xl: 18px;
+  --pc-radius-control: var(--pc-radius-sm);
+  --pc-radius-card: var(--pc-radius-lg);
+  --pc-radius-overlay: var(--pc-radius-xl);
+  --pc-radius-pill: 999px;
+
+  /* Existing storyboard names remain valid, but now resolve to semantic
+     studio tokens.  These aliases are the compatibility layer used by the
+     current editor components and will be removed only in a later major
+     theme migration. */
+  --pc-ink-950: var(--pc-color-deep-navy-950);
+  --pc-ink-900: var(--pc-color-deep-navy-900);
+  --pc-ink-850: var(--pc-color-deep-navy-850);
+  --pc-ink-800: var(--pc-color-deep-navy-800);
+  --pc-ink-700: var(--pc-color-deep-navy-700);
+
+  --pc-paper-50: var(--pc-color-text-primary);
+  --pc-paper-100: var(--pc-color-text-secondary);
+  --pc-paper-200: #64748b;
+  --pc-paper-300: #475569;
+
+  --pc-copper-500: var(--pc-color-violet-500);
+  --pc-copper-600: var(--pc-color-violet-600);
+  --pc-amber-400: var(--pc-color-amber-400);
+  --pc-teal-400: var(--pc-color-blue-400);
+  --pc-teal-600: var(--pc-color-blue-600);
+  --pc-red-400: var(--pc-color-red-400);
+  --pc-green-400: var(--pc-color-green-400);
+
+  --pc-text: var(--pc-color-text-primary);
+  --pc-text-muted: var(--pc-color-text-secondary);
+  --pc-text-subtle: var(--pc-color-text-muted);
+  --pc-text-dark: var(--pc-color-deep-navy-950);
+
+  --pc-surface-page: var(--pc-color-surface-page);
+  --pc-surface-panel: var(--pc-color-surface-panel);
+  --pc-surface-panel-raised: var(--pc-color-surface-raised);
+  --pc-surface-paper: var(--pc-color-surface-raised);
+  --pc-surface-paper-soft: #1e293b;
+  --pc-surface-field: var(--pc-color-surface-field);
+  --pc-border: var(--pc-color-border-subtle);
+  --pc-border-strong: var(--pc-color-border-strong);
+
+  --pc-radius-panel: var(--pc-radius-md) var(--pc-radius-lg) var(--pc-radius-md) var(--pc-radius-lg);
+  --pc-shadow-panel: var(--pc-elevation-2);
+  --pc-shadow-stage: var(--pc-elevation-3);
+  --pc-focus-ring: var(--pc-state-focus-ring);
+}

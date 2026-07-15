@@ -8,19 +8,21 @@ Windows editor built by the release-candidate workflow. The browser player is a
 development and embedded-preview surface, not a general hosted web-export
 product.
 
-The release does not promise a public SDK, generic web export, enterprise
+The release does not promise a public SDK, hosted collaboration, enterprise
 support, code signing, SBOM delivery, complete WCAG conformance, or autonomous
-puzzle design. The local copilot only proposes review-required beats; it does
-not write gameplay or run during play. Those are possible later product decisions, not Alpha
+puzzle design. Static web export is available as a local build target. The
+local copilot only proposes review-required beats; it does not write gameplay
+or run during play. Those are possible later product decisions, not Alpha
 commitments.
 
 ## Compatibility
 
-The 0.1.x Creator Alpha series preserves schema-v1 project-document
-compatibility. Additive document changes must remain readable by the matching
-schema-v1 tooling, and any compatibility exception must be called out in the
-release notes before a tag is created. Pre-1.0 APIs and editor behavior can
-otherwise change between minor releases.
+The current Creator Alpha line authors schema-v2 documents and keeps v1 projects
+readable and playable until an explicit `pointclick migrate` operation is run.
+Migration supports dry-run, backup, staging, rollback, and fixture coverage.
+Any compatibility exception must be called out in the release notes before a
+tag is created. Pre-1.0 APIs and editor behavior can otherwise change between
+minor releases.
 
 ## Provider policy
 

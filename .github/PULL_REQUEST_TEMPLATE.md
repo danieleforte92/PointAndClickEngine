@@ -11,5 +11,5 @@ Describe the user-visible or maintenance outcome.
 
 ## Compatibility and provenance
 
-- [ ] This keeps schema-v1 project compatibility, or the release impact is documented.
+- [ ] This preserves the current project compatibility policy, or the schema/migration impact is documented.
 - [ ] Any asset, workflow, or third-party redistribution change is recorded in `provenance/inventory.json` and `THIRD_PARTY_NOTICES.md`.

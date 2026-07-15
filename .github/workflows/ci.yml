@@ -74,6 +74,12 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Editor, theme, and documentation contracts
+        run: |
+          pnpm check:editor-budget
+          pnpm check:theme-contract
+          pnpm check:docs
+
       - name: Validate project fixtures
         run: |
           pnpm validate:sample
@@ -170,6 +176,9 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Documentation contract
+        run: pnpm check:docs
+
       - name: Validate project fixtures
         run: |
           pnpm validate:sample
@@ -207,4 +216,4 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Dependency audit
-        run: pnpm audit --audit-level high
+        run: pnpm audit:dependencies

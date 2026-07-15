@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "b49a9041-0d57-4745-9ead-75e25cca3dde",
+  "sequence": 2,
+  "createdAt": "2026-07-14T14:29:24.738Z",
+  "source": "editor",
+  "operation": "flow/create",
+  "summary": "flow/create",
+  "scope": "narrative",
+  "affectedDocuments": [
+    {
+      "kind": "project",
+      "id": "clean-adventure",
+      "path": "adventure.project.json",
+      "beforeSha256": "6caca994094b92e54b18f9b51e4d45afe759c790ac6d16ff0e2a1189278ee298",
+      "afterSha256": "f7f881bb35102317f7311e07fa568be11d516e95e346432c66e71e3e670dcb53"
+    },
+    {
+      "kind": "flow",
+      "id": "new-flow",
+      "path": "flows/new-flow.flow.json",
+      "afterSha256": "b4bd31256d4b1b49d682225457606b16808acdd76a8cebc7561d1a853cecdbff"
+    }
+  ],
+  "command": {
+    "type": "flow/create",
+    "flow": {
+      "id": "new-flow",
+      "name": "New Flow",
+      "nodes": [
+        {
+          "id": "line-1",
+          "next": "end-1",
+          "speakerId": "speaker",
+          "textKey": "dialogue.new-flow.01",
+          "type": "line"
+        },
+        {
+          "id": "end-1",
+          "type": "end"
+        }
+      ],
+      "schemaVersion": 1,
+      "startNodeId": "line-1"
+    }
+  }
+}
