@@ -7,6 +7,7 @@ import type {
   ScenePickup,
   Vector2
 } from "@pointclick/contracts";
+import { hotspotCollider } from "@pointclick/contracts/collider";
 import { AnimatedSprite, Application, Assets, Container, Graphics, Rectangle, Sprite, Texture } from "pixi.js";
 
 export interface SceneInteractionHandlers {
@@ -136,15 +137,21 @@ export class PixiSceneRenderer {
     }
 
     for (const hotspot of this.scene.hotspots) {
-      const target = new Graphics()
-        .roundRect(
-          hotspot.bounds.x,
-          hotspot.bounds.y,
-          hotspot.bounds.width,
-          hotspot.bounds.height,
-          8
-        )
-        .fill({ color: 0xffcc66, alpha: 0.001 });
+      const collider = hotspotCollider(hotspot);
+      const target = new Graphics();
+      if (collider.type === "rect") {
+        target.rect(collider.bounds.x, collider.bounds.y, collider.bounds.width, collider.bounds.height);
+      } else if (collider.type === "ellipse") {
+        target.ellipse(
+          collider.bounds.x + collider.bounds.width / 2,
+          collider.bounds.y + collider.bounds.height / 2,
+          collider.bounds.width / 2,
+          collider.bounds.height / 2
+        );
+      } else {
+        target.poly(collider.points.map((point) => ({ x: point.x, y: point.y })));
+      }
+      target.fill({ color: 0xffcc66, alpha: 0.001 });
       target.zIndex = 100;
       target.eventMode = "static";
       target.cursor = "pointer";

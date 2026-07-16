@@ -41,13 +41,13 @@ describe("project schema migration", () => {
       const value = JSON.parse(
         await readFile(path.join(projectDirectory, relativePath), "utf8")
       ) as { schemaVersion: number };
-      expect(value.schemaVersion).toBe(2);
+      expect(value.schemaVersion).toBe(3);
     }
     await expect(loadProjectFromDirectory(projectDirectory)).resolves.toBeTruthy();
 
     await expect(migrateProject(projectDirectory)).resolves.toMatchObject({
       status: "noop",
-      fromVersion: 2,
+      fromVersion: 3,
       changedFiles: []
     });
 

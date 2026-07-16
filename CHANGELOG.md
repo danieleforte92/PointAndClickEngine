@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.0-alpha - 2026-07-15
+
+### Visual Authoring
+
+- Complete the M01–M09 Visual Authoring roadmap: resizable authoring shell,
+  scene navigator and inspector layers, schema-v3 collider migration, fit and
+  zoom controls, global resource dock, Gameplay Graph transition wizard, and
+  Narrative Graph authoring tools.
+- Add shared collider geometry and runtime hit testing while preserving legacy
+  rectangle compatibility at the validation boundary.
+- Add Playwright coverage for the visual authoring surfaces, accessibility,
+  narrow desktop overflow, and 1440×900 / 1920×1080 screenshot evidence.
+
+### Release engineering
+
+- Align all workspace package metadata on `0.5.0-alpha`.
+
 ## 0.4.0-alpha.3 - 2026-07-14
 
 ### Release alignment

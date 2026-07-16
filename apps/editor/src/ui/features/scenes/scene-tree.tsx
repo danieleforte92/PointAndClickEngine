@@ -1,4 +1,5 @@
 import type { Hotspot, Layered2DScene, SceneActor, SceneGenerationGuide, ScenePickup } from "@pointclick/contracts";
+import { useMemo, useState } from "react";
 import {
   createActorKey,
   createHotspotKey,
@@ -84,12 +85,58 @@ export function SceneTree({
   selectedSceneLayerId,
   session
 }: SceneTreeProps) {
+  const [sceneQuery, setSceneQuery] = useState("");
+  const filteredScenes = useMemo(() => {
+    const query = sceneQuery.trim().toLocaleLowerCase();
+    if (!query) return scenes;
+    return scenes.filter((scene) => `${scene.name} ${scene.id}`.toLocaleLowerCase().includes(query));
+  }, [sceneQuery, scenes]);
+
   if (!projectAvailable) {
     return <div className="tree-item tree-meta">No project loaded</div>;
   }
 
   return (
     <>
+          <div className="scene-navigator-heading">
+            <div>
+              <span className="tree-section-label">Scene navigator</span>
+              <small>{scenes.length} scene(s)</small>
+            </div>
+            <button type="button" onClick={createScene}>+ Add scene</button>
+          </div>
+          <label className="scene-navigator-search">
+            <span>Search scenes</span>
+            <input
+              aria-label="Search scenes"
+              placeholder="Name or id"
+              type="search"
+              value={sceneQuery}
+              onChange={(event) => setSceneQuery(event.target.value)}
+            />
+          </label>
+          <div className="scene-navigator-list" aria-label="Scenes">
+            {filteredScenes.map((scene) => (
+              <button
+                className={`scene-navigator-card ${selectedScene?.id === scene.id ? "active" : ""}`}
+                key={`scene-navigator-${scene.id}`}
+                type="button"
+                onClick={() => selectScene(scene.id)}
+              >
+                <span
+                  className="scene-navigator-thumb"
+                  style={scene.background && assetPreviewUrls[scene.background] ? { backgroundImage: `url("${assetPreviewUrls[scene.background]}")` } : undefined}
+                  aria-hidden="true"
+                />
+                <span>
+                  <strong>{scene.name}</strong>
+                  <small>{scene.id}{dirtyState.sceneIds.has(scene.id) ? " · dirty" : ""}</small>
+                </span>
+                {selectedScene?.id === scene.id ? <span aria-hidden="true" className="scene-navigator-state">●</span> : null}
+              </button>
+            ))}
+            {filteredScenes.length === 0 ? <span className="tree-item tree-meta">No matching scenes</span> : null}
+          </div>
           <div className="tree-section-label">Scenes</div>
           <div className="scene-compact-selector">
             <div

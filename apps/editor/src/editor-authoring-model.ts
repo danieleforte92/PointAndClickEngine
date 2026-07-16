@@ -42,7 +42,7 @@ export function createDefaultFlowDocument(flowId: string): FlowDocument {
         type: "end"
       }
     ],
-    schemaVersion: 1,
+    schemaVersion: 3,
     startNodeId: "line-1"
   };
 }
@@ -75,7 +75,7 @@ export function createDefaultSceneDocument(snapshot: EditorProjectSnapshot, scen
       y: Math.floor(height * 0.8)
     },
     pickups: [],
-    schemaVersion: 1,
+    schemaVersion: 3,
     shapes: [],
     size: { width, height },
     type: "layered-2d",
@@ -116,6 +116,10 @@ export function createDefaultHotspot(scene: Layered2DScene, hotspotId: string): 
       y,
       width,
       height
+    },
+    shape: {
+      type: "rect",
+      bounds: { x, y, width, height }
     },
     cursor: "look",
     id: hotspotId,

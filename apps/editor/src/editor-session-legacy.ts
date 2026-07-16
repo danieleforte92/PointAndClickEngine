@@ -19,7 +19,8 @@ import type {
   SceneDocument
 } from "@pointclick/contracts";
 
-export type Workspace = "overview" | "scene" | "narrative" | "assets" | "ai" | "build";
+export type FlowWorkspaceMode = "gameplay" | "narrative";
+export type Workspace = "overview" | "scene" | "flows" | "narrative" | "assets" | "ai" | "build";
 export type SceneNavigationEntityKind =
   | "scene"
   | "background"
@@ -41,6 +42,14 @@ export type ProjectNavigationSection = "health" | "settings" | "entrypoints" | "
 export type EditorNavigationTarget =
   | { workspace: "overview"; section?: ProjectNavigationSection }
   | { workspace: "scene"; sceneId?: string; entityKind?: SceneNavigationEntityKind; entityId?: string }
+  | {
+      workspace: "flows";
+      mode?: FlowWorkspaceMode;
+      sceneId?: string;
+      flowId?: string;
+      nodeId?: string;
+      relationId?: string;
+    }
   | { workspace: "narrative"; flowId?: string; textKey?: string; sceneId?: string; entityId?: string }
   | { workspace: "assets"; assetId?: string }
   | { workspace: "ai"; targetId?: string; sceneId?: string; assetId?: string }
@@ -778,6 +787,12 @@ export function buildHotspotFromDraft(hotspot: Hotspot, draft: HotspotDraft): Ho
         : { x, y, width, height },
     labelKey: draft.labelKey
   };
+
+  if (nextHotspot.shape?.type === "rect" || nextHotspot.shape?.type === "ellipse") {
+    nextHotspot.shape = { ...nextHotspot.shape, bounds: { ...nextHotspot.bounds } };
+  } else if (!nextHotspot.shape) {
+    nextHotspot.shape = { type: "rect", bounds: { ...nextHotspot.bounds } };
+  }
 
   const cursor = draft.cursor.trim();
   if (cursor === "look" || cursor === "talk" || cursor === "use" || cursor === "enter") {

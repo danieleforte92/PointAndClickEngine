@@ -6,6 +6,9 @@
 @import "./editor-reset.css";
 
 .studio-shell {
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
   height: 100%;
   min-height: 0;
   padding-top: env(titlebar-area-height, 0);
@@ -308,7 +311,8 @@
 }
 
 .workspace-grid {
-  height: calc(100% - 64px);
+  flex: 1;
+  height: auto;
   min-height: 0;
   display: grid;
   grid-template-columns: 220px minmax(540px, 1fr) 260px;

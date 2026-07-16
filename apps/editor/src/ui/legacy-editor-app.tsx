@@ -3,11 +3,13 @@ import type {
   AssetDocument,
   CursorValue,
   FlowDocument,
+  FlowNode,
   Hotspot,
   ItemDocument,
   Layered2DScene,
   LocaleDocument,
   AssetGenerationRecipeDocument,
+  GameplayGraphLayout,
   PromptPackDocument,
   PromptPackGenerationTarget,
   Rect,
@@ -256,6 +258,8 @@ import type {
 } from "../validation-report";
 import { createBuildReadinessIssues, createValidationReport } from "../validation-report";
 import { NarrativeGraph } from "./narrative-graph";
+import { FlowsWorkspace } from "./features/flows/flows-workspace";
+import type { GameplayTransitionDraft } from "./features/flows/gameplay-graph";
 import { FlowNodeFields } from "./flow-node-fields";
 import { TestLab } from "./test-lab";
 import { aiStudioReducer, initialAiStudioState } from "./features/ai/ai-studio-state";
@@ -263,6 +267,7 @@ import { AiStudioSteps } from "./features/ai/ai-studio-steps";
 import { AiStudioWorkspace } from "./features/ai/ai-studio-workspace";
 import { assetStudioReducer, initialAssetStudioState, type AssetStudioTool } from "./features/assets/asset-studio-state";
 import { AssetStudioLaunchpad } from "./features/assets/asset-studio-launchpad";
+import { ResourceDock } from "./features/assets/resource-dock";
 import { initialSceneStudioState, sceneStudioReducer } from "./features/scenes/scene-studio-state";
 import { SceneTreeLaunchpad, ScenesLaunchpad } from "./features/scenes/scenes-launchpad";
 import {
@@ -1013,6 +1018,7 @@ type SceneTool = SceneSelectionTool;
 type SceneInspectorTarget = "scene" | "player";
 
 interface SceneViewPreferences {
+  fit: boolean;
   gridVisible: boolean;
   minimapVisible: boolean;
   overlaysVisible: boolean;
@@ -1020,7 +1026,9 @@ interface SceneViewPreferences {
 }
 
 const sceneViewPreferencesStorageKey = "pointclick.editor.scene-view.v1";
+const resourceDockPreferencesStorageKey = "pointclick.editor.resource-dock.v1";
 const defaultSceneViewPreferences: SceneViewPreferences = {
+  fit: true,
   gridVisible: false,
   minimapVisible: false,
   overlaysVisible: true,
@@ -1032,13 +1040,29 @@ function loadSceneViewPreferences(): SceneViewPreferences {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(sceneViewPreferencesStorageKey) ?? "{}") as Partial<SceneViewPreferences>;
     return {
+      fit: parsed.fit ?? true,
       gridVisible: parsed.gridVisible ?? false,
       minimapVisible: parsed.minimapVisible ?? false,
       overlaysVisible: parsed.overlaysVisible ?? true,
-      zoom: [0.75, 1, 1.25, 1.5].includes(parsed.zoom ?? 1) ? parsed.zoom ?? 1 : 1
+      zoom: typeof parsed.zoom === "number" ? Math.min(4, Math.max(0.25, parsed.zoom)) : 1
     };
   } catch {
     return defaultSceneViewPreferences;
+  }
+}
+
+function loadResourceDockPreferences(): { height: number; isOpen: boolean; query: string; viewMode: "grid" | "list" } {
+  if (typeof window === "undefined") return { height: 220, isOpen: true, query: "", viewMode: "grid" };
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(resourceDockPreferencesStorageKey) ?? "{}") as Partial<ReturnType<typeof loadResourceDockPreferences>>;
+    return {
+      height: typeof parsed.height === "number" ? Math.min(360, Math.max(150, parsed.height)) : 220,
+      isOpen: parsed.isOpen ?? true,
+      query: parsed.query ?? "",
+      viewMode: parsed.viewMode === "list" ? "list" : "grid"
+    };
+  } catch {
+    return { height: 220, isOpen: true, query: "", viewMode: "grid" };
   }
 }
 
@@ -1646,6 +1670,8 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
   const [history, setHistory] = useState<EditorHistoryState>(emptyHistory);
   const [pendingRecovery, setPendingRecovery] = useState<EditorRecoverySnapshot | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  const [resourceDockPreferences, setResourceDockPreferences] = useState(loadResourceDockPreferences);
+  const [resourceDockWorkspaceOpen, setResourceDockWorkspaceOpen] = useState<Workspace | null>(null);
   const [assetStudioState, dispatchAssetStudio] = useReducer(assetStudioReducer, initialAssetStudioState);
   const { activeTool: activeAssetTool, resourceHealth, resourceKind, resourceQuery, resourceViewMode } = assetStudioState;
   const setActiveAssetTool = useCallback((tool: AssetTool) => dispatchAssetStudio({ type: "tool/select", tool }), []);
@@ -1820,6 +1846,10 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
     []
   );
   const [selectedFlowNodeId, setSelectedFlowNodeId] = useState<string | null>(null);
+  const [flowWorkspaceMode, setFlowWorkspaceMode] = useState<"gameplay" | "narrative">("gameplay");
+  const [gameplayGraphLayout, setGameplayGraphLayout] = useState<GameplayGraphLayout | undefined>(undefined);
+  const [sceneInspectorTab, setSceneInspectorTab] = useState<"inspector" | "layers">("inspector");
+  const [sceneInspectorView, setSceneInspectorView] = useState<"general" | "transform" | "interactions" | "advanced">("general");
   const setProject = useCallback((snapshot: EditorProjectSnapshot) => {
     setProjectState(snapshot);
     setSelectedAssetId((current) =>
@@ -4179,6 +4209,32 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
   useEffect(() => {
     window.localStorage.setItem(sceneViewPreferencesStorageKey, JSON.stringify(sceneViewPreferences));
   }, [sceneViewPreferences]);
+
+  useEffect(() => {
+    window.localStorage.setItem(resourceDockPreferencesStorageKey, JSON.stringify(resourceDockPreferences));
+  }, [resourceDockPreferences]);
+
+  useEffect(() => {
+    if (!project?.manifest.id) {
+      setGameplayGraphLayout(undefined);
+      return;
+    }
+    const storageKey = `pointclick.editor.gameplay-graph.${project.manifest.id}.v1`;
+    try {
+      const saved = window.localStorage.getItem(storageKey);
+      setGameplayGraphLayout(saved ? JSON.parse(saved) as GameplayGraphLayout : project.manifest.editorLayout?.gameplayGraph);
+    } catch {
+      setGameplayGraphLayout(project.manifest.editorLayout?.gameplayGraph);
+    }
+  }, [project?.manifest.editorLayout?.gameplayGraph, project?.manifest.id]);
+
+  useEffect(() => {
+    if (!project?.manifest.id || !gameplayGraphLayout) return;
+    window.localStorage.setItem(
+      `pointclick.editor.gameplay-graph.${project.manifest.id}.v1`,
+      JSON.stringify(gameplayGraphLayout)
+    );
+  }, [gameplayGraphLayout, project?.manifest.id]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -8017,7 +8073,7 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
       return;
     }
 
-    if (nextWorkspace === "narrative") {
+    if (nextWorkspace === "narrative" || nextWorkspace === "flows") {
       setSceneInspectorTarget("scene");
       updateSessionSelection((current) => {
         const activeFlowId =
@@ -8592,20 +8648,21 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
       canUseSceneTools={!!selectedScene}
       contextualControls={workspace === "scene" ? (
         <div className="scene-view-controls" aria-label="Scene view preferences">
+          <button aria-pressed={sceneViewPreferences.fit} type="button" onClick={() => setSceneViewPreferences((current) => ({ ...current, fit: true }))}>Fit</button>
           <button
             aria-label="Zoom out scene"
-            disabled={sceneViewPreferences.zoom <= 0.75}
+            disabled={sceneViewPreferences.zoom <= 0.25}
             type="button"
-            onClick={() => setSceneViewPreferences((current) => ({ ...current, zoom: Math.max(0.75, current.zoom - 0.25) }))}
+            onClick={() => setSceneViewPreferences((current) => ({ ...current, fit: false, zoom: Math.max(0.25, current.zoom - 0.25) }))}
           >−</button>
-          <button className="scene-zoom-value" title="Reset scene zoom" type="button" onClick={() => setSceneViewPreferences((current) => ({ ...current, zoom: 1 }))}>
-            {Math.round(sceneViewPreferences.zoom * 100)}%
+          <button className="scene-zoom-value" title="Reset scene zoom" type="button" onClick={() => setSceneViewPreferences((current) => ({ ...current, fit: true, zoom: 1 }))}>
+            {sceneViewPreferences.fit ? "Fit" : `${Math.round(sceneViewPreferences.zoom * 100)}%`}
           </button>
           <button
             aria-label="Zoom in scene"
-            disabled={sceneViewPreferences.zoom >= 1.5}
+            disabled={sceneViewPreferences.zoom >= 4}
             type="button"
-            onClick={() => setSceneViewPreferences((current) => ({ ...current, zoom: Math.min(1.5, current.zoom + 0.25) }))}
+            onClick={() => setSceneViewPreferences((current) => ({ ...current, fit: false, zoom: Math.min(4, current.zoom + 0.25) }))}
           >+</button>
           <button aria-pressed={sceneViewPreferences.gridVisible} type="button" onClick={() => setSceneViewPreferences((current) => ({ ...current, gridVisible: !current.gridVisible }))}>Grid</button>
           <button aria-pressed={sceneViewPreferences.overlaysVisible} type="button" onClick={() => setSceneViewPreferences((current) => ({ ...current, overlaysVisible: !current.overlaysVisible }))}>Overlays</button>
@@ -10134,6 +10191,83 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
               </section>
               ) : null}
             </AssetStudioLaunchpad>
+          ) : workspace === "flows" ? (
+            <FlowsWorkspace
+              flows={project.flows}
+              gameplayLayout={gameplayGraphLayout}
+              mode={flowWorkspaceMode}
+              narrative={currentFlowDraft ? (
+                <NarrativeGraph
+                  diagnostics={flowGraphDiagnostics}
+                  draft={currentFlowDraft}
+                  selectedNodeId={selectedFlowNodeId ?? currentFlowDraft.startNodeId}
+                  onChange={updateFlowDraft}
+                  onSelectNode={setSelectedFlowNodeId}
+                />
+              ) : (
+                <div className="workspace-placeholder compact">
+                  <strong>Select a Flow to edit its Narrative graph.</strong>
+                  <p>Choose a flow from the navigator, then switch between Gameplay and Narrative.</p>
+                </div>
+              )}
+              onChangeGameplayLayout={(layout) => {
+                setGameplayGraphLayout(layout);
+                void projectController.applyCommand({
+                  type: "project/update-gameplay-layout",
+                  patch: { layout }
+                }).then(setProject).catch((error) => reportEditorError(error, "Failed to save Gameplay layout"));
+              }}
+              onCreateTransition={async (draft: GameplayTransitionDraft) => {
+                const flow = project.flows.find((candidate) => candidate.id === draft.flowId);
+                const sourceScene = layeredScenes.find((scene) => scene.id === draft.sourceSceneId);
+                if (!flow || !sourceScene) return;
+                const endNode = flow.nodes.find((node) => node.type === "end") ?? {
+                  id: `end-${flow.id}`,
+                  type: "end"
+                } satisfies FlowNode;
+                const changeNodeId = `change-${draft.targetSceneId}`;
+                const changeNode: FlowNode = {
+                  id: changeNodeId,
+                  next: endNode.id,
+                  ...(sourceScene.playerStart ? { playerStart: sourceScene.playerStart } : {}),
+                  targetSceneId: draft.targetSceneId,
+                  type: "change-scene"
+                };
+                const nodes = [
+                  ...flow.nodes.filter((node) => node.id !== changeNodeId && node.id !== endNode.id),
+                  changeNode,
+                  endNode
+                ];
+                const sceneEntryTriggers = [
+                  ...(flow.sceneEntryTriggers ?? []).filter((trigger) => trigger.sceneId !== draft.sourceSceneId),
+                  { flowId: flow.id, sceneId: draft.sourceSceneId }
+                ];
+                try {
+                  const snapshot = await projectController.applyCommand({
+                    type: "flow/update",
+                    flowId: flow.id,
+                    patch: {
+                      editorLayout: flow.editorLayout,
+                      name: flow.name,
+                      nodes,
+                      sceneEntryTriggers,
+                      startNodeId: flow.startNodeId
+                    }
+                  });
+                  setProject(snapshot);
+                  setStatus(`Transition ${draft.verb} saved from ${draft.sourceSceneId} to ${draft.targetSceneId} via ${draft.entryPoint}.`);
+                } catch (error) {
+                  reportEditorError(error, "Failed to save guided transition");
+                }
+              }}
+              onModeChange={setFlowWorkspaceMode}
+              onOpenScene={(sceneId) => selectScene(sceneId)}
+              onStartTransitionWizard={(sceneId) => {
+                setFlowWorkspaceMode("gameplay");
+                setStatus(`Guided transition wizard ready from ${sceneId}. Choose a Flow and destination in the Inspector.`);
+              }}
+              scenes={layeredScenes}
+            />
           ) : workspace === "narrative" && currentFlowDraft ? (
             <NarrativeGraph
               diagnostics={flowGraphDiagnostics}
@@ -10250,6 +10384,42 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
           })}
           onClose={() => dispatchNavigation({ type: "panel/toggle", panel: "inspector" })}
         >
+            {workspace === "scene" ? (
+              <>
+                <div className="inspector-tab-strip" role="tablist" aria-label="Scene inspector panels">
+                  <button aria-selected={sceneInspectorTab === "inspector"} role="tab" type="button" onClick={() => setSceneInspectorTab("inspector")}>Inspector</button>
+                  <button aria-selected={sceneInspectorTab === "layers"} role="tab" type="button" onClick={() => setSceneInspectorTab("layers")}>Livelli</button>
+                </div>
+                <div className="inspector-context-tabs" role="tablist" aria-label="Inspector sections">
+                  {(["general", "transform", "interactions", "advanced"] as const).map((tab) => (
+                    <button aria-selected={sceneInspectorView === tab} role="tab" key={tab} type="button" onClick={() => setSceneInspectorView(tab)}>
+                      {tab === "general" ? "Generale" : tab === "transform" ? "Trasformazione" : tab === "interactions" ? "Interazioni" : "Avanzate"}
+                    </button>
+                  ))}
+                </div>
+                {sceneInspectorTab === "layers" && selectedScene ? (
+                  <div className="scene-levels-panel" aria-label="Scene levels">
+                    <div className="scene-levels-heading"><strong>Livelli</strong><span>{selectedScene.actors.length + selectedScene.pickups.length + selectedScene.hotspots.length} elementi</span></div>
+                    <button className="scene-level-row" type="button" onClick={() => selectScene(selectedScene.id)}><span>◈</span><strong>Background</strong><small>Visible · unlocked</small></button>
+                    {currentSceneDraft.layers.map((layer) => (
+                      <button className="scene-level-row" key={`inspector-layer-${layer.id}`} type="button" onClick={() => { setSelectedSceneLayerId(layer.id); setSceneInspectorTab("inspector"); }}>
+                        <span>{layer.visible ? "◈" : "○"}</span><strong>{layer.name || layer.id}</strong><small>{layer.locked ? "Locked" : "Unlocked"}</small>
+                      </button>
+                    ))}
+                    <button className="scene-level-row" type="button" onClick={selectPlayerInScene}><span>♙</span><strong>Player</strong><small>Scene start</small></button>
+                    {selectedScene.actors.map((actor) => (
+                      <button className="scene-level-row" key={`inspector-actor-${actor.id}`} type="button" onClick={() => { selectActor(actor); setSceneInspectorTab("inspector"); }}><span>♟</span><strong>{actor.id}</strong><small>{actor.role}</small></button>
+                    ))}
+                    {selectedScene.pickups.map((pickup) => (
+                      <button className="scene-level-row" key={`inspector-pickup-${pickup.id}`} type="button" onClick={() => { selectPickup(pickup); setSceneInspectorTab("inspector"); }}><span>◆</span><strong>{pickup.id}</strong><small>Pickup</small></button>
+                    ))}
+                    {selectedScene.hotspots.map((hotspot) => (
+                      <button className="scene-level-row" key={`inspector-hotspot-${hotspot.id}`} type="button" onClick={() => { selectHotspot(hotspot); setSceneInspectorTab("inspector"); }}><span>⌁</span><strong>{hotspot.id}</strong><small>{hotspot.shape?.type ?? "rect"} collider</small></button>
+                    ))}
+                  </div>
+                ) : null}
+              </>
+            ) : null}
             {workspace === "scene" ? (
               <div className="scene-selection-summary">
                 <span className="overview-label">Scene selection</span>
@@ -12809,6 +12979,27 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
           />
         )}
       </div>
+      {(() => {
+        const compactWorkspace = workspace === "assets" || workspace === "ai" || workspace === "build";
+        return (
+        <ResourceDock
+          assets={project.assets}
+          height={resourceDockPreferences.height}
+          isOpen={resourceDockPreferences.isOpen && (!compactWorkspace || resourceDockWorkspaceOpen === workspace)}
+          onClose={() => { setResourceDockWorkspaceOpen(null); setResourceDockPreferences((current) => ({ ...current, isOpen: false })); }}
+          onOpen={() => setResourceDockWorkspaceOpen(workspace)}
+          onHeightChange={(height) => { setResourceDockWorkspaceOpen(workspace); setResourceDockPreferences((current) => ({ ...current, height: Math.min(360, Math.max(150, height)), isOpen: true })); }}
+          onOpenAssets={() => setWorkspace("assets")}
+          onQueryChange={(query) => setResourceDockPreferences((current) => ({ ...current, query }))}
+          onSelectAsset={(assetId) => { setSelectedAssetId(assetId); setWorkspace("assets"); }}
+          onViewModeChange={(viewMode) => setResourceDockPreferences((current) => ({ ...current, viewMode }))}
+          previewUrls={assetPreviewUrls}
+          query={resourceDockPreferences.query}
+          selectedAssetId={selectedAssetId}
+          viewMode={resourceDockPreferences.viewMode}
+        />
+        );
+      })()}
       </>
       )}
       {promptProviderConfigOpen ? (

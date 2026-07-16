@@ -28,6 +28,7 @@ describe("editor capabilities", () => {
     expect(workspaceCapabilities.map((capability) => capability.workspace)).toEqual([
       "overview",
       "scene",
+      "flows",
       "narrative",
       "assets",
       "ai",

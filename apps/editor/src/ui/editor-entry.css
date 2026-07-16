@@ -5,7 +5,9 @@
 @import "./features/ai/ai-studio.css";
 @import "./features/scenes/scene-studio.css";
 @import "./features/assets/asset-studio.css";
+@import "./features/assets/resource-dock.css";
 @import "./features/narrative/narrative.css";
+@import "./features/flows/flows.css";
 @import "./features/project/project.css";
 @import "./features/build/build.css";
 @import "./features/shell/shell.css";

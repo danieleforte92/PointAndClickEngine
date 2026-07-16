@@ -43,6 +43,8 @@ export function WorkspaceIcon({ workspace }: { workspace: Workspace }) {
       return <FolderOpen size={iconSize} />;
     case "scene":
       return <Clapperboard size={iconSize} />;
+    case "flows":
+      return <Route size={iconSize} />;
     case "narrative":
       return <Route size={iconSize} />;
     case "assets":

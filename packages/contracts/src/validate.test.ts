@@ -66,6 +66,30 @@ describe("project contracts", () => {
     expect(result).toEqual({ valid: true, errors: [] });
   });
 
+  it("accepts a v3 shape-only hotspot and derives its legacy bounds for validation", () => {
+    const result = validateDocument("layered2dScene", {
+      schemaVersion: 3,
+      id: "dock",
+      name: "Dock",
+      type: "layered-2d",
+      size: { width: 1280, height: 720 },
+      background: "#132538",
+      playerStart: { x: 100, y: 600 },
+      walkArea: { points: [{ x: 0, y: 500 }, { x: 1280, y: 500 }, { x: 1280, y: 720 }] },
+      actors: [],
+      pickups: [],
+      shapes: [],
+      hotspots: [{
+        id: "door",
+        labelKey: "hotspot.door",
+        shape: { type: "ellipse", bounds: { x: 10, y: 20, width: 80, height: 120 } },
+        actions: { useItemFlows: [] }
+      }]
+    });
+
+    expect(result).toEqual({ valid: true, errors: [] });
+  });
+
   it("accepts animation pack definitions", () => {
     const result = validateDocument("animationPack", {
       schemaVersion: 1,

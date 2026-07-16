@@ -1,7 +1,37 @@
 .narrative-graph-workspace {
+  display: grid;
   min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto auto minmax(0, 1fr);
   border: 1px solid var(--pc-border-subtle);
   background: var(--pc-bg-panel);
+}
+
+.narrative-node-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--pc-border-subtle);
+  background: var(--pc-bg-panel);
+}
+
+.narrative-node-palette button,
+.narrative-graph-actions button {
+  padding: 6px 8px;
+  color: var(--pc-text-muted);
+  border: 1px solid var(--pc-border-subtle);
+  border-radius: 4px;
+  background: var(--pc-bg-raised);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.62rem;
+}
+
+.narrative-node-palette button:hover,
+.narrative-graph-actions button:hover {
+  color: var(--pc-text-primary);
+  border-color: var(--pc-accent-brand);
 }
 
 .narrative-node {

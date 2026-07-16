@@ -1,4 +1,11 @@
-# Creator Alpha v0.4.0-alpha.3 Release Checklist
+# Creator Alpha v0.5.0-alpha Release Checklist
+
+The current workspace candidate is `v0.5.0-alpha`, covering the M01–M09 Visual
+Authoring roadmap. Verify the integrated commit with the complete test,
+typecheck, build, Playwright, accessibility, screenshot, Windows package, and
+packaged player smoke gates before tagging.
+
+## Previous Candidate Checklist
 
 Use this checklist before tagging a public GitHub release.
 

@@ -246,6 +246,33 @@ describe("project settings", () => {
   });
 });
 
+describe("Gameplay Graph layout persistence", () => {
+  it("stores the derived graph layout in the project manifest", async () => {
+    const fixtureRoot = path.resolve(import.meta.dirname, "../../../apps/sample-game/project");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "pointclick-gameplay-layout-"));
+    const projectRoot = path.join(tempRoot, "project");
+    await cp(fixtureRoot, projectRoot, { recursive: true });
+
+    const layout = {
+      nodes: {
+        "scene:moonlit-dock": { x: 120, y: 80 },
+        "flow:look-tavern-door": { x: 480, y: 80 }
+      },
+      viewport: { x: 0, y: 0, zoom: 0.8 }
+    };
+    const updated = await applyProjectCommand(projectRoot, {
+      type: "project/update-gameplay-layout",
+      patch: { layout }
+    });
+
+    expect(updated.bundle.manifest.editorLayout?.gameplayGraph).toEqual(layout);
+    const manifest = JSON.parse(await readFile(path.join(projectRoot, "adventure.project.json"), "utf8")) as {
+      editorLayout?: { gameplayGraph?: typeof layout };
+    };
+    expect(manifest.editorLayout?.gameplayGraph).toEqual(layout);
+  });
+});
+
 describe("loadProjectFromDirectory", () => {
   it("loads the sample project bundle from disk", async () => {
     const loaded = await loadProjectFromDirectory(

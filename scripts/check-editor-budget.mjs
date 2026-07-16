@@ -72,11 +72,6 @@ const featureAreas = [
 
 const colorExceptions = [
   {
-    file: "apps/editor/src/ui/features/narrative/narrative-graph.tsx",
-    count: 3,
-    rationale: "React Flow canvas/minimap content colors retain graph semantics until the library accepts CSS tokens."
-  },
-  {
     file: "apps/editor/src/ui/features/scenes/scene-viewport.tsx",
     count: 1,
     rationale: "One empty-canvas fallback preserves the deterministic scene-art baseline."
