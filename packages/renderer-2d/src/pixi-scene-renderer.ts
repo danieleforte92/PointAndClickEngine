@@ -7,6 +7,7 @@ import type {
   ScenePickup,
   Vector2
 } from "@pointclick/contracts";
+import { playerPerspectiveScaleAt } from "@pointclick/contracts/scene-math";
 import { hotspotCollider } from "@pointclick/contracts/collider";
 import { AnimatedSprite, Application, Assets, Container, Graphics, Rectangle, Sprite, Texture } from "pixi.js";
 
@@ -382,15 +383,7 @@ export class PixiSceneRenderer {
   }
 
   private playerScaleAt(position: Vector2): number {
-    const ys = this.scene.walkArea.points.map((point) => point.y);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-    const far = this.scene.player?.scaleFar ?? 0.62;
-    const near = this.scene.player?.scaleNear ?? 1.08;
-    if (maxY <= minY) return near;
-
-    const t = Math.max(0, Math.min(1, (position.y - minY) / (maxY - minY)));
-    return far + (near - far) * t;
+    return playerPerspectiveScaleAt(this.scene.walkArea, this.scene.player, position);
   }
 
   private async createLayerSprite(layer: SceneLayer): Promise<Sprite | null> {

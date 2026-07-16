@@ -100,3 +100,40 @@ test("organizes player transforms in the inspector and layers the project menu a
   await expect(menu.locator(".project-action-menu-popover")).toHaveCSS("z-index", "1000");
   await expect(page.locator(".topbar")).toHaveCSS("z-index", "50");
 });
+
+test("resizes the player from the scene gizmo and previews its perspective scale", async ({ page }) => {
+  await installEditorMock(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("http://127.0.0.1:5174/");
+
+  await page.getByRole("navigation", { name: "Workspaces" }).getByRole("button", { name: "Scenes", exact: true }).click();
+  const player = page.locator(".character");
+  await player.click();
+
+  const readout = player.locator(".player-scale-readout");
+  await expect(readout).toBeVisible();
+  const scaleBeforeMove = await readout.textContent();
+  const widthInput = page.getByLabel("Player base width");
+  const heightInput = page.getByLabel("Player base height");
+  const widthBeforeResize = await widthInput.inputValue();
+  const heightBeforeResize = await heightInput.inputValue();
+
+  const resizeHandle = player.locator(".player-resize-handle");
+  const handleBox = await resizeHandle.boundingBox();
+  if (!handleBox) throw new Error("Player resize handle is not measurable");
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handleBox.x + handleBox.width + 34, handleBox.y - 34);
+  await page.mouse.up();
+
+  await expect(widthInput).not.toHaveValue(widthBeforeResize);
+  await expect(heightInput).not.toHaveValue(heightBeforeResize);
+
+  const playerBox = await player.boundingBox();
+  if (!playerBox) throw new Error("Player is not measurable");
+  await page.mouse.move(playerBox.x + playerBox.width / 2, playerBox.y + playerBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(playerBox.x + playerBox.width / 2, playerBox.y + playerBox.height + 44);
+  await page.mouse.up();
+  await expect(readout).not.toHaveText(scaleBeforeMove ?? "");
+});

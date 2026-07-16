@@ -25,6 +25,7 @@ import type {
   ScenePickup,
   WorkflowTemplateDocument
 } from "@pointclick/contracts";
+import { playerPerspectiveScaleAt } from "@pointclick/contracts/scene-math";
 import {
   buildFlowGraph,
   validateFlowGraph,
@@ -978,6 +979,14 @@ type ViewportInteraction =
       kind: "player-start";
       startPoint: ScenePointDraftValue;
       startPosition: ScenePointDraftValue;
+    }
+  | {
+      baseSession: EditorSessionState;
+      kind: "player-resize";
+      startPoint: ScenePointDraftValue;
+      startPosition: ScenePointDraftValue;
+      startBaseSize: { height: number; width: number };
+      startVisualSize: { height: number; width: number };
     }
   | {
       baseSession: EditorSessionState;
@@ -2643,6 +2652,18 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
     currentSceneDraft.playerWalkSpeed,
     selectedScene?.player
   ]);
+  const previewPlayerSize = useMemo(() => {
+    const position = previewPlayerStart ?? selectedScene?.playerStart;
+    const scale = position
+      ? playerPerspectiveScaleAt(previewWalkArea ?? selectedScene?.walkArea, previewPlayerConfig, position)
+      : 1;
+    return {
+      height: previewPlayerConfig.baseHeight * scale,
+      markerScale: (previewPlayerConfig.baseHeight / 128) * scale,
+      scale,
+      width: previewPlayerConfig.baseWidth * scale
+    };
+  }, [previewPlayerConfig, previewPlayerStart, previewWalkArea, selectedScene]);
   const previewPlayerAssetPath = previewPlayerConfig.assetId
     ? assetPathById.get(previewPlayerConfig.assetId)
     : undefined;
@@ -3626,6 +3647,23 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
     }));
   };
 
+  const setSceneDraftPlayerSize = (size: { height: number; width: number }) => {
+    if (!selectedScene) return;
+
+    const formatDimension = (value: number) => String(Math.round(value * 10) / 10);
+    updatePresentWithoutHistory((current) => ({
+      ...current,
+      sceneDrafts: {
+        ...current.sceneDrafts,
+        [selectedScene.id]: {
+          ...(current.sceneDrafts[selectedScene.id] ?? createSceneDraft(selectedScene)),
+          playerBaseHeight: formatDimension(size.height),
+          playerBaseWidth: formatDimension(size.width)
+        }
+      }
+    }));
+  };
+
   const setWalkAreaPointDraft = (index: number, point: ScenePointDraftValue) => {
     if (!selectedScene) return;
 
@@ -3985,6 +4023,28 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
     });
   };
 
+  const startPlayerResizeInteraction = (event: ReactPointerEvent) => {
+    if (!selectedScene || !previewPlayerStart || !canEditViewportScene) return;
+
+    const startPoint = scenePointFromClient(event.clientX, event.clientY);
+    if (!startPoint) return;
+
+    const defaults = createScenePlayerConfig(selectedScene.player);
+    const startBaseWidth = parsePositiveNumber(currentSceneDraft.playerBaseWidth) ?? defaults.baseWidth;
+    const startBaseHeight = parsePositiveNumber(currentSceneDraft.playerBaseHeight) ?? defaults.baseHeight;
+    event.preventDefault();
+    event.stopPropagation();
+    selectPlayerInScene();
+    setViewportInteraction({
+      baseSession: cloneSessionState(history.present),
+      kind: "player-resize",
+      startPoint,
+      startPosition: previewPlayerStart,
+      startBaseSize: { height: startBaseHeight, width: startBaseWidth },
+      startVisualSize: { height: previewPlayerSize.height, width: previewPlayerSize.width }
+    });
+  };
+
   const startWalkAreaPointInteraction = (
     pointIndex: number,
     point: ScenePointDraftValue,
@@ -4339,6 +4399,22 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
         setSceneDraftPlayerStart(
           moveScenePoint(viewportInteraction.startPosition, delta, previewSceneSize)
         );
+        return;
+      }
+
+      if (viewportInteraction.kind === "player-resize") {
+        const horizontalOffset = Math.abs(point.x - viewportInteraction.startPosition.x);
+        const verticalOffset = Math.max(1, viewportInteraction.startPosition.y - point.y);
+        const distance = Math.hypot(horizontalOffset, verticalOffset);
+        const startDistance = Math.hypot(
+          viewportInteraction.startVisualSize.width / 2,
+          viewportInteraction.startVisualSize.height
+        );
+        const sizeScale = Math.max(0.1, distance / Math.max(1, startDistance));
+        setSceneDraftPlayerSize({
+          height: viewportInteraction.startBaseSize.height * sizeScale,
+          width: viewportInteraction.startBaseSize.width * sizeScale
+        });
         return;
       }
 
@@ -10324,6 +10400,7 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                   previewPickups,
                   previewPickupIssueMap,
                   previewPlayerAssetUrl,
+                  previewPlayerSize,
                   previewPlayerStart,
                   previewSceneBackground,
                   previewSceneColor,
@@ -10382,6 +10459,7 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                   onStartHotspotInteraction: startHotspotInteraction,
                   onStartHotspotSpotInteraction: startHotspotSpotInteraction,
                   onStartPickupInteraction: startPickupInteraction,
+                  onStartPlayerResizeInteraction: startPlayerResizeInteraction,
                   onStartPlayerStartInteraction: startPlayerStartInteraction,
                   onStartWalkAreaPointInteraction: startWalkAreaPointInteraction,
                   updateSceneDraft
