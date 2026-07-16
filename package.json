@@ -45,7 +45,7 @@
     "check": "pnpm test && pnpm typecheck && pnpm check:editor-budget && pnpm check:theme-contract && pnpm check:docs && pnpm validate:sample && pnpm validate:starter && pnpm build && pnpm check:release"
   },
   "devDependencies": {
-    "@playwright/test": "^1.57.0",
+    "@playwright/test": "^1.61.1",
     "@types/node": "^24.0.0",
     "concurrently": "^9.2.0",
     "tsx": "^4.20.0",
