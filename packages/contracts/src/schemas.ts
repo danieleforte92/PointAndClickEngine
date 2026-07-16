@@ -253,6 +253,8 @@ export const ScenePlayerConfigSchema = Type.Object(
   {
     assetId: Type.Optional(Id),
     animationPackId: Type.Optional(Id),
+    baseHeight: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
+    baseWidth: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
     scaleFar: Type.Optional(Type.Number({ minimum: 0.05 })),
     scaleNear: Type.Optional(Type.Number({ minimum: 0.05 })),
     walkSpeed: Type.Optional(Type.Number({ minimum: 1 }))

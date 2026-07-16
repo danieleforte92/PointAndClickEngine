@@ -7,6 +7,7 @@ import type {
   ScenePickup,
   Vector2
 } from "@pointclick/contracts";
+import { playerPerspectiveScaleAt } from "@pointclick/contracts/scene-math";
 import { hotspotCollider } from "@pointclick/contracts/collider";
 import { AnimatedSprite, Application, Assets, Container, Graphics, Rectangle, Sprite, Texture } from "pixi.js";
 
@@ -29,6 +30,22 @@ function colorNumber(color: string): number {
 
 function isHexColor(value: string): boolean {
   return /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
+function fitSize(
+  sourceWidth: number,
+  sourceHeight: number,
+  targetWidth: number,
+  targetHeight: number
+): { width: number; height: number } {
+  if (sourceWidth <= 0 || sourceHeight <= 0) {
+    return { width: targetWidth, height: targetHeight };
+  }
+  const scale = Math.min(targetWidth / sourceWidth, targetHeight / sourceHeight);
+  return {
+    width: sourceWidth * scale,
+    height: sourceHeight * scale
+  };
 }
 
 export class PixiSceneRenderer {
@@ -264,13 +281,18 @@ export class PixiSceneRenderer {
 
   private async createPlayerVisual(): Promise<void> {
     this.player.removeChildren();
+    this.playerAnimatedSprite = null;
+    this.playerClipTextures = new Map();
+    this.playerCurrentClipId = null;
+
+    const baseSize = this.playerBaseSize();
 
     const asset = this.scene.player?.assetId ? this.options.assets?.[this.scene.player.assetId] : null;
     const animationPack = this.scene.player?.animationPackId
       ? this.options.animationPacks?.[this.scene.player.animationPackId]
       : null;
     if (animationPack) {
-      const animated = await this.createAnimatedSprite(animationPack, "idle", 128);
+      const animated = await this.createAnimatedSprite(animationPack, "idle", baseSize.height, baseSize.width);
       if (animated) {
         this.playerAnimatedSprite = animated;
         this.playerCurrentClipId = "idle";
@@ -285,8 +307,9 @@ export class PixiSceneRenderer {
         const texture = await Assets.load(assetUrl);
         const sprite = new Sprite(texture);
         sprite.anchor.set(0.5, 1);
-        sprite.height = 128;
-        sprite.width = (texture.width / texture.height) * sprite.height;
+        const fittedSize = fitSize(texture.width, texture.height, baseSize.width, baseSize.height);
+        sprite.width = fittedSize.width;
+        sprite.height = fittedSize.height;
         this.player.addChild(sprite);
         return;
       } catch {
@@ -303,6 +326,13 @@ export class PixiSceneRenderer {
       width: 9
     });
     this.player.addChild(shadow, body, coat, head, hair);
+  }
+
+  private playerBaseSize(): { width: number; height: number } {
+    return {
+      width: this.scene.player?.baseWidth ?? 128,
+      height: this.scene.player?.baseHeight ?? 128
+    };
   }
 
   private animatePlayerTo(target: Vector2): void {
@@ -353,15 +383,7 @@ export class PixiSceneRenderer {
   }
 
   private playerScaleAt(position: Vector2): number {
-    const ys = this.scene.walkArea.points.map((point) => point.y);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-    const far = this.scene.player?.scaleFar ?? 0.62;
-    const near = this.scene.player?.scaleNear ?? 1.08;
-    if (maxY <= minY) return near;
-
-    const t = Math.max(0, Math.min(1, (position.y - minY) / (maxY - minY)));
-    return far + (near - far) * t;
+    return playerPerspectiveScaleAt(this.scene.walkArea, this.scene.player, position);
   }
 
   private async createLayerSprite(layer: SceneLayer): Promise<Sprite | null> {
@@ -497,7 +519,8 @@ export class PixiSceneRenderer {
   private async createAnimatedSprite(
     animationPack: AnimationPackDocument,
     preferredClipId: string,
-    targetHeight: number
+    targetHeight: number,
+    targetWidth?: number
   ): Promise<AnimatedSprite | null> {
     const asset = this.options.assets?.[animationPack.assetId];
     if (!asset) return null;
@@ -540,8 +563,15 @@ export class PixiSceneRenderer {
       );
       sprite.animationSpeed = clip.fps / 60;
       sprite.loop = clip.loop;
-      sprite.height = targetHeight;
-      sprite.width = (animationPack.frame.width / animationPack.frame.height) * sprite.height;
+      const fittedSize =
+        targetWidth === undefined
+          ? {
+              width: (animationPack.frame.width / animationPack.frame.height) * targetHeight,
+              height: targetHeight
+            }
+          : fitSize(animationPack.frame.width, animationPack.frame.height, targetWidth, targetHeight);
+      sprite.width = fittedSize.width;
+      sprite.height = fittedSize.height;
       sprite.play();
       return sprite;
     } catch {

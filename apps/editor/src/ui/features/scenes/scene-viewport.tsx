@@ -80,6 +80,7 @@ export interface SceneViewportProps {
   onStartHotspotInteraction: (mode: "move" | "resize", hotspot: Hotspot, event: ReactPointerEvent) => void;
   onStartHotspotSpotInteraction: (spot: "interact" | "look", point: { x: number; y: number }, event: ReactPointerEvent) => void;
   onStartPickupInteraction: (mode: "move" | "resize", pickup: ScenePickup, event: ReactPointerEvent) => void;
+  onStartPlayerResizeInteraction: (event: ReactPointerEvent) => void;
   onStartPlayerStartInteraction: (event: ReactPointerEvent) => void;
   onStartWalkAreaPointInteraction: (pointIndex: number, point: { x: number; y: number }, event: ReactPointerEvent) => void;
   previewActorIssueMap: Readonly<Record<string, SceneViewportIssue>>;
@@ -89,6 +90,7 @@ export interface SceneViewportProps {
   previewPickups: ScenePickup[];
   previewPickupIssueMap: Readonly<Record<string, SceneViewportIssue>>;
   previewPlayerAssetUrl?: string | undefined;
+  previewPlayerSize: { height: number; markerScale: number; scale: number; width: number };
   previewPlayerStart: Layered2DScene["playerStart"] | null;
   previewSceneBackground: string;
   previewSceneColor: string;
@@ -144,6 +146,7 @@ export function SceneViewport({
   onStartHotspotInteraction: startHotspotInteraction,
   onStartHotspotSpotInteraction: startHotspotSpotInteraction,
   onStartPickupInteraction: startPickupInteraction,
+  onStartPlayerResizeInteraction: startPlayerResizeInteraction,
   onStartPlayerStartInteraction: startPlayerStartInteraction,
   onStartWalkAreaPointInteraction: startWalkAreaPointInteraction,
   previewActorIssueMap,
@@ -153,6 +156,7 @@ export function SceneViewport({
   previewPickups,
   previewPickupIssueMap,
   previewPlayerAssetUrl,
+  previewPlayerSize,
   previewPlayerStart,
   previewSceneBackground,
   previewSceneColor,
@@ -569,22 +573,34 @@ export function SceneViewport({
                       selectPlayerInScene();
                     }
                   }}
-                  onPointerDown={startPlayerStartInteraction}
+                    onPointerDown={startPlayerStartInteraction}
                     style={{
+                      "--player-marker-scale": previewPlayerSize.markerScale,
+                      "--player-render-height": `${(previewPlayerSize.height / previewSceneSize.height) * 100}%`,
+                      "--player-render-width": `${(previewPlayerSize.width / previewSceneSize.width) * 100}%`,
                       backgroundImage: previewPlayerAssetUrl ? `url("${previewPlayerAssetUrl}")` : undefined,
                       backgroundPosition: previewPlayerAssetUrl ? "center bottom" : undefined,
                       backgroundRepeat: previewPlayerAssetUrl ? "no-repeat" : undefined,
                       backgroundSize: previewPlayerAssetUrl ? "contain" : undefined,
                       left: `${((previewPlayerStart ?? selectedScene.playerStart).x / previewSceneSize.width) * 100}%`,
                       top: `${((previewPlayerStart ?? selectedScene.playerStart).y / previewSceneSize.height) * 100}%`
-                    }}
+                    } as CSSProperties}
                     title={
                       activeSceneTool === "player-start"
-                        ? "Drag to move player start"
-                        : "Drag to select and move player start"
+                        ? `Drag to move player start · scale ${previewPlayerSize.scale.toFixed(2)}×`
+                        : `Drag to select and move player start · scale ${previewPlayerSize.scale.toFixed(2)}×`
                     }
                   >
                     <span />
+                    <span className="player-scale-readout">Scale {previewPlayerSize.scale.toFixed(2)}×</span>
+                    {isPlayerInspectorSelected && canEditViewportScene ? (
+                      <span
+                        aria-hidden="true"
+                        className="viewport-resize-handle player-resize-handle"
+                        onClick={(event) => event.stopPropagation()}
+                        onPointerDown={startPlayerResizeInteraction}
+                      />
+                    ) : null}
                     {playerIsGenerating ? (
                       <span className="viewport-generation-indicator player-generation-indicator">
                         <span className="viewport-generation-spinner" aria-hidden="true" />

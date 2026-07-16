@@ -65,3 +65,75 @@ test("keeps the authoring shell inside a narrow desktop viewport", async ({ page
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await expect(page.locator(".workspace-grid")).toBeVisible();
 });
+
+test("organizes player transforms in the inspector and layers the project menu above the shell", async ({ page }) => {
+  await installEditorMock(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("http://127.0.0.1:5174/");
+
+  await page.getByRole("navigation", { name: "Workspaces" }).getByRole("button", { name: "Scenes", exact: true }).click();
+  await page.getByRole("tab", { name: "Livelli", exact: true }).click();
+  await page.locator(".scene-level-row").filter({ hasText: "Player" }).click();
+
+  const transformPanel = page.locator('[data-inspector-view-panel="transform"]');
+  const generalPanel = page.locator('[data-inspector-view-panel="general"]');
+  await page.getByRole("tab", { name: "Trasformazione", exact: true }).click();
+  await expect(transformPanel).toBeVisible();
+  await expect(generalPanel).toBeHidden();
+  await expect(transformPanel.getByLabel("Player start X")).toBeVisible();
+  await expect(transformPanel.getByLabel("Player start Y")).toBeVisible();
+  await expect(transformPanel.getByLabel("Player base width")).toBeVisible();
+  await expect(transformPanel.getByLabel("Player base height")).toBeVisible();
+  await expect(transformPanel.getByLabel("Player far scale")).toBeVisible();
+  await expect(transformPanel.getByLabel("Player near scale")).toBeVisible();
+
+  await page.getByRole("tab", { name: "Generale", exact: true }).click();
+  await expect(generalPanel).toBeVisible();
+  await expect(generalPanel.getByLabel("Player asset")).toBeVisible();
+  await expect(transformPanel).toBeHidden();
+
+  const menu = page.locator(".project-action-menu");
+  await menu.locator("summary").click();
+  await expect(menu).toHaveJSProperty("open", true);
+  await expect(menu.locator(".project-action-menu-popover")).toBeVisible();
+  await expect(menu).toHaveCSS("z-index", "60");
+  await expect(menu.locator(".project-action-menu-popover")).toHaveCSS("z-index", "1000");
+  await expect(page.locator(".topbar")).toHaveCSS("z-index", "50");
+});
+
+test("resizes the player from the scene gizmo and previews its perspective scale", async ({ page }) => {
+  await installEditorMock(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("http://127.0.0.1:5174/");
+
+  await page.getByRole("navigation", { name: "Workspaces" }).getByRole("button", { name: "Scenes", exact: true }).click();
+  const player = page.locator(".character");
+  await player.click();
+
+  const readout = player.locator(".player-scale-readout");
+  await expect(readout).toBeVisible();
+  const scaleBeforeMove = await readout.textContent();
+  const widthInput = page.getByLabel("Player base width");
+  const heightInput = page.getByLabel("Player base height");
+  const widthBeforeResize = await widthInput.inputValue();
+  const heightBeforeResize = await heightInput.inputValue();
+
+  const resizeHandle = player.locator(".player-resize-handle");
+  const handleBox = await resizeHandle.boundingBox();
+  if (!handleBox) throw new Error("Player resize handle is not measurable");
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handleBox.x + handleBox.width + 34, handleBox.y - 34);
+  await page.mouse.up();
+
+  await expect(widthInput).not.toHaveValue(widthBeforeResize);
+  await expect(heightInput).not.toHaveValue(heightBeforeResize);
+
+  const playerBox = await player.boundingBox();
+  if (!playerBox) throw new Error("Player is not measurable");
+  await page.mouse.move(playerBox.x + playerBox.width / 2, playerBox.y + playerBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(playerBox.x + playerBox.width / 2, playerBox.y + playerBox.height + 44);
+  await page.mouse.up();
+  await expect(readout).not.toHaveText(scaleBeforeMove ?? "");
+});

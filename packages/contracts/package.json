@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./collider": "./src/collider.ts"
+    "./collider": "./src/collider.ts",
+    "./scene-math": "./src/scene-math.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
