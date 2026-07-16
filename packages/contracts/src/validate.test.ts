@@ -74,6 +74,7 @@ describe("project contracts", () => {
       type: "layered-2d",
       size: { width: 1280, height: 720 },
       background: "#132538",
+      player: { baseHeight: 192, baseWidth: 96, scaleFar: 0.62, scaleNear: 1.08 },
       playerStart: { x: 100, y: 600 },
       walkArea: { points: [{ x: 0, y: 500 }, { x: 1280, y: 500 }, { x: 1280, y: 720 }] },
       actors: [],

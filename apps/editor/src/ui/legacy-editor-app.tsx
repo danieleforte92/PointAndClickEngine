@@ -2615,6 +2615,8 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
     "Clip preview is ready.";
   const previewPlayerConfig = useMemo(() => {
     const defaults = createScenePlayerConfig(selectedScene?.player);
+    const baseHeight = parsePositiveNumber(currentSceneDraft.playerBaseHeight);
+    const baseWidth = parsePositiveNumber(currentSceneDraft.playerBaseWidth);
     const scaleFar = parsePositiveNumber(currentSceneDraft.playerScaleFar);
     const scaleNear = parsePositiveNumber(currentSceneDraft.playerScaleNear);
     const walkSpeed = parsePositiveNumber(currentSceneDraft.playerWalkSpeed);
@@ -2625,6 +2627,8 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
       ...(currentSceneDraft.playerAssetId.trim()
         ? { assetId: currentSceneDraft.playerAssetId.trim() }
         : {}),
+      baseHeight: baseHeight ?? defaults.baseHeight,
+      baseWidth: baseWidth ?? defaults.baseWidth,
       scaleFar: scaleFar ?? defaults.scaleFar,
       scaleNear: scaleNear ?? defaults.scaleNear,
       walkSpeed: walkSpeed ?? defaults.walkSpeed
@@ -2632,6 +2636,8 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
   }, [
     currentSceneDraft.playerAnimationPackId,
     currentSceneDraft.playerAssetId,
+    currentSceneDraft.playerBaseHeight,
+    currentSceneDraft.playerBaseWidth,
     currentSceneDraft.playerScaleFar,
     currentSceneDraft.playerScaleNear,
     currentSceneDraft.playerWalkSpeed,
@@ -7640,6 +7646,8 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
 
     const playerStartX = parseNumber(currentSceneDraft.playerStartX);
     const playerStartY = parseNumber(currentSceneDraft.playerStartY);
+    const playerBaseHeight = parsePositiveNumber(currentSceneDraft.playerBaseHeight);
+    const playerBaseWidth = parsePositiveNumber(currentSceneDraft.playerBaseWidth);
     const playerScaleFar = parsePositiveNumber(currentSceneDraft.playerScaleFar);
     const playerScaleNear = parsePositiveNumber(currentSceneDraft.playerScaleNear);
     const playerWalkSpeed = parsePositiveNumber(currentSceneDraft.playerWalkSpeed);
@@ -7676,8 +7684,14 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
       setStatus(`Player animation pack "${playerAnimationPackId}" no longer exists`);
       return;
     }
-    if (playerScaleFar === null || playerScaleNear === null || playerWalkSpeed === null) {
-      setStatus("Player scale and walk speed must use positive numbers");
+    if (
+      playerBaseHeight === null ||
+      playerBaseWidth === null ||
+      playerScaleFar === null ||
+      playerScaleNear === null ||
+      playerWalkSpeed === null
+    ) {
+      setStatus("Player base size, scale, and walk speed must use positive numbers");
       return;
     }
     if (sceneWidth === null || sceneHeight === null) {
@@ -7713,6 +7727,8 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
           player: {
             ...(playerAnimationPackId ? { animationPackId: playerAnimationPackId } : {}),
             ...(playerAssetId ? { assetId: playerAssetId } : {}),
+            baseHeight: playerBaseHeight,
+            baseWidth: playerBaseWidth,
             scaleFar: playerScaleFar,
             scaleNear: playerScaleNear,
             walkSpeed: playerWalkSpeed
@@ -10644,6 +10660,22 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                       />
                     </label>
                     <label>
+                      Base width
+                      <input
+                        aria-label="Player base width"
+                        value={currentSceneDraft.playerBaseWidth}
+                        onChange={(event) => updateSceneDraft("playerBaseWidth", event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Base height
+                      <input
+                        aria-label="Player base height"
+                        value={currentSceneDraft.playerBaseHeight}
+                        onChange={(event) => updateSceneDraft("playerBaseHeight", event.target.value)}
+                      />
+                    </label>
+                    <label>
                       Scale far
                       <input
                         aria-label="Player far scale"
@@ -12981,6 +13013,18 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                       aria-label="Player start Y"
                       value={currentSceneDraft.playerStartY}
                       onChange={(event) => updateSceneDraft("playerStartY", event.target.value)}
+                    />
+                  </div>
+                  <div className="four-fields">
+                    <input
+                      aria-label="Player base width"
+                      value={currentSceneDraft.playerBaseWidth}
+                      onChange={(event) => updateSceneDraft("playerBaseWidth", event.target.value)}
+                    />
+                    <input
+                      aria-label="Player base height"
+                      value={currentSceneDraft.playerBaseHeight}
+                      onChange={(event) => updateSceneDraft("playerBaseHeight", event.target.value)}
                     />
                   </div>
                   <div className="four-fields">

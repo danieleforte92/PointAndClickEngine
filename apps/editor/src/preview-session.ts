@@ -128,6 +128,8 @@ function applySceneDrafts(
     const playerStartY = parseNumber(draft.playerStartY);
     const width = parsePositiveNumber(draft.width);
     const height = parsePositiveNumber(draft.height);
+    const baseHeight = parsePositiveNumber(draft.playerBaseHeight);
+    const baseWidth = parsePositiveNumber(draft.playerBaseWidth);
     const scaleFar = parsePositiveNumber(draft.playerScaleFar);
     const scaleNear = parsePositiveNumber(draft.playerScaleNear);
     const walkSpeed = parsePositiveNumber(draft.playerWalkSpeed);
@@ -142,6 +144,8 @@ function applySceneDrafts(
       player: {
         ...(draft.playerAnimationPackId.trim() ? { animationPackId: draft.playerAnimationPackId.trim() } : {}),
         ...(draft.playerAssetId.trim() ? { assetId: draft.playerAssetId.trim() } : {}),
+        baseHeight: baseHeight ?? playerDefaults.baseHeight,
+        baseWidth: baseWidth ?? playerDefaults.baseWidth,
         scaleFar: scaleFar ?? playerDefaults.scaleFar,
         scaleNear: scaleNear ?? playerDefaults.scaleNear,
         walkSpeed: walkSpeed ?? playerDefaults.walkSpeed

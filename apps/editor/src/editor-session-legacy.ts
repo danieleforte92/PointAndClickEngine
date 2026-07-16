@@ -163,6 +163,8 @@ export interface SceneDraft {
   name: string;
   playerAnimationPackId: string;
   playerAssetId: string;
+  playerBaseHeight: string;
+  playerBaseWidth: string;
   playerScaleFar: string;
   playerScaleNear: string;
   playerStartX: string;
@@ -577,6 +579,8 @@ export function createSceneDraft(scene: Layered2DScene | null): SceneDraft {
     name: scene?.name ?? "",
     playerAnimationPackId: player.animationPackId ?? "",
     playerAssetId: player.assetId ?? "",
+    playerBaseHeight: String(player.baseHeight),
+    playerBaseWidth: String(player.baseWidth),
     playerScaleFar: String(player.scaleFar),
     playerScaleNear: String(player.scaleNear),
     playerStartX: scene ? String(scene.playerStart.x) : "",
@@ -621,6 +625,8 @@ export function createScenePlayerConfig(player?: ScenePlayerConfig | null): Requ
   return {
     animationPackId: player?.animationPackId ?? "",
     assetId: player?.assetId ?? "",
+    baseHeight: player?.baseHeight ?? 128,
+    baseWidth: player?.baseWidth ?? 128,
     scaleFar: player?.scaleFar ?? 0.62,
     scaleNear: player?.scaleNear ?? 1.08,
     walkSpeed: player?.walkSpeed ?? 320

@@ -192,6 +192,8 @@ describe("buildDraftProjectBundle", () => {
       name: "Moonlit Dock Revised",
       playerAnimationPackId: "",
       playerAssetId: "",
+      playerBaseHeight: "192",
+      playerBaseWidth: "96",
       playerScaleFar: "0.55",
       playerScaleNear: "1.12",
       playerStartX: "480",
@@ -308,7 +310,13 @@ describe("buildDraftProjectBundle", () => {
         })
       ],
       name: "Moonlit Dock Revised",
-      player: { scaleFar: 0.55, scaleNear: 1.12, walkSpeed: 360 },
+      player: {
+        baseHeight: 192,
+        baseWidth: 96,
+        scaleFar: 0.55,
+        scaleNear: 1.12,
+        walkSpeed: 360
+      },
       playerStart: { x: 480, y: 575 },
       size: { width: 1440, height: 810 }
     });

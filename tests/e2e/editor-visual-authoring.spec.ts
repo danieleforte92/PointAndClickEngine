@@ -82,6 +82,8 @@ test("organizes player transforms in the inspector and layers the project menu a
   await expect(generalPanel).toBeHidden();
   await expect(transformPanel.getByLabel("Player start X")).toBeVisible();
   await expect(transformPanel.getByLabel("Player start Y")).toBeVisible();
+  await expect(transformPanel.getByLabel("Player base width")).toBeVisible();
+  await expect(transformPanel.getByLabel("Player base height")).toBeVisible();
   await expect(transformPanel.getByLabel("Player far scale")).toBeVisible();
   await expect(transformPanel.getByLabel("Player near scale")).toBeVisible();
 
