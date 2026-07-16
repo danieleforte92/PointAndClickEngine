@@ -1016,6 +1016,7 @@ type AssetCropInteraction =
 
 type SceneTool = SceneSelectionTool;
 type SceneInspectorTarget = "scene" | "player";
+type SceneInspectorView = "general" | "transform" | "interactions" | "advanced";
 
 interface SceneViewPreferences {
   fit: boolean;
@@ -1849,7 +1850,7 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
   const [flowWorkspaceMode, setFlowWorkspaceMode] = useState<"gameplay" | "narrative">("gameplay");
   const [gameplayGraphLayout, setGameplayGraphLayout] = useState<GameplayGraphLayout | undefined>(undefined);
   const [sceneInspectorTab, setSceneInspectorTab] = useState<"inspector" | "layers">("inspector");
-  const [sceneInspectorView, setSceneInspectorView] = useState<"general" | "transform" | "interactions" | "advanced">("general");
+  const [sceneInspectorView, setSceneInspectorView] = useState<SceneInspectorView>("general");
   const setProject = useCallback((snapshot: EditorProjectSnapshot) => {
     setProjectState(snapshot);
     setSelectedAssetId((current) =>
@@ -1955,7 +1956,7 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
       group.references.filter((reference) => reference.flowId === selectedFlow.id)
     );
   }, [narrativeRelationIndex.sceneGroups, selectedFlow]);
-  const selectedItem = itemFromSnapshot(project, session.activeItemId) ?? project?.selectedItem ?? null;
+  const selectedItem = itemFromSnapshot(project, session.activeItemId) ?? null;
   const selectedPickup =
     pickupFromSnapshot(project, session.activeSceneId, session.activePickupId) ?? null;
   const selectedAsset =
@@ -2473,6 +2474,19 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
     selectedSceneLayer,
     target: sceneSelectionTarget
   });
+  const availableSceneInspectorViews: SceneInspectorView[] =
+    sceneSelectionTarget?.kind === "layer" || sceneSelectionTarget?.kind === "guide"
+      ? ["general", "transform", "advanced"]
+      : sceneSelectionTarget?.kind === "actor" ||
+          sceneSelectionTarget?.kind === "pickup" ||
+          sceneSelectionTarget?.kind === "hotspot" ||
+          sceneSelectionTarget?.kind === "player-start"
+        ? ["general", "transform", "interactions", "advanced"]
+        : ["general"];
+  useEffect(() => {
+    if (availableSceneInspectorViews.includes(sceneInspectorView)) return;
+    setSceneInspectorView(availableSceneInspectorViews[0] ?? "general");
+  }, [availableSceneInspectorViews, sceneInspectorView]);
   const savedPromptPackTargets = selectedPromptPack?.outputs.generationTargets ?? [];
   const selectedSavedGenerationTarget =
     savedPromptPackTargets.find((target) => target.id === selectedGenerationTargetId) ??
@@ -10391,8 +10405,15 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                   <button aria-selected={sceneInspectorTab === "layers"} role="tab" type="button" onClick={() => setSceneInspectorTab("layers")}>Livelli</button>
                 </div>
                 <div className="inspector-context-tabs" role="tablist" aria-label="Inspector sections">
-                  {(["general", "transform", "interactions", "advanced"] as const).map((tab) => (
-                    <button aria-selected={sceneInspectorView === tab} role="tab" key={tab} type="button" onClick={() => setSceneInspectorView(tab)}>
+                  {availableSceneInspectorViews.map((tab) => (
+                    <button
+                      aria-selected={sceneInspectorView === tab}
+                      id={`scene-inspector-tab-${tab}`}
+                      role="tab"
+                      key={tab}
+                      type="button"
+                      onClick={() => setSceneInspectorView(tab)}
+                    >
                       {tab === "general" ? "Generale" : tab === "transform" ? "Trasformazione" : tab === "interactions" ? "Interazioni" : "Avanzate"}
                     </button>
                   ))}
@@ -10507,135 +10528,174 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
               </div>
             ) : isPlayerInspectorSelected ? (
               <>
-                <div className="context-setup-card">
-                  <span className={`capability-badge ${playerAssetMissing || playerAnimationPackMissing ? "error" : "good"}`}>
-                    Player setup
-                  </span>
-                  <strong>{selectedScene ? `${selectedScene.name} player` : "Scene player"}</strong>
-                  <p>
-                    Configure the playable character without leaving Scene. Player animation packs should include
-                    `idle` and `walk`; `talk` is useful for dialogue scenes.
-                  </p>
-                  <div className="context-action-row">
-                    <button type="button" onClick={() => setActiveSceneTool("player-start")}>
-                      Edit start in viewport
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        selectedScene
-                          ? openContextualGenerationModal(
-                              selectedScene,
-                              { kind: "player" },
-                              "Create a full-body playable character sprite reference with clear silhouette, visible feet, neutral pose, and game-ready proportions.",
-                              "chroma-blue"
-                            )
-                          : undefined
-                      }
+                <div className="inspector-view-panel" data-inspector-view-panel="general" hidden={sceneInspectorView !== "general"}>
+                  <div className="context-setup-card">
+                    <span className={`capability-badge ${playerAssetMissing || playerAnimationPackMissing ? "error" : "good"}`}>
+                      Player setup
+                    </span>
+                    <strong>{selectedScene ? `${selectedScene.name} player` : "Scene player"}</strong>
+                    <p>
+                      Configure the playable character without leaving Scene. Player animation packs should include
+                      `idle` and `walk`; `talk` is useful for dialogue scenes.
+                    </p>
+                    <div className="context-action-row">
+                      <button type="button" onClick={() => setActiveSceneTool("player-start")}>
+                        Edit start in viewport
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          selectedScene
+                            ? openContextualGenerationModal(
+                                selectedScene,
+                                { kind: "player" },
+                                "Create a full-body playable character sprite reference with clear silhouette, visible feet, neutral pose, and game-ready proportions.",
+                                "chroma-blue"
+                              )
+                            : undefined
+                        }
+                      >
+                        Generate player
+                      </button>
+                      <button type="button" onClick={createAnimationPackDraftFromSelection}>
+                        Create player pack
+                      </button>
+                    </div>
+                  </div>
+                  <label>
+                    Player asset
+                    <select
+                      className={playerAssetMissing ? "field-input-invalid" : ""}
+                      value={currentSceneDraft.playerAssetId}
+                      onChange={(event) => updateSceneDraft("playerAssetId", event.target.value)}
                     >
-                      Generate player
-                    </button>
-                    <button type="button" onClick={createAnimationPackDraftFromSelection}>
-                      Create player pack
-                    </button>
-                  </div>
-                </div>
-                <label>
-                  Player asset
-                  <select
-                    className={playerAssetMissing ? "field-input-invalid" : ""}
-                    value={currentSceneDraft.playerAssetId}
-                    onChange={(event) => updateSceneDraft("playerAssetId", event.target.value)}
-                  >
-                    <option value="">Generated marker</option>
-                    {availableAssetIds.map((assetId) => (
-                      <option key={`scene-player-asset-${assetId}`} value={assetId}>
-                        {assetId}
-                      </option>
-                    ))}
-                  </select>
-                  {playerAssetMissing ? (
-                    <small className="field-hint error">Selected player asset no longer exists.</small>
-                  ) : null}
-                </label>
-                <EntityAssetDropZone
-                  assetId={currentSceneDraft.playerAssetId.trim()}
-                  assetPath={previewPlayerAssetPath}
-                  assetUrl={previewPlayerAssetUrl}
-                  label="Player image"
-                  missing={playerAssetMissing}
-                  onEditAsset={() =>
-                    openAssetStudioForAsset("player", currentPlayerAsset, previewPlayerAssetUrl, undefined, "info")
-                  }
-                  onDropFiles={(filePaths) => importAssetFilesForTarget(filePaths, "player")}
-                  onImportClick={() => importPickedAssetForTarget("player")}
-                  onOpenAsset={() => {
-                    if (!currentSceneDraft.playerAssetId.trim()) return;
-                    setSelectedAssetId(currentSceneDraft.playerAssetId.trim());
-                    setWorkspace("assets");
-                  }}
-                />
-                <label>
-                  Player animation pack
-                  <select
-                    className={playerAnimationPackMissing ? "field-input-invalid" : ""}
-                    value={currentSceneDraft.playerAnimationPackId}
-                    onChange={(event) => updateSceneDraft("playerAnimationPackId", event.target.value)}
-                  >
-                    <option value="">None</option>
-                    {project?.animationPacks.map((animationPack) => {
-                      const clipIds = new Set(animationPack.clips.map((clip) => clip.id));
-                      const suffix = clipIds.has("idle") && clipIds.has("walk") ? " - player ready" : "";
-                      return (
-                        <option key={`scene-player-pack-${animationPack.id}`} value={animationPack.id}>
-                          {animationPack.id}
-                          {suffix}
+                      <option value="">Generated marker</option>
+                      {availableAssetIds.map((assetId) => (
+                        <option key={`scene-player-asset-${assetId}`} value={assetId}>
+                          {assetId}
                         </option>
-                      );
-                    })}
-                  </select>
-                  {playerAnimationPackMissing ? (
-                    <small className="field-hint error">Selected player animation pack no longer exists.</small>
-                  ) : null}
-                </label>
-                <div className="field-group">
-                  <span>Start and movement</span>
-                  <div className="four-fields">
-                    <input
-                      aria-label="Player start X"
-                      value={currentSceneDraft.playerStartX}
-                      onChange={(event) => updateSceneDraft("playerStartX", event.target.value)}
-                    />
-                    <input
-                      aria-label="Player start Y"
-                      value={currentSceneDraft.playerStartY}
-                      onChange={(event) => updateSceneDraft("playerStartY", event.target.value)}
-                    />
-                  </div>
-                  <div className="four-fields">
-                    <input
-                      aria-label="Player far scale"
-                      value={currentSceneDraft.playerScaleFar}
-                      onChange={(event) => updateSceneDraft("playerScaleFar", event.target.value)}
-                    />
-                    <input
-                      aria-label="Player near scale"
-                      value={currentSceneDraft.playerScaleNear}
-                      onChange={(event) => updateSceneDraft("playerScaleNear", event.target.value)}
-                    />
-                  </div>
-                  <input
-                    aria-label="Player walk speed"
-                    value={currentSceneDraft.playerWalkSpeed}
-                    onChange={(event) => updateSceneDraft("playerWalkSpeed", event.target.value)}
+                      ))}
+                    </select>
+                    {playerAssetMissing ? (
+                      <small className="field-hint error">Selected player asset no longer exists.</small>
+                    ) : null}
+                  </label>
+                  <EntityAssetDropZone
+                    assetId={currentSceneDraft.playerAssetId.trim()}
+                    assetPath={previewPlayerAssetPath}
+                    assetUrl={previewPlayerAssetUrl}
+                    label="Player image"
+                    missing={playerAssetMissing}
+                    onEditAsset={() =>
+                      openAssetStudioForAsset("player", currentPlayerAsset, previewPlayerAssetUrl, undefined, "info")
+                    }
+                    onDropFiles={(filePaths) => importAssetFilesForTarget(filePaths, "player")}
+                    onImportClick={() => importPickedAssetForTarget("player")}
+                    onOpenAsset={() => {
+                      if (!currentSceneDraft.playerAssetId.trim()) return;
+                      setSelectedAssetId(currentSceneDraft.playerAssetId.trim());
+                      setWorkspace("assets");
+                    }}
                   />
+                  <label>
+                    Player animation pack
+                    <select
+                      className={playerAnimationPackMissing ? "field-input-invalid" : ""}
+                      value={currentSceneDraft.playerAnimationPackId}
+                      onChange={(event) => updateSceneDraft("playerAnimationPackId", event.target.value)}
+                    >
+                      <option value="">None</option>
+                      {project?.animationPacks.map((animationPack) => {
+                        const clipIds = new Set(animationPack.clips.map((clip) => clip.id));
+                        const suffix = clipIds.has("idle") && clipIds.has("walk") ? " - player ready" : "";
+                        return (
+                          <option key={`scene-player-pack-${animationPack.id}`} value={animationPack.id}>
+                            {animationPack.id}
+                            {suffix}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    {playerAnimationPackMissing ? (
+                      <small className="field-hint error">Selected player animation pack no longer exists.</small>
+                    ) : null}
+                  </label>
                 </div>
-                <div className="flow-link">
-                  <span>Playable character</span>
-                  <strong>
-                    {currentSceneDraft.playerAnimationPackId.trim() || currentSceneDraft.playerAssetId.trim() || "debug marker"}
-                    {selectedScene && dirtyState.sceneIds.has(selectedScene.id) ? " - unsaved draft" : ""}
-                  </strong>
+                <div className="inspector-view-panel" data-inspector-view-panel="transform" hidden={sceneInspectorView !== "transform"}>
+                  <div className="inspector-section-heading">
+                    <span>Transform</span>
+                    <small>Position and perspective size at the player start.</small>
+                  </div>
+                  <div className="inspector-field-grid">
+                    <label>
+                      Start X
+                      <input
+                        aria-label="Player start X"
+                        value={currentSceneDraft.playerStartX}
+                        onChange={(event) => updateSceneDraft("playerStartX", event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Start Y
+                      <input
+                        aria-label="Player start Y"
+                        value={currentSceneDraft.playerStartY}
+                        onChange={(event) => updateSceneDraft("playerStartY", event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Scale far
+                      <input
+                        aria-label="Player far scale"
+                        value={currentSceneDraft.playerScaleFar}
+                        onChange={(event) => updateSceneDraft("playerScaleFar", event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Scale near
+                      <input
+                        aria-label="Player near scale"
+                        value={currentSceneDraft.playerScaleNear}
+                        onChange={(event) => updateSceneDraft("playerScaleNear", event.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <p className="inspector-copy">
+                    The visible player size is interpolated between the far and near scales while preserving the
+                    character aspect ratio.
+                  </p>
+                </div>
+                <div className="inspector-view-panel" data-inspector-view-panel="interactions" hidden={sceneInspectorView !== "interactions"}>
+                  <div className="inspector-section-heading">
+                    <span>Movement</span>
+                    <small>Runtime movement tuning for this scene.</small>
+                  </div>
+                  <label>
+                    Walk speed
+                    <input
+                      aria-label="Player walk speed"
+                      value={currentSceneDraft.playerWalkSpeed}
+                      onChange={(event) => updateSceneDraft("playerWalkSpeed", event.target.value)}
+                    />
+                  </label>
+                </div>
+                <div className="inspector-view-panel" data-inspector-view-panel="advanced" hidden={sceneInspectorView !== "advanced"}>
+                  <div className="inspector-section-heading">
+                    <span>Player state</span>
+                    <small>Draft status and the save boundary for the current scene.</small>
+                  </div>
+                  <div className="flow-link">
+                    <span>Playable character</span>
+                    <strong>
+                      {currentSceneDraft.playerAnimationPackId.trim() || currentSceneDraft.playerAssetId.trim() || "debug marker"}
+                      {selectedScene && dirtyState.sceneIds.has(selectedScene.id) ? " - unsaved draft" : ""}
+                    </strong>
+                  </div>
+                </div>
+                <div className="inspector-actions-footer">
+                  <span>
+                    {selectedScene && dirtyState.sceneIds.has(selectedScene.id) ? "Unsaved player draft" : "Player changes saved"}
+                  </span>
                   <button type="button" onClick={applySceneChanges}>
                     Apply player changes -&gt;
                   </button>
@@ -11082,6 +11142,7 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
               </>
             ) : selectedActor ? (
               <>
+                <div className="inspector-view-panel" data-inspector-view-panel="general" hidden={sceneInspectorView !== "general"}>
                 <div className="context-setup-card">
                   <span className={`capability-badge ${actorAssetMissing || actorAnimationPackMissing ? "error" : "good"}`}>
                     {currentActorDraft.role}
@@ -11224,6 +11285,8 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                     <small className="field-hint error">Selected actor animation pack no longer exists.</small>
                   ) : null}
                 </label>
+                </div>
+                <div className="inspector-view-panel" data-inspector-view-panel="transform" hidden={sceneInspectorView !== "transform"}>
                 <div className="field-group">
                   <span>Bounds and depth</span>
                   <div className="four-fields">
@@ -11254,6 +11317,8 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                     onChange={(event) => updateActorDraft("depth", event.target.value)}
                   />
                 </div>
+                </div>
+                <div className="inspector-view-panel" data-inspector-view-panel="interactions" hidden={sceneInspectorView !== "interactions"}>
                 <div className="field-group">
                   <span>Interaction spots</span>
                   <label className="checkbox-line">
@@ -11370,6 +11435,7 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                   <strong>{actorGuardrail.summary}</strong>
                   <p className="inspector-copy">{actorGuardrail.detail}</p>
                 </div>
+                </div>
                 <div className="flow-link">
                   <span>Scene actor</span>
                   <strong>
@@ -11388,6 +11454,7 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
               </>
             ) : selectedHotspot ? (
               <>
+                <div className="inspector-view-panel" data-inspector-view-panel="general" hidden={sceneInspectorView !== "general"}>
                 <div className="context-setup-card">
                   <span className={`capability-badge ${hotspotGuardrail.tone}`}>Hotspot</span>
                   <strong>{selectedHotspot.id}</strong>
@@ -11441,6 +11508,8 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                     </small>
                   ) : null}
                 </label>
+                </div>
+                <div className="inspector-view-panel" data-inspector-view-panel="transform" hidden={sceneInspectorView !== "transform"}>
                 <div className="field-group">
                   <span>Bounds</span>
                   <div className="four-fields">
@@ -11466,6 +11535,8 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                     />
                   </div>
                 </div>
+                </div>
+                <div className="inspector-view-panel" data-inspector-view-panel="interactions" hidden={sceneInspectorView !== "interactions"}>
                 <div className="field-group">
                   <span>Interaction spots</span>
                   <label className="checkbox-line">
@@ -11688,6 +11759,7 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                     </div>
                   ) : null}
                 </div>
+                </div>
                 <div className="flow-link">
                   <span>Verb-aware hotspot</span>
                   <strong>
@@ -11706,6 +11778,7 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
               </>
             ) : selectedPickup ? (
               <>
+                <div className="inspector-view-panel" data-inspector-view-panel="general" hidden={sceneInspectorView !== "general"}>
                 <div className="context-setup-card">
                   <span className={`capability-badge ${pickupGuardrail.tone}`}>Pickup</span>
                   <strong>{selectedPickup.id}</strong>
@@ -11817,6 +11890,8 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                     setWorkspace("assets");
                   }}
                 />
+                </div>
+                <div className="inspector-view-panel" data-inspector-view-panel="interactions" hidden={sceneInspectorView !== "interactions"}>
                 <label>
                   Pickup flow
                   <select
@@ -11836,6 +11911,8 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                     <small className="field-hint error">Selected pickup flow no longer exists.</small>
                   ) : null}
                 </label>
+                </div>
+                <div className="inspector-view-panel" data-inspector-view-panel="transform" hidden={sceneInspectorView !== "transform"}>
                 <div className="field-group">
                   <span>Bounds</span>
                   <div className="four-fields">
@@ -11861,6 +11938,8 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                     />
                   </div>
                 </div>
+                </div>
+                <div className="inspector-view-panel" data-inspector-view-panel="advanced" hidden={sceneInspectorView !== "advanced"}>
                 <div className="flow-link">
                   <span>Reference guardrails</span>
                   <div className="flow-status-line">
@@ -11875,6 +11954,7 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                       </button>
                     </div>
                   ) : null}
+                </div>
                 </div>
                 <div className="flow-link">
                   <span>Scene pickup</span>
@@ -11937,6 +12017,7 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
               </>
             ) : selectedScene && selectedSceneLayer ? (
               <>
+                <div className="inspector-view-panel" data-inspector-view-panel="general" hidden={sceneInspectorView !== "general"}>
                 <div className="context-setup-card">
                   <span className={`capability-badge ${selectedSceneLayer.locked ? "warn" : "good"}`}>Layer</span>
                   <strong>{selectedSceneLayer.name || selectedSceneLayer.id}</strong>
@@ -12002,6 +12083,8 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                     <small className="field-hint error">Layer asset no longer exists.</small>
                   ) : null}
                 </label>
+                </div>
+                <div className="inspector-view-panel" data-inspector-view-panel="transform" hidden={sceneInspectorView !== "transform"}>
                 <div className="field-group">
                   <span>Composition</span>
                   <div className="four-fields">
@@ -12039,6 +12122,8 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                     />
                   </div>
                 </div>
+                </div>
+                <div className="inspector-view-panel" data-inspector-view-panel="advanced" hidden={sceneInspectorView !== "advanced"}>
                 <div className="flow-link">
                   <span>Layer state</span>
                   <div className="layer-action-row">
@@ -12079,9 +12164,11 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                     Apply scene changes -&gt;
                   </button>
                 </div>
+                </div>
               </>
             ) : selectedScene && selectedGenerationGuideId && selectedGenerationGuide ? (
               <>
+                <div className="inspector-view-panel" data-inspector-view-panel="general" hidden={sceneInspectorView !== "general"}>
                 <div className="context-setup-card">
                   <span className={`capability-badge ${selectedGenerationGuide.locked ? "warn" : "good"}`}>
                     Guide
@@ -12157,6 +12244,8 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                     }
                   />
                 </label>
+                </div>
+                <div className="inspector-view-panel" data-inspector-view-panel="transform" hidden={sceneInspectorView !== "transform"}>
                 <label>
                   Shape
                   <select
@@ -12259,6 +12348,8 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                     </div>
                   );
                 })()}
+                </div>
+                <div className="inspector-view-panel" data-inspector-view-panel="advanced" hidden={sceneInspectorView !== "advanced"}>
                 <div className="flow-link">
                   <span>Guide state</span>
                   <div className="layer-action-row">
@@ -12294,6 +12385,7 @@ export function LegacyEditorApp({ gateway: injectedGateway }: EditorAppProps = {
                   <button type="button" onClick={applySceneChanges}>
                     Apply scene changes -&gt;
                   </button>
+                </div>
                 </div>
               </>
             ) : selectedScene ? (
