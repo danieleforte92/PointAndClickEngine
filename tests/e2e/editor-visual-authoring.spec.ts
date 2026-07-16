@@ -96,9 +96,23 @@ test("organizes player transforms in the inspector and layers the project menu a
   await menu.locator("summary").click();
   await expect(menu).toHaveJSProperty("open", true);
   await expect(menu.locator(".project-action-menu-popover")).toBeVisible();
-  await expect(menu).toHaveCSS("z-index", "60");
-  await expect(menu.locator(".project-action-menu-popover")).toHaveCSS("z-index", "1000");
-  await expect(page.locator(".topbar")).toHaveCSS("z-index", "50");
+  await expect(menu).toHaveCSS("z-index", "10");
+  await expect(menu.locator(".project-action-menu-popover")).toHaveCSS("z-index", "20");
+  await expect(page.locator(".topbar")).toHaveCSS("z-index", "3000");
+
+  const firstProjectAction = menu.locator(".project-action-menu-popover button").first();
+  const firstProjectActionBox = await firstProjectAction.boundingBox();
+  if (!firstProjectActionBox) throw new Error("Project action menu is not measurable");
+  const topmostElement = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest(".project-action-menu-popover") !== null, {
+    x: firstProjectActionBox.x + firstProjectActionBox.width / 2,
+    y: firstProjectActionBox.y + firstProjectActionBox.height / 2
+  });
+  expect(topmostElement, "the project menu action must be the topmost hit target").toBe(true);
+  await expect(page).toHaveScreenshot("visual-authoring-project-menu.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixelRatio: 0.003
+  });
 });
 
 test("resizes the player from the scene gizmo and previews its perspective scale", async ({ page }) => {
